@@ -91,7 +91,7 @@ function TopBar({ onExport }: { onExport: () => void }) {
         />
       </div>
       <div className="topbar__right">
-        <button className="btn btn--primary" onClick={onExport} title="Export (⌘E)">
+        <button className="btn btn--primary" onClick={onExport} title="Export (⌘E)" data-testid="export-button">
           <Icon name="export" size={14} /> Export
         </button>
       </div>
@@ -157,20 +157,20 @@ export default function App() {
       <TopBar onExport={() => setExportOpen(true)} />
       <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--gutter)' }}>
         <div className="upper" style={{ height: `${sizes.upper * 100}%` }}>
-          <section className="panel" style={{ width: sizes.left, flex: 'none' }} aria-label="Library">
+          <section className="panel" style={{ width: sizes.left, flex: 'none' }} aria-label="Library" data-testid="left-panel">
             <LeftPanel />
           </section>
           <div className={`splitter-v${leftDrag.dragging ? ' is-dragging' : ''}`} onPointerDown={leftDrag.start} />
-          <section className="panel" style={{ flex: 1, minWidth: 240 }} aria-label="Player">
+          <section className="panel" style={{ flex: 1, minWidth: 240 }} aria-label="Player" data-testid="player">
             <Player />
           </section>
           <div className={`splitter-v${rightDrag.dragging ? ' is-dragging' : ''}`} onPointerDown={rightDrag.start} />
-          <section className="panel" style={{ width: sizes.right, flex: 'none' }} aria-label="Inspector">
+          <section className="panel" style={{ width: sizes.right, flex: 'none' }} aria-label="Inspector" data-testid="inspector">
             <Inspector />
           </section>
         </div>
         <div className={`splitter-h${upperDrag.dragging ? ' is-dragging' : ''}`} onPointerDown={upperDrag.start} />
-        <section className="panel timeline-region" aria-label="Timeline">
+        <section className="panel timeline-region" aria-label="Timeline" data-testid="timeline">
           <Timeline />
         </section>
       </div>
