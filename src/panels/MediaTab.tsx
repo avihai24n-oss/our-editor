@@ -2,10 +2,12 @@
  * Media tab (and Audio tab, which is the same bin filtered to audio).
  * Import button + OS file drop, search / grid-list / sort toolbar, tiles, "Added" badges.
  */
-import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { usedAssetIds } from '../model/project';
 import { useEditor } from '../store';
+import { withShortcut } from '../timeline/shortcutDefs';
+import { consumeImportRequest, onAppEvent } from '../ui/appEvents';
 import { Icon } from '../ui/Icon';
 import { AssetTile } from './AssetTile';
 import { ComingSoon, GridLabel, LibraryBody, useFlash, type SidebarItem } from './LibraryLayout';
@@ -46,6 +48,16 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
   const dragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [flash, showFlash] = useFlash();
+
+  // ⌘I (shortcut table): open the import picker. On first mount too, when ⌘I switched the
+  // library to this tab (the request waits in appEvents until the Media tab consumes it).
+  useEffect(() => {
+    if (mode !== 'media') return;
+    if (consumeImportRequest()) fileRef.current?.click();
+    return onAppEvent('import', () => {
+      if (consumeImportRequest()) fileRef.current?.click();
+    });
+  }, [mode]);
 
   const kind: AssetKindFilter = mode === 'audio' ? 'audio' : (['video', 'image', 'audio'].includes(category) ? (category as AssetKindFilter) : 'all');
   const assets = useMemo(() => Object.values(assetMap), [assetMap]);
@@ -140,7 +152,7 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
           }}
         />
         <div className="lib__toolbar">
-          <button className="lib__import" onClick={() => fileRef.current?.click()} title="Import (files from your computer)">
+          <button className="lib__import" onClick={() => fileRef.current?.click()} title={withShortcut('Import files from your computer', 'importMedia')}>
             <span className="lib__import-dot">
               <Icon name="plus" size={12} />
             </span>

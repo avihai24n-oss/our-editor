@@ -79,11 +79,14 @@ export function AudioTab({ clip }: { clip: VideoClip | AudioClip }) {
   );
 }
 
-export function SpeedTab({ clip }: { clip: TimedClip }) {
+export function SpeedTab(props: { clip: TimedClip; sub?: 'standard' | 'curve'; onSubChange?: (s: 'standard' | 'curve') => void }) {
+  const { clip } = props;
   const setSpeed = useEditor((s) => s.setSpeed);
   const setDuration = useEditor((s) => s.setDuration);
   const updateClip = useEditor((s) => s.updateClip);
-  const [sub, setSub] = useState<'standard' | 'curve'>('standard');
+  const [ownSub, setOwnSub] = useState<'standard' | 'curve'>('standard');
+  const sub = props.sub ?? ownSub;
+  const setSub = props.onSubChange ?? setOwnSub;
   const original = sourceSpan(clip);
   const ticks = SPEED_TICKS.map(speedTickPos);
   return (
@@ -96,6 +99,16 @@ export function SpeedTab({ clip }: { clip: TimedClip }) {
         value={sub}
         onChange={setSub}
       />
+      {sub === 'curve' && (
+        <div className="ipad" data-testid="speed-curve-soon">
+          <div className="inotice">Speed curves (Montage, Hero, Bullet, Custom…) are coming in v2. Use Standard for now.</div>
+          <button className="btn" onClick={() => setSub('standard')}>
+            Back to Standard
+          </button>
+        </div>
+      )}
+      {sub === 'standard' && (
+      <>
       <div className="ipad">
         <SliderRow
           label="Speed"
@@ -153,6 +166,8 @@ export function SpeedTab({ clip }: { clip: TimedClip }) {
           Reset
         </button>
       </div>
+      </>
+      )}
     </>
   );
 }

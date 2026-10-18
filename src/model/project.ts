@@ -90,6 +90,11 @@ export function adjacentNext(track: Track, clipId: Id): Clip | undefined {
   return a && b && clipEnd(a) === b.start ? b : undefined;
 }
 
+/** Every clip (video and audio) carrying the extract-audio link id. */
+export function audioLinked(p: Project, link: Id): (VideoClip | AudioClip)[] {
+  return allClips(p).filter((c): c is VideoClip | AudioClip => (c.type === 'video' || c.type === 'audio') && c.audioLink === link);
+}
+
 // ---------------------------------------------------------------- audio math
 
 export const VOLUME_FLOOR_DB = -60;

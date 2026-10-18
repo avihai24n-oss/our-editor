@@ -541,6 +541,13 @@ const Speed = make('Speed', (
   </>
 ));
 
+const Keyboard = make('Keyboard', (
+  <>
+    <rect x="2.5" y="6" width="19" height="12" rx="2" />
+    <path d="M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M9 12.5h.01M12 12.5h.01M15 12.5h.01M18 12.5h.01M8 15.2h8" />
+  </>
+));
+
 /* ------------------------------------------------------------------ */
 /* Name map                                                            */
 /* ------------------------------------------------------------------ */
@@ -561,7 +568,7 @@ export const Icons = {
   Reset, Keyframe, KeyframeFilled,
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CaretDown, CaretUp,
   Plus, Minus, Close, Search, Grid, List, Sort, Filter, Import, Export, Check,
-  Settings, Record, Menu, Image, Speed,
+  Settings, Record, Menu, Image, Speed, Keyboard,
   // aliases (names used in the brief / research docs)
   Pointer: Select,
   Delete: Trash,

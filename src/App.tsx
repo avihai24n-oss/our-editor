@@ -11,7 +11,11 @@ import { Player } from './player/Player';
 import { useEditor } from './store';
 import { bootProject, startAutosave } from './store/autosave';
 import { Timeline } from './timeline/Timeline';
+import { withShortcut } from './timeline/shortcutDefs';
+import { onAppEvent } from './ui/appEvents';
 import { Icon } from './ui/Icon';
+import { ShortcutsPanel } from './ui/ShortcutsPanel';
+import { Toaster } from './ui/Toaster';
 
 interface Sizes {
   left: number; // px
@@ -59,7 +63,7 @@ function useDrag(onMove: (dx: number, dy: number) => void, onEnd: () => void) {
   return { dragging, start };
 }
 
-function TopBar({ onExport }: { onExport: () => void }) {
+function TopBar({ onExport, onShortcuts }: { onExport: () => void; onShortcuts: () => void }) {
   const name = useEditor((s) => s.project.name);
   const setProjectName = useEditor((s) => s.setProjectName);
   const saveStatus = useEditor((s) => s.saveStatus);
@@ -91,7 +95,17 @@ function TopBar({ onExport }: { onExport: () => void }) {
         />
       </div>
       <div className="topbar__right">
-        <button className="btn btn--primary" onClick={onExport} title="Export (⌘E)" data-testid="export-button">
+        <button
+          className="icon-btn"
+          onClick={onShortcuts}
+          onMouseDown={(e) => e.preventDefault()}
+          title="Keyboard shortcuts"
+          aria-label="Keyboard shortcuts"
+          data-testid="shortcuts-button"
+        >
+          <Icon name="keyboard" />
+        </button>
+        <button className="btn btn--primary" onClick={onExport} title={withShortcut('Export', 'export')} data-testid="export-button">
           <Icon name="export" size={14} /> Export
         </button>
       </div>
@@ -102,6 +116,8 @@ function TopBar({ onExport }: { onExport: () => void }) {
 export default function App() {
   const [sizes, setSizes] = useState<Sizes>(loadSizes);
   const [exportOpen, setExportOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), []);
   const bodyRef = useRef<HTMLDivElement>(null);
   const sizesRef = useRef(sizes);
   sizesRef.current = sizes;
@@ -118,16 +134,8 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        setExportOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // ⌘E comes through the shared shortcut table (src/timeline/shortcutDefs.ts)
+  useEffect(() => onAppEvent('export', () => setExportOpen(true)), []);
 
   const persist = useCallback(() => {
     try {
@@ -154,7 +162,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopBar onExport={() => setExportOpen(true)} />
+      <TopBar onExport={() => setExportOpen(true)} onShortcuts={() => setShortcutsOpen(true)} />
       <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--gutter)' }}>
         <div className="upper" style={{ height: `${sizes.upper * 100}%` }}>
           <section className="panel" style={{ width: sizes.left, flex: 'none' }} aria-label="Library" data-testid="left-panel">
@@ -175,6 +183,8 @@ export default function App() {
         </section>
       </div>
       {exportOpen && <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />}
+      {shortcutsOpen && <ShortcutsPanel onClose={closeShortcuts} />}
+      <Toaster />
     </div>
   );
 }

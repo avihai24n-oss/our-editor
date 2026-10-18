@@ -6,6 +6,7 @@ import { memo, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEven
 import { usToPx, pxToUs } from '../model/time';
 import type { Marker, Us } from '../model/types';
 import { rulerScale, rulerTicks } from './geometry';
+import type { TimelineArea } from './uiStore';
 
 interface RulerProps {
   zoom: number;
@@ -14,18 +15,39 @@ interface RulerProps {
   viewFrom: number;
   viewTo: number;
   markers: Marker[];
+  /** In / out points (I / O, ⇧X). */
+  area?: TimelineArea;
+  /** Where an open-ended area (in point only) stops: the project end. */
+  areaEnd?: Us;
   onScrubStart: (e: RPointerEvent) => void;
   onMarkerClick: (m: Marker, e: RMouseEvent) => void;
   onMarkerRemove: (m: Marker) => void;
 }
 
-export const Ruler = memo(function Ruler({ zoom, fps, width, viewFrom, viewTo, markers, onScrubStart, onMarkerClick, onMarkerRemove }: RulerProps) {
+export const Ruler = memo(function Ruler({ zoom, fps, width, viewFrom, viewTo, markers, area, areaEnd = 0, onScrubStart, onMarkerClick, onMarkerRemove }: RulerProps) {
   const scale = rulerScale(zoom, fps);
   const from: Us = Math.max(0, pxToUs(viewFrom - 100, zoom));
   const to: Us = pxToUs(viewTo + 100, zoom);
   const ticks = rulerTicks(from, to, scale, fps);
   return (
     <div className="tl-ruler" style={{ width }} onPointerDown={onScrubStart} data-testid="timeline-ruler">
+      {area && (area.in !== null || area.out !== null) && (() => {
+        const a = area.in ?? 0;
+        const b = area.out ?? Math.max(areaEnd, a);
+        return (
+          <div
+            className="tl-area"
+            style={{ left: usToPx(a, zoom), width: Math.max(1, usToPx(b - a, zoom)) }}
+            data-testid="timeline-area"
+            data-in={area.in ?? ''}
+            data-out={area.out ?? ''}
+            title="In / out area — ⌥X or Esc clears it"
+          >
+            {area.in !== null && <span className="tl-area__in" data-testid="timeline-area-in" />}
+            {area.out !== null && <span className="tl-area__out" data-testid="timeline-area-out" />}
+          </div>
+        );
+      })()}
       {ticks.map((t) => (
         <div key={t.t} className={`tl-ruler__tick${t.major ? ' is-major' : ''}`} style={{ left: usToPx(t.t, zoom) }}>
           {t.label && <span className="tl-ruler__label">{t.label}</span>}

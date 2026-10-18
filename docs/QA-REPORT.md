@@ -16,6 +16,26 @@ Player + Render + Export.
 
 Run: `cd e2e && E2E_PORT=5391 npx playwright test`. Screenshots of every step are in `e2e/screens/`.
 
+## Keyboard shortcuts (CapCut parity) — 2026-10-18
+
+Every binding from `docs/research/01-ui-ux.md` §6 that a browser allows now lives in ONE table,
+`src/timeline/shortcutDefs.ts`. The keydown handler, the Keyboard shortcuts panel (keyboard icon
+next to Export) and the toolbar / player / import tooltips are all generated from it.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **310 / 310 pass** (18 files). New: every row of the table resolves to its own command on Mac and Windows, no two rows share a combo, look-alike keys (B / ⌘B / ⇧B / ⇧⌘B, V / ⌘V, A / ⌘A, ⌘X / ⇧X / ⌥X, I / ⌘I, S / ⇧⌘S, ⇧Z / ⇧⌘Z / ⌥⇧Z) do not collide, Hebrew layout incl. mirrored brackets, Mac ⌥ characters, glyph / word formatting; store actions `splitAllAtPlayhead`, `selectSide`, `nudgeVolume`, `toggleExtractAudio` (span, mute, link, split, undo); in/out area; panel, toast, library-tab cycle and Speed › Curve components |
+| `npm run build` | passes |
+| `e2e/shortcuts.spec.ts` | pass: ⇧⌘B vs ⌘B, `[` `]`, I / O / ⌥X / ⇧X / Esc, typing guard, ⌘. ⌘, with undo, ⇧⌘S extract + restore, ⌘R (no reload) and ⇧B, the toast-only keys, ~, Tab / ⇧Tab, ⌘I file chooser, ⌥⇧Z, ⇧⌘F and ⌃⌘F full screen, synthetic Hebrew-layout keys, ⌘E, modal guard, the panel's five groups and the tooltips |
+| `e2e/flows.spec.ts`, `e2e/smoke.spec.ts` | still pass |
+
+Browser limits: ⌘N (new project) and ⌘Q (quit) are kept by the browser and are listed in the panel
+as "Not in a browser". ⌃⌘F is also macOS's own window full-screen key. It passes in headless
+Chromium; in a real macOS browser window the browser may take it first, so ⇧⌘F is the reliable one. Esc out of full screen is the browser's own.
+The toast-only keys (group, compound, match cut, keyframes, split caption) are tagged "Coming soon"
+in the panel.
+
 ## Flows verified in real Chromium (Playwright)
 
 The test media in `test-media/` is:
@@ -120,8 +140,13 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
   creates a track.
 - **Multi-clip drag** moves the whole selection, but the ghost shows only the clip under the
   pointer.
-- **No right-click menu on the timeline** yet. Also missing: `[` / `]`, ⇧⌘B, keyframes, the Cover
-  picker, the track ⋯ menu, and auto-scroll while dragging near the edge.
+- **No right-click menu on the timeline** yet. Also missing: keyframes, the Cover picker, the track
+  ⋯ menu, and auto-scroll while dragging near the edge.
+- **In / out area** (I / O / ⇧X) is drawn on the ruler but nothing uses it yet (export range,
+  ripple-delete of the area are later).
+- **Extract audio** links the video and the audio clip by a shared `audioLink` id; split pieces
+  stay linked. Duplicating or pasting a linked video copies the link, so "restore" on the copy
+  also restores the original.
 
 **Player**
 - When a new clip id appears (right after a split, for example), the preview can be black for one

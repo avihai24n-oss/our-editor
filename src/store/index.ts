@@ -19,6 +19,7 @@ import { findClip, findTransition, mainTrack, migrateProject } from '../model/pr
 import {
   clamp,
   clipContains,
+  clipEnd,
   frameToUs,
   nextEditPoint,
   prevEditPoint,
@@ -110,6 +111,8 @@ export interface EditorState {
   /** Splits the selected clips under the playhead; if none selected, every clip under it (unlocked tracks). */
   splitAtPlayhead: () => Id[];
   splitClip: (clipId: Id, t: Us) => Id | null;
+  /** ⌘⇧B: splits EVERY clip under the playhead on unlocked tracks, whatever is selected. One undo step. */
+  splitAllAtPlayhead: () => Id[];
   /** Q: selected clips under the playhead, else the main-track clip under it. */
   deleteLeft: () => void;
   /** W: same targeting as deleteLeft. */
@@ -127,6 +130,17 @@ export interface EditorState {
   mirrorSelected: () => void;
   /** Toolbar rotate: +90° on the selected visual clips. */
   rotateSelected: (deg?: number) => void;
+  /**
+   * ⌘. / ⌘, : adds `deltaDb` to the volume of the given clips that have audio (video clips whose
+   * asset has sound, audio clips; unlocked tracks), clamped to the inspector's range. One undo
+   * step. Returns how many clips changed.
+   */
+  nudgeVolume: (clipIds: Id[], deltaDb: number) => number;
+  /**
+   * ⌘⇧S: for each video clip, extracts its audio to a new audio track (muting the video), or —
+   * when it is already extracted — restores it. One undo step.
+   */
+  toggleExtractAudio: (clipIds: Id[]) => { extracted: Id[]; restored: number };
   /** Convenience: set or clear the In/Out animation (duration defaults to 0.5 s). */
   setAnimation: (clipId: Id, phase: 'in' | 'out', type: AnimationType | null, duration?: Us) => void;
 
@@ -149,6 +163,8 @@ export interface EditorState {
   select: (clipIds: Id[], mode?: SelectMode) => void;
   selectTransition: (transitionId: Id | null) => void;
   selectAll: () => void;
+  /** [ / ]: selects every clip (unlocked tracks) that starts before / ends after the playhead. */
+  selectSide: (side: 'left' | 'right') => Id[];
   clearSelection: () => void;
 
   // ---- playback (not undoable)
@@ -349,6 +365,13 @@ export const useEditor = create<EditorState>()((set, get) => ({
     }
     return edit(set, get, (d) => targets.map((id) => ops.splitClip(d, id, t)).filter((x): x is Id => !!x));
   },
+  splitAllAtPlayhead: () => {
+    const s = get();
+    const t = s.playhead;
+    const targets = s.project.tracks.filter((tr) => !tr.locked).flatMap((tr) => tr.clips.filter((c) => clipContains(c, t)).map((c) => c.id));
+    if (!targets.length) return [];
+    return edit(set, get, (d) => targets.map((id) => ops.splitClip(d, id, t)).filter((x): x is Id => !!x));
+  },
   deleteLeft: () => {
     const s = get();
     const t = s.playhead;
@@ -415,6 +438,40 @@ export const useEditor = create<EditorState>()((set, get) => ({
       }
     });
   },
+  nudgeVolume: (clipIds, deltaDb) => {
+    const s = get();
+    const targets = clipIds.filter((id) => {
+      const f = findClip(s.project, id);
+      if (!f || f.track.locked) return false;
+      if (f.clip.type === 'audio') return true;
+      return f.clip.type === 'video' && s.project.assets[f.clip.assetId]?.hasAudio !== false;
+    });
+    if (!targets.length) return 0;
+    edit(set, get, (d) => {
+      for (const id of targets) {
+        const c = findClip(d, id)?.clip;
+        if (!c || (c.type !== 'video' && c.type !== 'audio')) continue;
+        const v = Math.round((c.audio.volumeDb + deltaDb) * 10) / 10;
+        c.audio.volumeDb = clamp(v, LIMITS.volumeDbMin, LIMITS.volumeDbMax);
+      }
+    });
+    return targets.length;
+  },
+  toggleExtractAudio: (clipIds) =>
+    edit(set, get, (d) => {
+      const out = { extracted: [] as Id[], restored: 0 };
+      for (const id of clipIds) {
+        const c = findClip(d, id)?.clip;
+        if (!c || c.type !== 'video') continue;
+        if (c.audioLink && c.audio.muted) {
+          if (ops.restoreAudio(d, id)) out.restored++;
+        } else {
+          const nid = ops.extractAudio(d, id);
+          if (nid) out.extracted.push(nid);
+        }
+      }
+      return out;
+    }),
   setAnimation: (clipId, phase, type, duration) => {
     edit(set, get, (d) =>
       ops.updateClip(d, clipId, phase === 'in' ? { animationIn: type ? makeAnimation(type, duration) : null } : { animationOut: type ? makeAnimation(type, duration) : null }),
@@ -496,6 +553,15 @@ export const useEditor = create<EditorState>()((set, get) => ({
     set((s) => ({
       selection: { clipIds: s.project.tracks.filter((t) => !t.locked).flatMap((t) => t.clips.map((c) => c.id)), transitionId: null },
     })),
+  selectSide: (side) => {
+    const s = get();
+    const t = s.playhead;
+    const ids = s.project.tracks
+      .filter((tr) => !tr.locked)
+      .flatMap((tr) => tr.clips.filter((c) => (side === 'left' ? c.start < t : clipEnd(c) > t)).map((c) => c.id));
+    set({ selection: { clipIds: ids, transitionId: null } });
+    return ids;
+  },
   clearSelection: () => set({ selection: { clipIds: [], transitionId: null } }),
 
   // ---- playback

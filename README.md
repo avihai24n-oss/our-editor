@@ -30,6 +30,7 @@ real-time WebM export.
 - Auto-save status
 - Editable project name
 - **Export** (⌘E)
+- **Keyboard shortcuts** panel (keyboard icon)
 
 **Library (left)**
 - Ten CapCut tabs. Media, Audio, Text, Transitions, Filters and Adjustment work. Stickers, Effects,
@@ -79,27 +80,22 @@ real-time WebM export.
   - Trim with the edge handles. Move with snapping (Alt turns snapping off).
   - Moving a clip that is part of a multi-selection moves the whole selection.
   - Marquee selection.
-- **Shortcuts:**
+- **Shortcuts:** CapCut desktop's set. The keyboard icon next to **Export** opens the full list,
+  grouped like CapCut's panel. Mac shows ⌘ ⇧ ⌥ and Windows shows Ctrl / Shift / Alt. The list, the key
+  handler and the toolbar tooltips all come from one table, `src/timeline/shortcutDefs.ts`.
 
-  | Keys | Action |
+  | Group | Keys (Mac; on Windows Ctrl replaces ⌘ and Alt replaces ⌥) |
   |---|---|
-  | Space | play/pause |
-  | ⌘B | split |
-  | Q / W | delete left / right |
-  | ⌫ | delete |
-  | ⌘Z / ⇧⌘Z | undo / redo |
-  | ⌘C / ⌘X / ⌘V | copy / cut / paste at the playhead |
-  | ⌘D | duplicate |
-  | ⌘A | select all |
-  | ← / → | step one frame (⇧ = 10 frames) |
-  | ↑ / ↓ | previous / next edit point |
-  | M | marker |
-  | A / B | select / split tool |
-  | P / N / S | magnet / snapping / preview axis |
-  | V | enable / disable the clip |
-  | ⌘ = / ⌘ − / ⇧Z | zoom in / zoom out / fit |
+  | Essentials | Space play/pause · ⌘B split · ⇧⌘B split all tracks · Q / W delete left / right · ← / → one frame · ↑ / ↓ previous / next edit · ⇧Z fit timeline · ⌘E export |
+  | Tools | A / B select / split tool · `[` / `]` select clips left / right of the playhead · ⌫ delete · V enable/disable · M marker · I / O mark in / out · ⇧X area = selected clips · ⌥X clear area |
+  | Timeline & preview | ⇧← / ⇧→ 10 frames · Home / End · ⌘= / ⌘− zoom · ⌃⌘F or ⇧⌘F full-screen preview (Esc exits) · ⌥⇧Z fit preview to window · S preview axis · Esc cancel / clear area / deselect |
+  | Audio & speed | ⇧⌘S extract / restore audio · ⌘R Speed tab · ⇧B Speed › Curve · ⌘. / ⌘, volume ±1 dB · P magnet · N snapping · ~ linkage |
+  | Project & clipboard | ⌘I import · ⌘Z / ⇧⌘Z undo / redo · ⌘C / ⌘X / ⌘V copy / cut / paste at the playhead · ⌘D duplicate · ⌘A select all · Tab / ⇧Tab next / previous library tab |
+  | Coming soon (toast) | ⌘G / ⇧⌘G group / ungroup · ⌥G / ⌥⇧G compound clip · ⌘J match cut · ⌥K keyframes · Return split caption |
 
-  Shortcuts match the physical key, so they also work on a Hebrew keyboard.
+  Shortcuts match the physical key, so they also work on a Hebrew keyboard and with ⌥ combos. They
+  are ignored while you type in a text field (except ⌘E) and while a dialog is open. ⌘N and ⌘Q
+  belong to the browser and cannot be taken by a web page.
 
 **Persistence**
 - The project JSON and the media blobs live in IndexedDB.

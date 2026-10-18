@@ -10,6 +10,7 @@ import { clipContains } from '../model/time';
 import { selectCanRedo, selectCanUndo, useEditor } from '../store';
 import { Icon, type IconName } from '../ui/Icon';
 import { SLIDER_MAX, sliderToZoom, zoomToSlider } from './geometry';
+import { shortcutLabel, withShortcut as ws } from './shortcutDefs';
 import { useTimelineUi } from './uiStore';
 
 interface ToolProps {
@@ -78,7 +79,7 @@ export function Toolbar() {
           <button
             type="button"
             className="icon-btn tl-select__btn"
-            title={tool === 'split' ? 'Split mode (B)' : 'Select (A)'}
+            title={tool === 'split' ? ws('Split mode', 'toolSplit') : ws('Select', 'toolSelect')}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onMouseDown={(e) => e.preventDefault()}
@@ -100,7 +101,7 @@ export function Toolbar() {
                   setMenuOpen(false);
                 }}
               >
-                <Icon name="select" size={14} /> Select <kbd>A</kbd>
+                <Icon name="select" size={14} /> Select <kbd>{shortcutLabel('toolSelect')}</kbd>
               </button>
               <button
                 type="button"
@@ -112,30 +113,30 @@ export function Toolbar() {
                   setMenuOpen(false);
                 }}
               >
-                <Icon name="split" size={14} /> Split <kbd>B</kbd>
+                <Icon name="split" size={14} /> Split <kbd>{shortcutLabel('toolSplit')}</kbd>
               </button>
             </div>
           )}
         </div>
         <Divider />
-        <Tool icon="undo" title="Undo (⌘Z)" onClick={() => a().undo()} disabled={!canUndo} testId="timeline-undo" />
-        <Tool icon="redo" title="Redo (⇧⌘Z)" onClick={() => a().redo()} disabled={!canRedo} testId="timeline-redo" />
-        <Tool icon="split" title="Split (⌘B)" onClick={() => void a().splitAtPlayhead()} disabled={!somethingUnderPlayhead} testId="timeline-split" />
-        <Tool icon="delete-left" title="Delete left (Q)" onClick={() => a().deleteLeft()} disabled={!somethingUnderPlayhead} />
-        <Tool icon="delete-right" title="Delete right (W)" onClick={() => a().deleteRight()} disabled={!somethingUnderPlayhead} />
-        <Tool icon="trash" title="Delete (⌫)" onClick={() => a().deleteSelected()} disabled={!hasSelection} testId="timeline-delete" />
-        <Tool icon="marker" title="Add marker (M)" onClick={() => void a().addMarker()} />
+        <Tool icon="undo" title={ws('Undo', 'undo')} onClick={() => a().undo()} disabled={!canUndo} testId="timeline-undo" />
+        <Tool icon="redo" title={ws('Redo', 'redo')} onClick={() => a().redo()} disabled={!canRedo} testId="timeline-redo" />
+        <Tool icon="split" title={ws('Split', 'split')} onClick={() => void a().splitAtPlayhead()} disabled={!somethingUnderPlayhead} testId="timeline-split" />
+        <Tool icon="delete-left" title={ws('Delete left', 'deleteLeft')} onClick={() => a().deleteLeft()} disabled={!somethingUnderPlayhead} />
+        <Tool icon="delete-right" title={ws('Delete right', 'deleteRight')} onClick={() => a().deleteRight()} disabled={!somethingUnderPlayhead} />
+        <Tool icon="trash" title={ws('Delete', 'delete')} onClick={() => a().deleteSelected()} disabled={!hasSelection} testId="timeline-delete" />
+        <Tool icon="marker" title={ws('Add marker', 'marker')} onClick={() => void a().addMarker()} />
         <Tool icon="mirror" title="Mirror" onClick={() => a().mirrorSelected()} disabled={!hasVisualSelection} />
         <Tool icon="rotate" title="Rotate 90°" onClick={() => a().rotateSelected(90)} disabled={!hasVisualSelection} />
       </div>
 
       <div className="tl-toolbar__group">
-        <Tool icon="magnet" title={`Main track magnet (P): ${magnet ? 'on' : 'off'}`} active={magnet} onClick={() => a().setMagnet(!magnet)} testId="timeline-magnet" />
-        <Tool icon="snap" title={`Auto snapping (N): ${snapping ? 'on' : 'off'}`} active={snapping} onClick={() => a().setSnapping(!snapping)} testId="timeline-snapping" />
-        <Tool icon={linkage ? 'link' : 'unlink'} title={`Linkage: ${linkage ? 'on' : 'off'}`} active={linkage} onClick={() => setLinkage(!linkage)} />
-        <Tool icon="preview-axis" title={`Preview axis (S): ${previewAxis ? 'on' : 'off'}`} active={previewAxis} onClick={() => setPreviewAxis(!previewAxis)} />
+        <Tool icon="magnet" title={`${ws('Main track magnet', 'toggleMagnet')}: ${magnet ? 'on' : 'off'}`} active={magnet} onClick={() => a().setMagnet(!magnet)} testId="timeline-magnet" />
+        <Tool icon="snap" title={`${ws('Auto snapping', 'toggleSnapping')}: ${snapping ? 'on' : 'off'}`} active={snapping} onClick={() => a().setSnapping(!snapping)} testId="timeline-snapping" />
+        <Tool icon={linkage ? 'link' : 'unlink'} testId="timeline-linkage" title={`${ws('Linkage', 'toggleLinkage')}: ${linkage ? 'on' : 'off'}`} active={linkage} onClick={() => setLinkage(!linkage)} />
+        <Tool icon="preview-axis" title={`${ws('Preview axis', 'togglePreviewAxis')}: ${previewAxis ? 'on' : 'off'}`} active={previewAxis} onClick={() => setPreviewAxis(!previewAxis)} />
         <Divider />
-        <Tool icon="zoom-out" title="Zoom out (⌘−)" onClick={() => view?.zoomBy(1 / 1.25)} />
+        <Tool icon="zoom-out" title={ws('Zoom out', 'zoomOut')} onClick={() => view?.zoomBy(1 / 1.25)} />
         <input
           type="range"
           className="tl-zoom"
@@ -147,8 +148,8 @@ export function Toolbar() {
           onKeyDown={(e) => e.stopPropagation()}
           data-testid="timeline-zoom"
         />
-        <Tool icon="zoom-in" title="Zoom in (⌘=)" onClick={() => view?.zoomBy(1.25)} />
-        <Tool icon="zoom-fit" title="Zoom to fit (⇧Z)" onClick={() => view?.fit()} testId="timeline-fit" />
+        <Tool icon="zoom-in" title={ws('Zoom in', 'zoomIn')} onClick={() => view?.zoomBy(1.25)} />
+        <Tool icon="zoom-fit" title={ws('Zoom to fit', 'fit')} onClick={() => view?.fit()} testId="timeline-fit" />
       </div>
     </div>
   );

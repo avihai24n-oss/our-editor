@@ -111,7 +111,9 @@ export function Timeline() {
   const project = useEditor((s) => s.project);
   const { zoom, playhead, playing } = useEditor(useShallow((s) => ({ zoom: s.zoom, playhead: s.playhead, playing: s.playing })));
   const selection = useEditor((s) => s.selection);
-  const { tool, previewAxis, hoverTime } = useTimelineUi(useShallow((s) => ({ tool: s.tool, previewAxis: s.previewAxis, hoverTime: s.hoverTime })));
+  const { tool, previewAxis, hoverTime, area } = useTimelineUi(
+    useShallow((s) => ({ tool: s.tool, previewAxis: s.previewAxis, hoverTime: s.hoverTime, area: s.area })),
+  );
 
   const rows = useMemo(() => timelineRows(project), [project]);
   const duration = projectDuration(project);
@@ -659,6 +661,8 @@ export function Timeline() {
               viewFrom={viewFrom}
               viewTo={viewTo}
               markers={project.markers}
+              area={area}
+              areaEnd={projectDuration(project)}
               onScrubStart={onScrubStart}
               onMarkerClick={onMarkerClick}
               onMarkerRemove={onMarkerRemove}

@@ -563,3 +563,29 @@
   pointer-events: none;
   z-index: 4;
 }
+
+/* In / out area (I / O, ⇧X; ⌥X or Esc clears) */
+.tl-area {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(34, 211, 238, 0.16);
+  border-bottom: 2px solid var(--accent, #22d3ee);
+  pointer-events: none;
+}
+.tl-area__in,
+.tl-area__out {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  border: 2px solid var(--accent, #22d3ee);
+}
+.tl-area__in {
+  left: 0;
+  border-right: none;
+}
+.tl-area__out {
+  right: 0;
+  border-left: none;
+}

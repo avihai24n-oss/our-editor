@@ -12,7 +12,7 @@ import {
   createTransition,
   newId,
 } from '../model/defaults';
-import { adjacentNext, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
+import { adjacentNext, audioLinked, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
 import { clamp, clipContains, clipEnd, frameUs, sourceSpan } from '../model/time';
 import type { Clip, ClipPatch, Id, Project, Track, TrackKind, TransitionType, Us } from '../model/types';
 
@@ -495,6 +495,61 @@ export function setDuration(p: Project, clipId: Id, duration: Us): boolean {
   const d = Math.max(minClipUs(p), Math.round(duration));
   if (isTimedClip(c)) return setSpeed(p, clipId, sourceSpan(c) / d);
   c.duration = d;
+  return true;
+}
+
+// ---------------------------------------------------------------- extract / restore audio
+
+/**
+ * CapCut "Extract audio": a new audio clip on a NEW audio track, reading the same asset over the
+ * same source span (inPoint, speed, pitch) at the same timeline position and carrying the video's
+ * volume and fades. The video clip's own audio is muted and both get the same `audioLink` id.
+ * Returns the new clip id, or null when the clip is not an unlocked video clip with audio, or its
+ * audio is already extracted.
+ */
+export function extractAudio(p: Project, videoClipId: Id): Id | null {
+  const f = findClip(p, videoClipId);
+  if (!f || f.track.locked || f.clip.type !== 'video') return null;
+  const v = f.clip;
+  const asset = p.assets[v.assetId];
+  if (!asset || asset.hasAudio === false) return null;
+  if (v.audioLink && audioLinked(p, v.audioLink).some((c) => c.type === 'audio')) return null;
+  const link = newId('lnk');
+  const track = addTrack(p, 'audio');
+  const clip = createClipFromAsset({ ...asset, kind: 'audio' }, track.id, v.start);
+  if (clip.type !== 'audio') return null;
+  clip.duration = v.duration;
+  clip.inPoint = v.inPoint;
+  clip.speed = v.speed;
+  clip.preservePitch = v.preservePitch;
+  clip.disabled = v.disabled;
+  clip.audio = { ...v.audio, muted: false };
+  clip.audioLink = link;
+  track.clips.push(clip);
+  v.audio.muted = true;
+  v.audioLink = link;
+  return clip.id;
+}
+
+/**
+ * "Restore audio": removes the audio clips linked to this video clip, unmutes every linked video
+ * clip and clears the link. Refused (false) when a linked clip sits on a locked track.
+ */
+export function restoreAudio(p: Project, videoClipId: Id): boolean {
+  const f = findClip(p, videoClipId);
+  if (!f || f.track.locked || f.clip.type !== 'video' || !f.clip.audioLink) return false;
+  const linked = audioLinked(p, f.clip.audioLink);
+  if (linked.some((c) => findClip(p, c.id)?.track.locked)) return false;
+  for (const c of linked) {
+    if (c.type === 'video') {
+      c.audio.muted = false;
+      delete c.audioLink;
+    }
+  }
+  deleteClips(
+    p,
+    linked.filter((c) => c.type === 'audio').map((c) => c.id),
+  );
   return true;
 }
 

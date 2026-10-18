@@ -13,6 +13,8 @@ import { findClip } from '../model/project';
 import { formatTimecode, projectDuration } from '../model/time';
 import type { Id } from '../model/types';
 import { useEditor } from '../store';
+import { withShortcut } from '../timeline/shortcutDefs';
+import { onAppEvent } from '../ui/appEvents';
 import { Icon } from '../ui/Icon';
 import { PreviewEngine } from './PreviewEngine';
 import './player.css';
@@ -115,6 +117,19 @@ export function Player() {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     else void rootRef.current?.requestFullscreen?.().catch(() => undefined);
   };
+  // ⌘⇧F / ⌃⌘F (full screen) and ⌥⇧Z (fit preview to window) from the shortcut table.
+  // Synchronous listeners: requestFullscreen still sees the keydown's user activation.
+  useEffect(() => {
+    const offFs = onAppEvent('fullscreenPreview', () => {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      else void rootRef.current?.requestFullscreen?.().catch(() => undefined);
+    });
+    const offFit = onAppEvent('fitPreview', () => setZoom('fit'));
+    return () => {
+      offFs();
+      offFit();
+    };
+  }, []);
 
   // ---- menus close on outside click
   useEffect(() => {
@@ -277,7 +292,7 @@ export function Player() {
         </button>
         <div className="player__right">
           <div className="player__menu-anchor">
-            <button className="btn btn--ghost player__chip" title="Zoom" onClick={() => setMenu(menu === 'zoom' ? null : 'zoom')} data-testid="player-zoom">
+            <button className="btn btn--ghost player__chip" title={withShortcut('Zoom (fit to window)', 'fitPreview')} onClick={() => setMenu(menu === 'zoom' ? null : 'zoom')} data-testid="player-zoom">
               {zoomLabel}
             </button>
             {menu === 'zoom' && (
@@ -319,7 +334,7 @@ export function Player() {
               </div>
             )}
           </div>
-          <button className="icon-btn" title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'} onClick={toggleFullscreen} data-testid="player-fullscreen">
+          <button className="icon-btn" title={fullscreen ? 'Exit full screen (Esc)' : withShortcut('Full screen', 'fullscreenPreview')} onClick={toggleFullscreen} data-testid="player-fullscreen">
             <Icon name={fullscreen ? 'exit-fullscreen' : 'fullscreen'} />
           </button>
         </div>

@@ -262,6 +262,13 @@ export interface TimedMediaFields {
 export interface VideoClip extends ClipBase, VisualFields, TimedMediaFields {
   type: 'video';
   audio: AudioProps;
+  /**
+   * "Extract audio" (⌘⇧S) link: the same id is set on this video clip and on the audio clip made
+   * from it, and the video's own audio is muted. Splitting either side copies the id, so every
+   * piece stays linked. "Restore audio" removes the linked audio clips, unmutes the linked video
+   * clips and clears the id. Optional and additive (older projects simply lack it).
+   */
+  audioLink?: Id;
 }
 
 export interface ImageClip extends ClipBase, VisualFields {
@@ -272,6 +279,8 @@ export interface ImageClip extends ClipBase, VisualFields {
 export interface AudioClip extends ClipBase, TimedMediaFields {
   type: 'audio';
   audio: AudioProps;
+  /** See VideoClip.audioLink: set on audio clips made by "Extract audio". */
+  audioLink?: Id;
 }
 
 export interface TextClip extends ClipBase, VisualFields {

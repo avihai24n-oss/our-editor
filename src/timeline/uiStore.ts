@@ -44,6 +44,12 @@ export interface TimelineView {
   fit: () => void;
 }
 
+/** In / out points (CapCut I / O, ⇧X, ⌥X). Either end may be unset. Not part of the document. */
+export interface TimelineArea {
+  in: Us | null;
+  out: Us | null;
+}
+
 export interface TimelineUiState extends Persisted {
   tool: Tool;
   /** Preview-axis hover time (timeline µs) or null. */
@@ -51,6 +57,15 @@ export interface TimelineUiState extends Persisted {
   /** Snapshots of the clips copied with ⌘C / cut with ⌘X (survive deleting the sources). */
   clipboard: Clip[];
   view: TimelineView | null;
+  area: TimelineArea;
+  /** I: mark in at `t`. An out point at or before it is dropped. */
+  setAreaIn: (t: Us) => void;
+  /** O: mark out at `t`. An in point at or after it is dropped. */
+  setAreaOut: (t: Us) => void;
+  /** ⇧X: both ends at once (ignored when out <= in). */
+  setArea: (inT: Us, outT: Us) => void;
+  /** ⌥X / Esc. */
+  clearArea: () => void;
   setTool: (t: Tool) => void;
   setLinkage: (on: boolean) => void;
   setPreviewAxis: (on: boolean) => void;
@@ -65,6 +80,25 @@ export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
   hoverTime: null,
   clipboard: [],
   view: null,
+  area: { in: null, out: null },
+  setAreaIn: (t) => {
+    const v = Math.max(0, Math.round(t));
+    const out = get().area.out;
+    set({ area: { in: v, out: out !== null && out <= v ? null : out } });
+  },
+  setAreaOut: (t) => {
+    const v = Math.max(0, Math.round(t));
+    const inT = get().area.in;
+    set({ area: { in: inT !== null && inT >= v ? null : inT, out: v } });
+  },
+  setArea: (inT, outT) => {
+    if (outT <= inT) return;
+    set({ area: { in: Math.max(0, Math.round(inT)), out: Math.round(outT) } });
+  },
+  clearArea: () => {
+    const a = get().area;
+    if (a.in !== null || a.out !== null) set({ area: { in: null, out: null } });
+  },
   setTool: (tool) => set({ tool }),
   setLinkage: (linkage) => {
     set({ linkage });

@@ -1,131 +1,20 @@
 /**
  * Global keyboard shortcuts (CapCut desktop defaults). Mounted once by <Timeline>.
- * ⌘E (export) is handled by App. Letters are matched by physical key (`code`), so the shortcuts
- * also work with a Hebrew (or any non-Latin) keyboard layout.
+ * The bindings live in ./shortcutDefs (one table shared with the shortcuts panel and tooltips);
+ * this file runs the commands and installs the keydown handler. Letters are matched by physical
+ * key (`code`), so the shortcuts also work with a Hebrew (or any non-Latin) keyboard layout.
  */
 import { useEffect } from 'react';
 import { findClip } from '../model/project';
-import { projectDuration } from '../model/time';
+import { clipEnd, projectDuration } from '../model/time';
 import type { Clip, Id } from '../model/types';
 import { useEditor } from '../store';
+import { emitAppEvent, requestImport, showToast } from '../ui/appEvents';
+import { defOf, resolveDef, type Command } from './shortcutDefs';
 import { useTimelineUi } from './uiStore';
 
-export type Command =
-  | 'playPause'
-  | 'split'
-  | 'deleteLeft'
-  | 'deleteRight'
-  | 'delete'
-  | 'undo'
-  | 'redo'
-  | 'copy'
-  | 'cut'
-  | 'paste'
-  | 'duplicate'
-  | 'selectAll'
-  | 'frameBack'
-  | 'frameForward'
-  | 'framesBack10'
-  | 'framesForward10'
-  | 'prevEdit'
-  | 'nextEdit'
-  | 'home'
-  | 'end'
-  | 'zoomIn'
-  | 'zoomOut'
-  | 'fit'
-  | 'marker'
-  | 'toolSelect'
-  | 'toolSplit'
-  | 'toggleMagnet'
-  | 'toggleSnapping'
-  | 'togglePreviewAxis'
-  | 'toggleDisable'
-  | 'escape';
-
-export interface KeyLike {
-  key: string;
-  code: string;
-  metaKey: boolean;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-}
-
-/** Maps a keydown to a command, or null. Pure. */
-export function resolveShortcut(e: KeyLike): Command | null {
-  const mod = e.metaKey || e.ctrlKey;
-  const letter = e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : '';
-  const k = e.key;
-
-  if (mod && !e.altKey) {
-    if (letter === 'z') return e.shiftKey ? 'redo' : 'undo';
-    if (letter === 'y' && !e.shiftKey) return 'redo';
-    if (letter === 'b' && !e.shiftKey) return 'split';
-    if (letter === 'c' && !e.shiftKey) return 'copy';
-    if (letter === 'x' && !e.shiftKey) return 'cut';
-    if (letter === 'v' && !e.shiftKey) return 'paste';
-    if (letter === 'd' && !e.shiftKey) return 'duplicate';
-    if (letter === 'a' && !e.shiftKey) return 'selectAll';
-    if (k === '=' || k === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') return 'zoomIn';
-    if (k === '-' || k === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract') return 'zoomOut';
-    return null;
-  }
-  if (e.altKey) return null;
-
-  switch (k) {
-    case ' ':
-      return 'playPause';
-    case 'Delete':
-    case 'Backspace':
-      return 'delete';
-    case 'ArrowLeft':
-      return e.shiftKey ? 'framesBack10' : 'frameBack';
-    case 'ArrowRight':
-      return e.shiftKey ? 'framesForward10' : 'frameForward';
-    case 'ArrowUp':
-      return 'prevEdit';
-    case 'ArrowDown':
-      return 'nextEdit';
-    case 'Home':
-      return 'home';
-    case 'End':
-      return 'end';
-    case 'Escape':
-      return 'escape';
-    case '=':
-    case '+':
-      return 'zoomIn';
-    case '-':
-    case '_':
-      return 'zoomOut';
-  }
-  if (e.code === 'Space') return 'playPause';
-  if (e.code === 'NumpadAdd') return 'zoomIn';
-  if (e.code === 'NumpadSubtract') return 'zoomOut';
-  if (e.shiftKey) return letter === 'z' ? 'fit' : null;
-  switch (letter) {
-    case 'q':
-      return 'deleteLeft';
-    case 'w':
-      return 'deleteRight';
-    case 'm':
-      return 'marker';
-    case 'a':
-      return 'toolSelect';
-    case 'b':
-      return 'toolSplit';
-    case 'p':
-      return 'toggleMagnet';
-    case 'n':
-      return 'toggleSnapping';
-    case 's':
-      return 'togglePreviewAxis';
-    case 'v':
-      return 'toggleDisable';
-  }
-  return null;
-}
+export type { Command, KeyLike } from './shortcutDefs';
+export { resolveShortcut } from './shortcutDefs';
 
 /** True when the key event comes from a text field (shortcuts must not fire while typing). */
 export function isTypingTarget(target: EventTarget | null): boolean {
@@ -139,6 +28,17 @@ export function isTypingTarget(target: EventTarget | null): boolean {
     return !['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'file'].includes(type);
   }
   return false;
+}
+
+/** True for elements that act on Enter themselves (buttons, links, tabs, form fields). */
+export function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as HTMLElement).tagName !== 'string') return false;
+  const el = target as HTMLElement;
+  if (isTypingTarget(el)) return true;
+  const tag = el.tagName.toLowerCase();
+  if (['button', 'a', 'input', 'select', 'textarea', 'summary'].includes(tag)) return true;
+  const role = el.getAttribute?.('role') ?? '';
+  return ['button', 'tab', 'menuitem', 'menuitemradio', 'link', 'checkbox', 'switch', 'option'].includes(role);
 }
 
 // ---------------------------------------------------------------- command execution
@@ -172,11 +72,130 @@ export function toggleDisableSelected(): void {
   );
 }
 
+/** Selected clips on unlocked tracks. */
+function selectedClips(): Clip[] {
+  const s = useEditor.getState();
+  return s.selection.clipIds
+    .map((id) => findClip(s.project, id))
+    .filter((f): f is NonNullable<typeof f> => !!f && !f.track.locked)
+    .map((f) => f.clip);
+}
+
+/** ⇧X: the in/out area spans the selected clips. */
+export function areaFromSelection(): boolean {
+  const clips = selectedClips();
+  if (!clips.length) return false;
+  const from = Math.min(...clips.map((c) => c.start));
+  const to = Math.max(...clips.map(clipEnd));
+  useTimelineUi.getState().setArea(from, to);
+  return true;
+}
+
+/** ⌘. / ⌘, on the selected clips that have audio. */
+export function nudgeSelectedVolume(deltaDb: number): number {
+  const s = useEditor.getState();
+  return s.nudgeVolume(s.selection.clipIds, deltaDb);
+}
+
+/** ⌘⇧S on the selected video clips. Toasts what happened. */
+export function toggleExtractSelected(): boolean {
+  const s = useEditor.getState();
+  const videos = selectedClips().filter((c) => c.type === 'video');
+  if (!videos.length) {
+    showToast('Select a video clip to extract its audio');
+    return true;
+  }
+  const r = s.toggleExtractAudio(videos.map((c) => c.id));
+  if (r.extracted.length) showToast('Audio extracted');
+  else if (r.restored) showToast('Audio restored');
+  else showToast('This clip has no audio to extract');
+  return true;
+}
+
+/** ⌘R / ⇧B: open the inspector's Speed tab (optionally the Curve sub-tab). */
+function openSpeed(sub: 'standard' | 'curve'): boolean {
+  const s = useEditor.getState();
+  const c = s.selection.clipIds.length === 1 ? findClip(s.project, s.selection.clipIds[0]!)?.clip : undefined;
+  if (!c || (c.type !== 'video' && c.type !== 'audio')) {
+    showToast('Select one video or audio clip to change its speed');
+    return true;
+  }
+  emitAppEvent('inspectorTab', { tab: 'speed', sub });
+  return true;
+}
+
+const comingSoon = (cmd: Command): true => {
+  showToast(`Coming soon: ${defOf(cmd)?.label ?? cmd}`);
+  return true;
+};
+
 /** Runs a command. Returns false when it did nothing that needs the default prevented. */
 export function runCommand(cmd: Command): boolean {
   const s = useEditor.getState();
   const ui = useTimelineUi.getState();
   switch (cmd) {
+    case 'splitAll':
+      s.splitAllAtPlayhead();
+      return true;
+    case 'export':
+      emitAppEvent('export');
+      return true;
+    case 'selectLeft':
+      s.selectSide('left');
+      return true;
+    case 'selectRight':
+      s.selectSide('right');
+      return true;
+    case 'markIn':
+      ui.setAreaIn(s.playhead);
+      return true;
+    case 'markOut':
+      ui.setAreaOut(s.playhead);
+      return true;
+    case 'areaFromClip':
+      if (!areaFromSelection()) showToast('Select a clip first');
+      return true;
+    case 'clearArea':
+      ui.clearArea();
+      return true;
+    case 'group':
+    case 'ungroup':
+    case 'compound':
+    case 'undoCompound':
+    case 'matchCut':
+    case 'splitCaption':
+      return comingSoon(cmd);
+    case 'keyframePanel':
+      showToast('Keyframes — coming soon');
+      return true;
+    case 'fullscreenPreview':
+      emitAppEvent('fullscreenPreview');
+      return true;
+    case 'fitPreview':
+      emitAppEvent('fitPreview');
+      return true;
+    case 'extractAudio':
+      return toggleExtractSelected();
+    case 'speedPanel':
+      return openSpeed('standard');
+    case 'curveSpeed':
+      return openSpeed('curve');
+    case 'volumeUp':
+    case 'volumeDown':
+      if (!nudgeSelectedVolume(cmd === 'volumeUp' ? 1 : -1)) showToast('Select a clip with audio first');
+      return true;
+    case 'toggleLinkage':
+      ui.setLinkage(!ui.linkage);
+      return true;
+    case 'importMedia':
+      requestImport();
+      return true;
+    case 'libraryNext':
+      emitAppEvent('libraryTab', { dir: 1 });
+      return true;
+    case 'libraryPrev':
+      emitAppEvent('libraryTab', { dir: -1 });
+      return true;
     case 'playPause':
       s.togglePlay();
       return true;
@@ -281,6 +300,7 @@ export function runCommand(cmd: Command): boolean {
       return true;
     case 'escape':
       if (ui.tool !== 'select') ui.setTool('select');
+      else if (ui.area.in !== null || ui.area.out !== null) ui.clearArea();
       else if (s.selection.clipIds.length || s.selection.transitionId) s.clearSelection();
       else return false;
       return true;
@@ -295,11 +315,14 @@ export function useTimelineShortcuts(onEscape?: () => boolean): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (isTypingTarget(e.target)) return;
+      const def = resolveDef(e);
+      if (!def?.command) return;
+      const cmd = def.command;
+      if (isTypingTarget(e.target) && !def.whileTyping) return;
       // a modal (e.g. the export dialog) is open: the editor behind it must not react
       if (document.querySelector('.modal-backdrop, [aria-modal="true"]')) return;
-      const cmd = resolveShortcut(e);
-      if (!cmd) return;
+      // Enter belongs to whatever button / tab / link has focus
+      if (cmd === 'splitCaption' && isInteractiveTarget(e.target)) return;
       if (cmd === 'escape' && onEscape?.()) {
         e.preventDefault();
         return;

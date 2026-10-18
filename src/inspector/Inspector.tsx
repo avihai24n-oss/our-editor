@@ -5,7 +5,9 @@
  *   transition → Transition; several clips → summary.
  * Every edit goes through store actions (undoable); slider drags are one undo step each.
  */
+import { useEffect, useState } from 'react';
 import { selectSelectedClip, selectSelectedTransition, useEditor } from '../store';
+import { onAppEvent } from '../ui/appEvents';
 import { usePref } from '../panels/prefs';
 import { Tabs } from '../ui/controls';
 import { clipTabs, pickTab, TAB_LABELS, type InspectorTab } from './inspectorLogic';
@@ -34,6 +36,16 @@ export function Inspector() {
   const asset = useEditor((s) => (clip && clip.type !== 'text' ? s.project.assets[clip.assetId] : undefined));
   // The chosen tab is remembered per clip type (CapCut keeps e.g. "Adjust" while hopping clips).
   const [wanted, setWanted] = usePref<string>(`insp.tab.${clip?.type ?? 'none'}`, '');
+  // Speed › Standard | Curve. ⌘R / ⇧B (shortcut table) open the Speed tab on one of them.
+  const [speedSub, setSpeedSub] = useState<'standard' | 'curve'>('standard');
+  useEffect(
+    () =>
+      onAppEvent('inspectorTab', ({ tab, sub }) => {
+        setWanted(tab);
+        setSpeedSub(sub ?? 'standard');
+      }),
+    [setWanted],
+  );
 
   if (transition) {
     return (
@@ -63,13 +75,16 @@ export function Inspector() {
         </>
       );
     } else if (tab === 'audio' && (clip.type === 'video' || clip.type === 'audio')) body = <AudioTab clip={clip} />;
-    else if (tab === 'speed' && (clip.type === 'video' || clip.type === 'audio')) body = <SpeedTab clip={clip} />;
+    else if (tab === 'speed' && (clip.type === 'video' || clip.type === 'audio')) body = <SpeedTab clip={clip} sub={speedSub} onSubChange={setSpeedSub} />;
     else if (tab === 'animation' && clip.type !== 'audio') body = <AnimationTab key={clip.id} clip={clip} />;
     else if (tab === 'adjust' && clip.type !== 'audio') body = <AdjustTab clip={clip} />;
     else if (tab === 'text' && clip.type === 'text') body = <TextTab clip={clip} />;
 
     return (
-      <Shell testId={`inspector-${clip.type}`} tabs={tabs.map((id) => ({ id, label: TAB_LABELS[id] }))} value={tab} onChange={setWanted}>
+      <Shell testId={`inspector-${clip.type}`} tabs={tabs.map((id) => ({ id, label: TAB_LABELS[id] }))} value={tab} onChange={(id) => {
+          setWanted(id);
+          setSpeedSub('standard');
+        }}>
         {asset?.missing && <div className="inotice">Media lost — the source file for this clip could not be found.</div>}
         {body}
       </Shell>

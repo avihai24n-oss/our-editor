@@ -5,6 +5,7 @@
  * Final interface: no props, reads/writes the store.
  */
 import { useEffect, useRef, useState } from 'react';
+import { onAppEvent } from '../ui/appEvents';
 import { Icon, type IconName } from '../ui/Icon';
 import { ComingSoon } from './LibraryLayout';
 import { AdjustmentTab, FiltersTab } from './LooksTabs';
@@ -46,6 +47,13 @@ const SOON_NOTES: Partial<Record<LibraryTab, string>> = {
   templates: 'Templates are coming in a later version.',
 };
 
+/** Tab / Shift+Tab (shortcut table): the library tab `dir` steps away from `tab`, wrapping around. */
+export function cycleLibraryTab(tab: LibraryTab, dir: 1 | -1): LibraryTab {
+  const i = LIBRARY_TABS.findIndex((t) => t.id === tab);
+  const n = LIBRARY_TABS.length;
+  return LIBRARY_TABS[(((i + dir) % n) + n) % n]!.id;
+}
+
 function TabBar({ tab, onChange }: { tab: LibraryTab; onChange: (t: LibraryTab) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState({ left: false, right: false });
@@ -62,6 +70,11 @@ function TabBar({ tab, onChange }: { tab: LibraryTab; onChange: (t: LibraryTab) 
       ro?.disconnect();
     };
   }, []);
+  // keep the active tab visible (Tab / Shift+Tab cycles through tabs that may be scrolled away)
+  useEffect(() => {
+    const el = ref.current?.querySelector<HTMLElement>('.lib-tabs__item.is-active');
+    el?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
   const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * 160, behavior: 'smooth' });
   return (
     <div className="lib-tabs">
@@ -99,6 +112,20 @@ export function LeftPanel() {
   const [stored, setTab] = usePref<string>('lib.tab', 'media');
   const tab: LibraryTab = LIBRARY_TABS.some((t) => t.id === stored) ? (stored as LibraryTab) : 'media';
   const current = LIBRARY_TABS.find((t) => t.id === tab)!;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+
+  useEffect(() => {
+    const offCycle = onAppEvent('libraryTab', ({ dir }) => setTab(cycleLibraryTab(tabRef.current, dir)));
+    // ⌘I: the import picker lives in the Media tab
+    const offImport = onAppEvent('import', () => {
+      if (tabRef.current !== 'media') setTab('media');
+    });
+    return () => {
+      offCycle();
+      offImport();
+    };
+  }, [setTab]);
 
   return (
     <div className="lib-root">
