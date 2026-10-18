@@ -1,0 +1,146 @@
+/* Export dialog (Builder C). Tokens from src/theme.css. */
+.modal.export {
+  width: min(680px, calc(100vw - 32px));
+}
+.export__body {
+  display: flex;
+  gap: 20px;
+  padding: 16px;
+}
+.export__cover {
+  flex: none;
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.export__cover canvas {
+  width: 180px;
+  height: 240px;
+  border-radius: var(--radius-sm);
+  background: #000;
+  border: 1px solid var(--border);
+}
+.export__cover-label {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.export__form {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.export__row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+.export__label {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.export__value {
+  font-size: var(--fs-sm);
+}
+.export__input,
+.export__select {
+  height: 30px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 0 8px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+.export__input:focus,
+.export__select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.export__section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.export__section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.export__section-title svg {
+  color: var(--accent);
+}
+.export__hint {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  margin-top: 2px;
+}
+.export__error {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: var(--fs-sm);
+}
+.export__done {
+  font-size: var(--fs-sm);
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  word-break: break-word;
+}
+.export__again {
+  margin-top: 6px;
+}
+.export__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.export__progress-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.export__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+.export__bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.12s linear;
+}
+.export__foot {
+  align-items: center;
+}
+.export__meta {
+  margin-right: auto;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+@media (max-width: 560px) {
+  .export__body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .export__cover {
+    width: auto;
+  }
+}

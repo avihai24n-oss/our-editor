@@ -12,7 +12,7 @@ import {
   createTransition,
   newId,
 } from '../model/defaults';
-import { adjacentNext, findClip, isRangeFree, isTimedClip, mainTrack, trackAccepts } from '../model/project';
+import { adjacentNext, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
 import { clamp, clipContains, clipEnd, frameUs, sourceSpan } from '../model/time';
 import type { Clip, ClipPatch, Id, Project, Track, TrackKind, TransitionType, Us } from '../model/types';
 
@@ -202,22 +202,112 @@ function detach(p: Project, clipId: Id): Clip | null {
   return f.clip;
 }
 
+/** Kind of track a clip goes to when it needs a fresh one (video/image → overlay). */
+export function newTrackKindFor(clip: Pick<Clip, 'type'>): Exclude<TrackKind, 'main'> {
+  return clip.type === 'audio' ? 'audio' : clip.type === 'text' ? 'text' : 'overlay';
+}
+
+/**
+ * Array index for a new track of `kind` shown directly above/below `ref` in the timeline.
+ * Visual tracks display in reverse array order (index 0 = bottom); audio tracks in array order.
+ * Nothing goes below the main track among the visual rows. undefined = default position.
+ */
+function indexNextTo(p: Project, ref: Track | undefined, kind: Exclude<TrackKind, 'main'>, side: 'above' | 'below'): number | undefined {
+  if (!ref) return undefined;
+  const ri = p.tracks.indexOf(ref);
+  const refVisual = ref.kind !== 'audio';
+  const newVisual = kind !== 'audio';
+  if (refVisual !== newVisual) return undefined;
+  if (newVisual) return side === 'above' || ref.kind === 'main' ? ri + 1 : ri;
+  return side === 'above' ? ri : ri + 1;
+}
+
 /**
  * Moves a clip to `start` on `trackId` (default: same track).
  * Main track + magnet: reorders by insertion. Other tracks: if the spot is taken, a new track
  * of the same kind is created just above the target. Incompatible targets are refused.
+ * `newTrack`: the clip goes onto a NEW track directly above/below `trackId` (or its own track).
  */
-export function moveClip(p: Project, clipId: Id, to: { start: Us; trackId?: Id }, ctx: EditCtx): boolean {
+export function moveClip(p: Project, clipId: Id, to: { start: Us; trackId?: Id; newTrack?: 'above' | 'below' }, ctx: EditCtx): boolean {
   const f = findClip(p, clipId);
   if (!f || f.track.locked) return false;
+  const start = Math.max(0, Math.round(to.start));
+  if (to.newTrack) {
+    const ref = to.trackId ? p.tracks.find((t) => t.id === to.trackId) : f.track;
+    const kind = newTrackKindFor(f.clip);
+    const index = indexNextTo(p, ref, kind, to.newTrack);
+    const clip = detach(p, clipId)!;
+    const track = addTrack(p, kind, index);
+    clip.start = start;
+    clip.trackId = track.id;
+    track.clips.push(clip);
+    removeEmptyTracks(p);
+    return true;
+  }
   const target = to.trackId ? p.tracks.find((t) => t.id === to.trackId) : f.track;
   if (!target || target.locked || !trackAccepts(target.kind, f.clip)) return false;
   const clip = detach(p, clipId)!;
-  const start = Math.max(0, Math.round(to.start));
   if (target.kind === 'main') insertOnMain(p, clip, start + clip.duration / 2 - 1, ctx);
   else placeOnTrack(p, clip, target, start);
   removeEmptyTracks(p);
   return true;
+}
+
+/**
+ * Moves several clips by the same time delta. `trackDelta` shifts each clip that many rows in the
+ * timeline's display order (negative = up); a clip whose target row is missing, locked or does
+ * not accept it stays on its own track. Clips on locked tracks are not moved.
+ */
+export function moveClips(p: Project, ids: readonly Id[], deltaUs: Us, trackDelta: number, ctx: EditCtx): boolean {
+  const rows = timelineRows(p);
+  const plan: { clip: Clip; target: Track; start: Us }[] = [];
+  for (const id of ids) {
+    const f = findClip(p, id);
+    if (!f || f.track.locked) continue;
+    let target = f.track;
+    if (trackDelta) {
+      const cand = rows[rows.indexOf(f.track) + trackDelta];
+      if (cand && !cand.locked && trackAccepts(cand.kind, f.clip)) target = cand;
+    }
+    plan.push({ clip: f.clip, target, start: Math.max(0, Math.round(f.clip.start + deltaUs)) });
+  }
+  if (!plan.length) return false;
+  plan.sort((a, b) => a.start - b.start);
+  const detached = plan.map((x) => ({ ...x, clip: detach(p, x.clip.id)! }));
+  for (const { clip, target, start } of detached) {
+    if (target.kind === 'main') insertOnMain(p, clip, start + clip.duration / 2 - 1, ctx);
+    else placeOnTrack(p, clip, target, start);
+  }
+  removeEmptyTracks(p);
+  return true;
+}
+
+/**
+ * Inserts re-id'd copies of clip snapshots (e.g. the clipboard after ⌘X), keeping their relative
+ * offsets; the earliest lands at `at`. Each copy goes back to its original track when it still
+ * exists, is unlocked and accepts it, else to the default track for its type. Media clips whose
+ * asset is gone are skipped. Returns the new ids.
+ */
+export function insertClips(p: Project, clips: readonly Clip[], at: Us, ctx: EditCtx): Id[] {
+  const usable = clips.filter((c) => c.type === 'text' || p.assets[c.assetId]);
+  if (!usable.length) return [];
+  const minStart = Math.min(...usable.map((c) => c.start));
+  const base = Math.max(0, Math.round(at));
+  const out: Id[] = [];
+  for (const src of [...usable].sort((a, b) => a.start - b.start)) {
+    const clip = cloneClip(src);
+    clip.id = newId('clp');
+    const start = base + (src.start - minStart);
+    const orig = p.tracks.find((t) => t.id === src.trackId && !t.locked && trackAccepts(t.kind, clip));
+    if (orig?.kind === 'main' || (!orig && (clip.type === 'video' || clip.type === 'image'))) {
+      insertOnMain(p, clip, start, ctx);
+    } else {
+      const kind = newTrackKindFor(clip);
+      placeOnTrack(p, clip, orig ?? freeTrack(p, kind, start, clip.duration), start);
+    }
+    out.push(clip.id);
+  }
+  return out;
 }
 
 /** Drag of the LEFT edge to timeline time `newStart`. Clamped to source, neighbour and 1 frame. */
@@ -355,6 +445,10 @@ export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
     if (v === undefined) continue;
     if (key === 'name' || key === 'disabled') {
       (c as Record<string, unknown>)[key] = v;
+      continue;
+    }
+    if (key === 'blendEnabled' || key === 'adjustEnabled') {
+      if (c.type !== 'audio') (c as Record<string, unknown>)[key] = !!v;
       continue;
     }
     if (!(key in c)) continue; // field not on this clip type

@@ -28,6 +28,27 @@ generate them. Add new ids here before you use them in a test.
 | `export-dialog` | — | the export modal |
 | `export-confirm` | — | the final Export button inside the modal (triggers the browser download) |
 
+## Extra ids (added by the builders, applied by QA)
+
+| Area | data-testid | Element |
+|---|---|---|
+| Library | `library-tab-<id>` | a library tab (`media`, `audio`, `text`, `transitions`, `filters`, `adjustment`, …) |
+| Library | `text-preset`, `transition-preset`, `filter-preset`, `adjust-preset` | one preset tile |
+| Inspector | `inspector-<project\|video\|image\|audio\|text\|transition\|multi>` | the inspector body for that selection |
+| Inspector | `section-<id>` | one collapsible section (`blend`, `adjust`, `filter`, …) |
+| Inspector | `text-content`, `duration-input`, `scale-row`, `opacity-row`, `volume-row`, `speed-row`, `filter-intensity`, `adjust-<key>` | fields / slider rows |
+| Player | `player-canvas` | the preview `<canvas>` |
+| Player | `player-selection` | on-canvas selection box |
+| Player | `player-ratio`, `player-ratio-menu`, `player-zoom`, `player-fullscreen` | header controls |
+| Export | `export-name`, `export-resolution`, `export-fps`, `export-progress`, `export-cancel` | export form / progress |
+| Timeline | `timeline-ruler`, `timeline-marker`, `timeline-transition` (`data-transition-id`) | ruler, a marker, a transition on a cut |
+| Timeline | `timeline-tool-menu`, `timeline-undo`, `timeline-redo`, `timeline-split`, `timeline-delete`, `timeline-magnet`, `timeline-snapping`, `timeline-zoom`, `timeline-fit` | toolbar buttons |
+| Timeline | `track-lock`, `track-hide`, `track-mute` | track header toggles |
+
+`timeline-track` also carries `data-track-role="main|overlay|audio|text"` and `data-track-id`;
+`data-track-kind` is `video` for both main and overlay tracks. `timeline-clip` also carries
+`data-clip-type`.
+
 ## Rules
 
 - `media-import-input` fallback: if absent, tests use the first `input[type=file]` inside `left-panel`.

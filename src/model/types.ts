@@ -20,7 +20,7 @@ export const SCHEMA_VERSION = 1 as const;
 
 // ---------------------------------------------------------------- project
 
-export type AspectRatio = '9:16' | '16:9' | '1:1' | '4:5';
+export type AspectRatio = '9:16' | '16:9' | '1:1' | '4:5' | '3:4';
 export type Fps = 24 | 25 | 30 | 60;
 
 export interface ProjectSettings {
@@ -238,10 +238,14 @@ export interface VisualFields {
   transform: Transform;
   crop: Crop;
   blend: BlendMode;
+  /** Blend section checkbox. false = draw as Normal at 100 % opacity (values kept). */
+  blendEnabled: boolean;
   animationIn: ClipAnimation | null;
   animationOut: ClipAnimation | null;
   filter: FilterRef | null;
   adjust: Adjust;
+  /** Adjust section checkbox. false = the Adjust sliders are ignored (values kept; filter still applies). */
+  adjustEnabled: boolean;
 }
 
 /** Fields shared by clips that read a time range of a media asset. */
@@ -292,6 +296,8 @@ export interface ClipPatch {
   transform?: Partial<Transform>;
   crop?: Partial<Crop>;
   blend?: BlendMode;
+  blendEnabled?: boolean;
+  adjustEnabled?: boolean;
   animationIn?: ClipAnimation | null;
   animationOut?: ClipAnimation | null;
   filter?: FilterRef | null;

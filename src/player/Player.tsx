@@ -1,94 +1,329 @@
 /**
- * Centre player. PLACEHOLDER from the skeleton; Builder C replaces the internals with the real
- * engine (canvas renderer driven by getFrameState, media element pool, Web Audio, clock).
- * Final interface: no props, reads/writes the store.
+ * Centre player (CapCut desktop): header "Player", letterboxed canvas, bottom bar with
+ * current / total timecode, Play/Pause, zoom (Fit / %), Ratio menu and fullscreen.
+ * The canvas is driven by PreviewEngine (getFrameState → renderFrame). On-canvas: click selects
+ * the topmost clip; the selected clip gets a box with corner scale handles and a rotate handle;
+ * drag to move with centre snap guides. Every gesture is one undo step (beginTx … commitTx).
  */
-import { useEffect, useRef, useState } from 'react';
-import { ASPECTS } from '../model/catalog';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { DrawnBox } from '../engine/render';
+import { hitTest, letterbox, moveWithSnap, rotateFromDrag, scaleFromDrag, type Pt } from '../engine/render/geometry';
+import { ASPECTS, LIMITS } from '../model/catalog';
+import { findClip } from '../model/project';
 import { formatTimecode, projectDuration } from '../model/time';
+import type { Id } from '../model/types';
 import { useEditor } from '../store';
 import { Icon } from '../ui/Icon';
+import { PreviewEngine } from './PreviewEngine';
+import './player.css';
+
+type ZoomMode = 'fit' | 0.5 | 1.5 | 2;
+const ZOOMS: { id: ZoomMode; label: string }[] = [
+  { id: 'fit', label: 'Fit' },
+  { id: 0.5, label: '50%' },
+  { id: 1.5, label: '150%' },
+  { id: 2, label: '200%' },
+];
+
+type Gesture =
+  | { kind: 'move'; clipId: Id; startPt: Pt; startX: number; startY: number }
+  | { kind: 'scale'; clipId: Id; startPt: Pt; startScale: number; centre: Pt }
+  | { kind: 'rotate'; clipId: Id; startPt: Pt; startRotation: number; centre: Pt };
+
+const sameBox = (a: DrawnBox | null, b: DrawnBox | null) =>
+  a === b || (!!a && !!b && a.clipId === b.clipId && a.cx === b.cx && a.cy === b.cy && a.w === b.w && a.h === b.h && a.rotation === b.rotation);
 
 export function Player() {
   const settings = useEditor((s) => s.project.settings);
   const duration = useEditor((s) => projectDuration(s.project));
   const playhead = useEditor((s) => s.playhead);
   const playing = useEditor((s) => s.playing);
+  const selectedId = useEditor((s) => (s.selection.clipIds.length === 1 ? s.selection.clipIds[0]! : null));
   const togglePlay = useEditor((s) => s.togglePlay);
   const setAspectRatio = useEditor((s) => s.setAspectRatio);
-  const [ratioOpen, setRatioOpen] = useState(false);
-  const boxRef = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ w: 0, h: 0 });
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const engineRef = useRef<PreviewEngine | null>(null);
+  const boxesRef = useRef<DrawnBox[]>([]);
+  const selectedRef = useRef<Id | null>(selectedId);
+  selectedRef.current = selectedId;
+
+  const [stage, setStage] = useState({ w: 0, h: 0 });
+  const [zoom, setZoom] = useState<ZoomMode>('fit');
+  const [menu, setMenu] = useState<'ratio' | 'zoom' | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [selBox, setSelBox] = useState<DrawnBox | null>(null);
+  const [guides, setGuides] = useState({ x: false, y: false });
+  const gestureRef = useRef<Gesture | null>(null);
+
+  // ---- engine lifecycle
   useEffect(() => {
-    const el = boxRef.current;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const engine = new PreviewEngine(canvas, {
+      onBoxes: (boxes) => {
+        boxesRef.current = boxes;
+        const id = selectedRef.current;
+        const box = id ? boxes.find((b) => b.clipId === id) ?? null : null;
+        setSelBox((prev) => (sameBox(prev, box) ? prev : box));
+      },
+    });
+    engineRef.current = engine;
+    engine.start();
+    return () => {
+      engine.dispose();
+      engineRef.current = null;
+    };
+  }, []);
+
+  // selection changed → overlay follows (engine boxes are from the last render)
+  useEffect(() => {
+    const box = selectedId ? boxesRef.current.find((b) => b.clipId === selectedId) ?? null : null;
+    setSelBox((prev) => (sameBox(prev, box) ? prev : box));
+  }, [selectedId]);
+
+  // ---- stage size
+  useLayoutEffect(() => {
+    const el = stageRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setBox({ w: el.clientWidth, h: el.clientHeight }));
+    const ro = new ResizeObserver(() => setStage({ w: el.clientWidth, h: el.clientHeight }));
     ro.observe(el);
+    setStage({ w: el.clientWidth, h: el.clientHeight });
     return () => ro.disconnect();
   }, []);
 
-  // Placeholder clock: advances the playhead in real time. Builder C replaces with the engine clock.
-  useEffect(() => {
-    if (!playing) return;
-    let raf = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      const s = useEditor.getState();
-      const next = s.playhead + (now - last) * 1000;
-      last = now;
-      if (next >= projectDuration(s.project)) {
-        s.setPlayhead(projectDuration(s.project));
-        s.pause();
-        return;
-      }
-      s.setPlayhead(next);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing]);
+  const fit = letterbox(stage.w, stage.h, settings.width, settings.height, fullscreen ? 0 : 12);
+  const zk = zoom === 'fit' ? 1 : zoom;
+  const cw = Math.floor(fit.width * zk);
+  const ch = Math.floor(fit.height * zk);
+  const k = settings.width > 0 ? cw / settings.width : 0; // css px per project px
 
-  const k = Math.min((box.w - 24) / settings.width, (box.h - 24) / settings.height);
-  const cw = Math.max(0, settings.width * k);
-  const ch = Math.max(0, settings.height * k);
+  useEffect(() => {
+    engineRef.current?.resize(cw, ch, window.devicePixelRatio || 1);
+  }, [cw, ch, settings.width, settings.height]);
+
+  // ---- fullscreen
+  useEffect(() => {
+    const on = () => setFullscreen(!!rootRef.current && document.fullscreenElement === rootRef.current);
+    document.addEventListener('fullscreenchange', on);
+    return () => document.removeEventListener('fullscreenchange', on);
+  }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else void rootRef.current?.requestFullscreen?.().catch(() => undefined);
+  };
+
+  // ---- menus close on outside click
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement | null)?.closest?.('.player__menu-anchor')) setMenu(null);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [menu]);
+
+  // ---- pointer → project coordinates
+  const toProject = useCallback(
+    (e: { clientX: number; clientY: number }): Pt => {
+      const r = surfaceRef.current?.getBoundingClientRect();
+      if (!r || k <= 0) return { x: 0, y: 0 };
+      return { x: (e.clientX - r.left) / k, y: (e.clientY - r.top) / k };
+    },
+    [k],
+  );
+
+  const clipEditable = (id: Id): boolean => {
+    const s = useEditor.getState();
+    const f = findClip(s.project, id);
+    return !!f && !f.track.locked && f.clip.type !== 'audio';
+  };
+
+  const beginGesture = (g: Gesture, e: React.PointerEvent) => {
+    if (!clipEditable(g.clipId)) return;
+    surfaceRef.current?.setPointerCapture?.(e.pointerId);
+    gestureRef.current = g;
+    useEditor.getState().beginTx();
+  };
+
+  const onSurfaceDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const pt = toProject(e);
+    const hit = hitTest(boxesRef.current, pt);
+    const s = useEditor.getState();
+    if (!hit) {
+      s.clearSelection();
+      return;
+    }
+    if (e.shiftKey) {
+      s.select([hit.clipId], 'toggle');
+      return;
+    }
+    if (!s.selection.clipIds.includes(hit.clipId) || s.selection.clipIds.length !== 1) s.select([hit.clipId], 'replace');
+    const clip = findClip(s.project, hit.clipId)?.clip;
+    if (!clip || clip.type === 'audio') return;
+    beginGesture({ kind: 'move', clipId: hit.clipId, startPt: pt, startX: clip.transform.x, startY: clip.transform.y }, e);
+  };
+
+  const onHandleDown = (kind: 'scale' | 'rotate') => (e: React.PointerEvent) => {
+    if (e.button !== 0 || !selBox) return;
+    e.stopPropagation();
+    const clip = findClip(useEditor.getState().project, selBox.clipId)?.clip;
+    if (!clip || clip.type === 'audio') return;
+    const centre = { x: selBox.cx, y: selBox.cy };
+    const startPt = toProject(e);
+    if (kind === 'scale') beginGesture({ kind, clipId: clip.id, startPt, startScale: clip.transform.scale, centre }, e);
+    else beginGesture({ kind, clipId: clip.id, startPt, startRotation: clip.transform.rotation, centre }, e);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const g = gestureRef.current;
+    if (!g) return;
+    const pt = toProject(e);
+    const s = useEditor.getState();
+    if (g.kind === 'move') {
+      const threshold = k > 0 && !e.altKey ? 8 / k : -1;
+      const m = moveWithSnap({ x: g.startX, y: g.startY }, { x: pt.x - g.startPt.x, y: pt.y - g.startPt.y }, threshold);
+      setGuides((p) => (p.x === m.guideX && p.y === m.guideY ? p : { x: m.guideX, y: m.guideY }));
+      s.updateClip(g.clipId, { transform: { x: m.x, y: m.y } });
+    } else if (g.kind === 'scale') {
+      s.updateClip(g.clipId, { transform: { scale: scaleFromDrag(g.startScale, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax) } });
+    } else {
+      s.updateClip(g.clipId, { transform: { rotation: rotateFromDrag(g.startRotation, g.centre, g.startPt, pt, e.altKey ? 0 : 4) } });
+    }
+  };
+
+  const endGesture = (cancel: boolean) => {
+    if (!gestureRef.current) return;
+    gestureRef.current = null;
+    setGuides({ x: false, y: false });
+    const s = useEditor.getState();
+    if (cancel) s.cancelTx();
+    else s.commitTx();
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && gestureRef.current) {
+        e.stopPropagation();
+        endGesture(true);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
+  // ---- render
+  const total = formatTimecode(duration, settings.fps);
+  const current = formatTimecode(Math.min(playhead, duration), settings.fps);
+  const zoomLabel = ZOOMS.find((z) => z.id === zoom)?.label ?? 'Fit';
 
   return (
-    <>
-      <div className="panel__header">Player</div>
-      <div ref={boxRef} style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: cw, height: ch, background: settings.background }} data-testid="player-canvas" />
-      </div>
-      <div style={{ height: 40, display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '0 12px', flex: 'none' }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-sm)' }}>
-          <span style={{ color: 'var(--accent)' }}>{formatTimecode(playhead, settings.fps)}</span>
-          <span style={{ color: 'var(--text-dim)' }}> / {formatTimecode(duration, settings.fps)}</span>
-        </span>
-        <button className="icon-btn" title="Play (Space)" onClick={togglePlay}>
-          <Icon name={playing ? 'pause' : 'play'} />
-        </button>
-        <div style={{ justifySelf: 'end', position: 'relative' }}>
-          <button className="btn btn--ghost" onClick={() => setRatioOpen(!ratioOpen)}>
-            Ratio {settings.aspect}
-          </button>
-          {ratioOpen && (
-            <div className="menu" style={{ bottom: 32, right: 0 }}>
-              {ASPECTS.map((a) => (
-                <button
-                  key={a.id}
-                  className={`menu__item${a.id === settings.aspect ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setAspectRatio(a.id);
-                    setRatioOpen(false);
-                  }}
-                >
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          )}
+    <div className={`player${fullscreen ? ' is-fullscreen' : ''}`} ref={rootRef}>
+      {!fullscreen && <div className="panel__header">Player</div>}
+      <div className={`player__stage${zoom === 'fit' ? '' : ' is-zoomed'}`} ref={stageRef}>
+        <div className="player__canvas-wrap" style={{ width: cw, height: ch }}>
+          <canvas ref={canvasRef} className="player__canvas" data-testid="player-canvas" />
+          <div
+            ref={surfaceRef}
+            className="player__surface"
+            onPointerDown={onSurfaceDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={() => endGesture(false)}
+            onPointerCancel={() => endGesture(true)}
+          >
+            {guides.x && <div className="player__guide player__guide--v" />}
+            {guides.y && <div className="player__guide player__guide--h" />}
+            {selBox && k > 0 && (
+              <div
+                className="player__selbox"
+                data-testid="player-selection"
+                style={{
+                  left: (selBox.cx - selBox.w / 2) * k,
+                  top: (selBox.cy - selBox.h / 2) * k,
+                  width: selBox.w * k,
+                  height: selBox.h * k,
+                  transform: `rotate(${selBox.rotation}deg)`,
+                }}
+              >
+                {(['nw', 'ne', 'se', 'sw'] as const).map((c) => (
+                  <div key={c} className={`player__handle player__handle--${c}`} onPointerDown={onHandleDown('scale')} />
+                ))}
+                <div className="player__rotate" title="Rotate" onPointerDown={onHandleDown('rotate')}>
+                  <Icon name="rotate" size={12} />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </>
+      <div className="player__bar">
+        <span className="player__tc" data-testid="timecode">
+          <span className="player__tc-cur">{current}</span>
+          <span className="player__tc-sep"> / </span>
+          <span className="player__tc-total">{total}</span>
+        </span>
+        <button
+          className="icon-btn player__play"
+          title={playing ? 'Pause (Space)' : 'Play (Space)'}
+          aria-label={playing ? 'Pause' : 'Play'}
+          data-testid="play-button"
+          onClick={togglePlay}
+        >
+          <Icon name={playing ? 'pause' : 'play'} size={18} />
+        </button>
+        <div className="player__right">
+          <div className="player__menu-anchor">
+            <button className="btn btn--ghost player__chip" title="Zoom" onClick={() => setMenu(menu === 'zoom' ? null : 'zoom')} data-testid="player-zoom">
+              {zoomLabel}
+            </button>
+            {menu === 'zoom' && (
+              <div className="menu player__menu">
+                {ZOOMS.map((z) => (
+                  <button
+                    key={String(z.id)}
+                    className={`menu__item${z.id === zoom ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setZoom(z.id);
+                      setMenu(null);
+                    }}
+                  >
+                    {z.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="player__menu-anchor">
+            <button className="btn btn--ghost player__chip" title="Aspect ratio" onClick={() => setMenu(menu === 'ratio' ? null : 'ratio')} data-testid="player-ratio">
+              Ratio
+            </button>
+            {menu === 'ratio' && (
+              <div className="menu player__menu" data-testid="player-ratio-menu">
+                {ASPECTS.map((a) => (
+                  <button
+                    key={a.id}
+                    className={`menu__item player__ratio-item${a.id === settings.aspect ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setAspectRatio(a.id);
+                      setMenu(null);
+                    }}
+                  >
+                    <span className="player__ratio-swatch" style={{ aspectRatio: `${a.width} / ${a.height}` }} />
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="icon-btn" title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'} onClick={toggleFullscreen} data-testid="player-fullscreen">
+            <Icon name={fullscreen ? 'exit-fullscreen' : 'fullscreen'} />
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

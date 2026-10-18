@@ -37,6 +37,11 @@
   --playhead: #ffffff;
   --marker: #22d3ee;
   --transition: #e6e6e6;
+  /* drag ghost (semi-transparent clip colours) */
+  --clip-ghost-video: rgba(29, 90, 94, 0.55);
+  --clip-ghost-image: rgba(43, 88, 102, 0.55);
+  --clip-ghost-audio: rgba(31, 79, 154, 0.55);
+  --clip-ghost-text: rgba(154, 91, 22, 0.55);
 
   /* layout */
   --topbar-h: 40px;

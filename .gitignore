@@ -1,3 +1,11 @@
 node_modules
 dist
 .DS_Store
+
+# e2e harness
+test-media/
+e2e/node_modules/
+e2e/screens/
+e2e/downloads/
+e2e/test-results/
+e2e/playwright-report/

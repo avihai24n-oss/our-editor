@@ -4,6 +4,7 @@
  * export always match. No DOM, no React. See ./README.md.
  */
 import { BLEND_MODES, filterDef } from '../model/catalog';
+import { defaultAdjust } from '../model/defaults';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
 import { clamp, clipContains, clipEnd, sourceTimeAt } from '../model/time';
 import type {
@@ -220,7 +221,8 @@ export function fitSize(asset: Pick<MediaAsset, 'width' | 'height'> | undefined,
 
 /** Clip's own filter merged into its adjust (filter scaled by intensity). */
 export function colorOps(clip: VisualClip): ColorOps {
-  const out: ColorOps = { ...clip.adjust, grayscale: 0, sepia: 0 };
+  const own = clip.adjustEnabled === false ? defaultAdjust() : clip.adjust;
+  const out: ColorOps = { ...own, grayscale: 0, sepia: 0 };
   const f = clip.filter ? filterDef(clip.filter.id) : undefined;
   if (f && clip.filter) {
     const k = clamp(clip.filter.intensity, 0, 1);
@@ -232,7 +234,7 @@ export function colorOps(clip: VisualClip): ColorOps {
 }
 
 const compositeOf = (clip: VisualClip): GlobalCompositeOperation =>
-  BLEND_MODES.find((b) => b.id === clip.blend)?.composite ?? 'source-over';
+  clip.blendEnabled === false ? 'source-over' : (BLEND_MODES.find((b) => b.id === clip.blend)?.composite ?? 'source-over');
 
 /** Animation acting on the clip at t (In wins if both overlap). */
 export function activeAnimation(clip: VisualClip, t: Us): { phase: 'in' | 'out'; type: AnimationType; progress: number } | null {
@@ -282,7 +284,7 @@ function buildVisualOp(
     y: tf.y + a.dy + x.dy,
     scale: tf.scale * a.scaleMul * x.scaleMul,
     rotation: tf.rotation + a.rotation + x.rotation,
-    opacity: clamp(tf.opacity * a.alphaMul * x.alphaMul, 0, 1),
+    opacity: clamp((clip.blendEnabled === false ? 1 : tf.opacity) * a.alphaMul * x.alphaMul, 0, 1),
     flipH: tf.flipH,
     flipV: tf.flipV,
   };

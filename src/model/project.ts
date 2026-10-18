@@ -108,3 +108,27 @@ export function fadeEnvelope(clip: Pick<Clip, 'start' | 'duration'> & { audio: P
   if (clip.audio.fadeOut > 0 && remaining < clip.audio.fadeOut) g = Math.min(g, remaining / clip.audio.fadeOut);
   return Math.max(0, Math.min(1, g));
 }
+
+// ---------------------------------------------------------------- load-time migration
+
+/**
+ * Fills fields added after a project was saved (same SCHEMA_VERSION, additive only) so old
+ * documents keep working. Returns a new object only when something changed.
+ */
+export function migrateProject(p: Project): Project {
+  let changed = false;
+  const tracks = p.tracks.map((t) => {
+    let tChanged = false;
+    const clips = t.clips.map((c) => {
+      if (c.type === 'audio') return c;
+      const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
+      if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean') return c;
+      tChanged = true;
+      return { ...c, blendEnabled: v.blendEnabled ?? true, adjustEnabled: v.adjustEnabled ?? true } as Clip;
+    });
+    if (!tChanged) return t;
+    changed = true;
+    return { ...t, clips };
+  });
+  return changed ? { ...p, tracks } : p;
+}

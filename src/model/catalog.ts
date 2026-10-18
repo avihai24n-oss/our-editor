@@ -16,6 +16,7 @@ export const ASPECTS: { id: AspectRatio; label: string; width: number; height: n
   { id: '16:9', label: '16:9', width: 1920, height: 1080 },
   { id: '1:1', label: '1:1', width: 1080, height: 1080 },
   { id: '4:5', label: '4:5', width: 1080, height: 1350 },
+  { id: '3:4', label: '3:4', width: 1080, height: 1440 },
 ];
 
 export function aspectSize(aspect: AspectRatio): { width: number; height: number } {

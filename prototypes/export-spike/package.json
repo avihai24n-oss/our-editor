@@ -1,0 +1,19 @@
+{
+  "name": "export-spike",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5199 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "prove": "node prove.mjs"
+  },
+  "dependencies": {
+    "mediabunny": "1.61.6"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.4"
+  }
+}

@@ -1,12 +1,18 @@
 /**
- * Left panel — the Library. PLACEHOLDER from the skeleton; Builder A replaces the internals.
+ * Left panel — the Library (CapCut desktop): icon-over-label tab bar, then each tab's
+ * category sidebar + grid. v1 tabs: Media, Audio, Text, Transitions, Filters, Adjustment.
+ * The rest keep their place in the bar and show a "Coming soon" state.
  * Final interface: no props, reads/writes the store.
  */
-import { useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { formatShort } from '../model/time';
-import { useEditor } from '../store';
+import { useEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from '../ui/Icon';
+import { ComingSoon } from './LibraryLayout';
+import { AdjustmentTab, FiltersTab } from './LooksTabs';
+import { MediaTab } from './MediaTab';
+import { usePref } from './prefs';
+import { TextTab } from './TextTab';
+import { TransitionsTab } from './TransitionsTab';
+import './library.css';
 
 export type LibraryTab =
   | 'media'
@@ -29,81 +35,83 @@ export const LIBRARY_TABS: { id: LibraryTab; label: string; icon: IconName; v1: 
   { id: 'transitions', label: 'Transitions', icon: 'transitions', v1: true },
   { id: 'captions', label: 'Captions', icon: 'captions', v1: false },
   { id: 'filters', label: 'Filters', icon: 'filters', v1: true },
-  { id: 'adjustment', label: 'Adjustment', icon: 'adjustment', v1: false },
+  { id: 'adjustment', label: 'Adjustment', icon: 'adjustment', v1: true },
   { id: 'templates', label: 'Templates', icon: 'templates', v1: false },
 ];
 
-export function LeftPanel() {
-  const [tab, setTab] = useState<LibraryTab>('media');
-  const assets = useEditor(useShallow((s) => Object.values(s.project.assets)));
-  const importFiles = useEditor((s) => s.importFiles);
-  const addClip = useEditor((s) => s.addClip);
-  const addTextClip = useEditor((s) => s.addTextClip);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const current = LIBRARY_TABS.find((t) => t.id === tab)!;
+const SOON_NOTES: Partial<Record<LibraryTab, string>> = {
+  stickers: 'Stickers are coming in a later version.',
+  effects: 'Video effects are coming in a later version.',
+  captions: 'Manual captions and SRT import are coming in a later version.',
+  templates: 'Templates are coming in a later version.',
+};
 
+function TabBar({ tab, onChange }: { tab: LibraryTab; onChange: (t: LibraryTab) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setOverflow({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+    update();
+    el.addEventListener('scroll', update);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro?.disconnect();
+    };
+  }, []);
+  const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * 160, behavior: 'smooth' });
   return (
-    <>
-      <div style={{ display: 'flex', height: 'var(--tabbar-h)', borderBottom: '1px solid var(--border)', overflowX: 'auto', flex: 'none' }}>
+    <div className="lib-tabs">
+      {overflow.left && (
+        <button className="lib-tabs__chev" title="Scroll left" aria-label="Scroll tabs left" onClick={() => scroll(-1)}>
+          <Icon name="chevron-left" size={14} />
+        </button>
+      )}
+      <div className="lib-tabs__row" ref={ref} role="tablist" aria-label="Library">
         {LIBRARY_TABS.map((t) => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              minWidth: 56,
-              padding: '0 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 2,
-              fontSize: 'var(--fs-xs)',
-              color: tab === t.id ? 'var(--accent)' : t.v1 ? 'var(--text)' : 'var(--text-faint)',
-            }}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`lib-tabs__item${tab === t.id ? ' is-active' : ''}${t.v1 ? '' : ' is-soon'}`}
+            title={t.v1 ? t.label : `${t.label} — coming soon`}
+            data-testid={`library-tab-${t.id}`}
+            onClick={() => onChange(t.id)}
           >
-            <Icon name={t.icon} size={18} />
-            {t.label}
+            <Icon name={t.icon} size={20} />
+            <span>{t.label}</span>
           </button>
         ))}
       </div>
-      <div className="panel__body" style={{ padding: 12 }}>
-        {!current.v1 && <div className="empty">{current.label} — coming soon</div>}
-        {tab === 'media' && (
-          <>
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              accept="video/*,audio/*,image/*"
-              hidden
-              onChange={(e) => {
-                if (e.target.files) void importFiles([...e.target.files]);
-                e.target.value = '';
-              }}
-            />
-            <button className="btn" onClick={() => fileRef.current?.click()}>
-              <Icon name="import" size={14} /> Import
-            </button>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0' }}>
-              {assets.map((a) => (
-                <li key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
-                  <button className="icon-btn" title="Add to timeline" onClick={() => addClip(a.id)}>
-                    <Icon name="plus" />
-                  </button>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                  <span style={{ color: 'var(--text-dim)' }}>{a.kind === 'image' ? 'IMG' : formatShort(a.duration)}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        {tab === 'text' && (
-          <button className="btn" onClick={() => addTextClip()}>
-            <Icon name="plus" size={14} /> Default text
-          </button>
-        )}
-        {(tab === 'audio' || tab === 'transitions' || tab === 'filters') && <div className="empty">{current.label} — builder A</div>}
+      {overflow.right && (
+        <button className="lib-tabs__chev" title="Scroll right" aria-label="Scroll tabs right" onClick={() => scroll(1)}>
+          <Icon name="chevron-right" size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function LeftPanel() {
+  const [stored, setTab] = usePref<string>('lib.tab', 'media');
+  const tab: LibraryTab = LIBRARY_TABS.some((t) => t.id === stored) ? (stored as LibraryTab) : 'media';
+  const current = LIBRARY_TABS.find((t) => t.id === tab)!;
+
+  return (
+    <div className="lib-root">
+      <TabBar tab={tab} onChange={setTab} />
+      <div className="lib-content">
+        {tab === 'media' && <MediaTab key="media" mode="media" />}
+        {tab === 'audio' && <MediaTab key="audio" mode="audio" />}
+        {tab === 'text' && <TextTab />}
+        {tab === 'transitions' && <TransitionsTab />}
+        {tab === 'filters' && <FiltersTab />}
+        {tab === 'adjustment' && <AdjustmentTab />}
+        {!current.v1 && <ComingSoon label={current.label} icon={current.icon} note={SOON_NOTES[tab]} />}
       </div>
-    </>
+    </div>
   );
 }

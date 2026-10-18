@@ -15,7 +15,7 @@ import { create } from 'zustand';
 import { importFiles as importMediaFiles } from '../media/import';
 import { aspectSize, LIMITS } from '../model/catalog';
 import { createProject, makeAnimation } from '../model/defaults';
-import { findClip, findTransition, mainTrack } from '../model/project';
+import { findClip, findTransition, mainTrack, migrateProject } from '../model/project';
 import {
   clamp,
   clipContains,
@@ -29,6 +29,7 @@ import {
 import type {
   AnimationType,
   AspectRatio,
+  Clip,
   ClipPatch,
   Id,
   MediaAsset,
@@ -60,6 +61,11 @@ export interface EditorState {
   // ---- UI state (not undoable)
   selection: { clipIds: Id[]; transitionId: Id | null };
   playhead: Us;
+  /**
+   * Preview axis (CapCut "S"): the time under the pointer while hovering the timeline. When
+   * non-null and not playing, the player shows this frame instead of the playhead's.
+   */
+  previewTime: Us | null;
   playing: boolean;
   /** Timeline zoom in px per second. */
   zoom: number;
@@ -90,7 +96,15 @@ export interface EditorState {
    *  kind:'overlay' → free overlay track; audio → free audio track. Selects and returns the new id. */
   addClip: (assetId: Id, opts?: { at?: Us; trackId?: Id; kind?: 'main' | 'overlay' }) => Id | null;
   addTextClip: (opts?: { at?: Us; content?: string; trackId?: Id }) => Id;
-  moveClip: (clipId: Id, to: { start: Us; trackId?: Id }) => boolean;
+  /**
+   * Moves a clip. `newTrack` puts it on a NEW track of the right kind directly above/below
+   * `trackId` (CapCut: dropping into the gap between two tracks).
+   */
+  moveClip: (clipId: Id, to: { start: Us; trackId?: Id; newTrack?: 'above' | 'below' }) => boolean;
+  /** Moves several clips by the same time delta (and the same visual-row delta). One undo step. */
+  moveClips: (ids: Id[], deltaUs: Us, trackDelta?: number) => boolean;
+  /** Inserts re-id'd copies of clip snapshots (clipboard paste), earliest one at `at`. Selects them. */
+  insertClips: (clips: Clip[], at: Us) => Id[];
   trimStart: (clipId: Id, newStart: Us) => boolean;
   trimEnd: (clipId: Id, newEnd: Us) => boolean;
   /** Splits the selected clips under the playhead; if none selected, every clip under it (unlocked tracks). */
@@ -139,6 +153,7 @@ export interface EditorState {
 
   // ---- playback (not undoable)
   setPlayhead: (t: Us) => void;
+  setPreviewTime: (t: Us | null) => void;
   stepFrames: (n: number) => void;
   goToPrevEdit: () => void;
   goToNextEdit: () => void;
@@ -216,6 +231,17 @@ function qwTargets(s: EditorState): Id[] {
   return c ? [c.id] : [];
 }
 
+/**
+ * Callbacks run when an asset leaves the bin (free cached thumbnails, waveform peaks, URLs).
+ * Media caches register themselves here so the store does not import DOM code.
+ */
+type AssetRemovedHook = (assetId: Id, asset: MediaAsset | undefined) => void;
+const assetRemovedHooks = new Set<AssetRemovedHook>();
+export function onAssetRemoved(fn: AssetRemovedHook): () => void {
+  assetRemovedHooks.add(fn);
+  return () => assetRemovedHooks.delete(fn);
+}
+
 export const useEditor = create<EditorState>()((set, get) => ({
   project: createProject(),
   past: [],
@@ -223,6 +249,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   txBase: null,
   selection: { clipIds: [], transitionId: null },
   playhead: 0,
+  previewTime: null,
   playing: false,
   zoom: LIMITS.zoomDefault,
   magnet: true,
@@ -233,6 +260,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   newProject: (opts) =>
     set({
       project: createProject(opts),
+      previewTime: null,
       past: [],
       future: [],
       txBase: null,
@@ -241,7 +269,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
       playing: false,
     }),
   setProject: (project) =>
-    set({ project, past: [], future: [], txBase: null, selection: { clipIds: [], transitionId: null }, playhead: 0, playing: false }),
+    set({ project: migrateProject(project), previewTime: null, past: [], future: [], txBase: null, selection: { clipIds: [], transitionId: null }, playhead: 0, playing: false }),
   setProjectName: (name) =>
     edit(set, get, (d) => {
       d.name = name.trim() || 'Untitled project';
@@ -265,6 +293,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     return { assetIds: assets.map((a) => a.id), errors };
   },
   removeAsset: (assetId) => {
+    const removed = get().project.assets[assetId];
     // Removing from the bin is not undoable (matches CapCut), clips using it are removed as an edit.
     const ids = get()
       .project.tracks.flatMap((t) => t.clips)
@@ -278,6 +307,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
       past: s.past.map((p) => (p.assets[assetId] ? produce(p, (d) => void delete d.assets[assetId]) : p)),
       future: s.future.map((p) => (p.assets[assetId] ? produce(p, (d) => void delete d.assets[assetId]) : p)),
     }));
+    for (const fn of assetRemovedHooks) fn(assetId, removed);
   },
   setAssetsMissing: (assetIds) =>
     set((s) => ({
@@ -298,6 +328,12 @@ export const useEditor = create<EditorState>()((set, get) => ({
     return id;
   },
   moveClip: (clipId, to) => edit(set, get, (d, ctx) => ops.moveClip(d, clipId, to, ctx)),
+  moveClips: (ids, deltaUs, trackDelta = 0) => edit(set, get, (d, ctx) => ops.moveClips(d, ids, deltaUs, trackDelta, ctx)),
+  insertClips: (clips, at) => {
+    const out = edit(set, get, (d, ctx) => ops.insertClips(d, clips, at, ctx));
+    if (out.length) set({ selection: { clipIds: out, transitionId: null } });
+    return out;
+  },
   trimStart: (clipId, newStart) => edit(set, get, (d, ctx) => ops.trimStart(d, clipId, newStart, ctx)),
   trimEnd: (clipId, newEnd) => edit(set, get, (d, ctx) => ops.trimEnd(d, clipId, newEnd, ctx)),
   splitClip: (clipId, t) => edit(set, get, (d) => ops.splitClip(d, clipId, t)),
@@ -464,6 +500,10 @@ export const useEditor = create<EditorState>()((set, get) => ({
 
   // ---- playback
   setPlayhead: (t) => set({ playhead: Math.max(0, Math.round(t)) }),
+  setPreviewTime: (t) => {
+    const v = t === null ? null : Math.max(0, Math.round(t));
+    if (get().previewTime !== v) set({ previewTime: v });
+  },
   stepFrames: (n) => {
     const s = get();
     const fps = s.project.settings.fps;

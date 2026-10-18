@@ -91,10 +91,12 @@ const visualDefaults = () => ({
   transform: defaultTransform(),
   crop: defaultCrop(),
   blend: 'normal' as const,
+  blendEnabled: true,
   animationIn: null,
   animationOut: null,
   filter: null,
   adjust: defaultAdjust(),
+  adjustEnabled: true,
 });
 
 export function createProject(opts: { name?: string; aspect?: AspectRatio } = {}): Project {

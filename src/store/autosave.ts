@@ -53,8 +53,19 @@ export function startAutosave(): () => void {
   };
 }
 
-/** Loads the last saved project into the store. Returns true when one was found. */
-export async function bootProject(): Promise<boolean> {
+let booting: Promise<boolean> | null = null;
+
+/**
+ * Loads the last saved project into the store. Returns true when one was found.
+ * Single-flight: React StrictMode runs the boot effect twice in dev, and a second boot would
+ * re-register every asset URL and revoke the first ones while media elements still load them.
+ */
+export function bootProject(): Promise<boolean> {
+  booting ??= doBoot();
+  return booting;
+}
+
+async function doBoot(): Promise<boolean> {
   try {
     const p = await loadLastProject();
     if (!p) return false;

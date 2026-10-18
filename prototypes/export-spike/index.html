@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Export spike</title>
+<style>body{font:14px system-ui;margin:16px;background:#111;color:#eee}button{margin-right:8px}#log{white-space:pre-wrap;font-family:ui-monospace,monospace}progress{width:320px}</style>
+</head>
+<body>
+  <h1>Our Editor — export spike</h1>
+  <p>3 s, 1080x1920 @ 30 fps, H.264 + AAC MP4 via Mediabunny (WebM MediaRecorder fallback). Add <code>?force=webm</code> to test the fallback.</p>
+  <button id="go">Export</button><button id="cancel" disabled>Cancel</button>
+  <progress id="bar" max="1" value="0"></progress> <span id="pct"></span>
+  <div id="log"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
