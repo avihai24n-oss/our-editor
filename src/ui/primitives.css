@@ -1,0 +1,182 @@
+/* Our Editor — UI primitives. Theme variables are optional; every one has a CapCut fallback. */
+
+.oe-icon {
+  display: block;
+  flex: none;
+}
+
+/* ---------------- IconButton ---------------- */
+
+.oe-iconbtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text, #e6e6e6);
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.oe-iconbtn--sm { width: 24px; height: 24px; border-radius: 4px; }
+.oe-iconbtn--md { width: 28px; height: 28px; }
+.oe-iconbtn--lg { width: 36px; height: 36px; border-radius: 8px; }
+
+.oe-iconbtn:hover:not(:disabled) {
+  background: var(--bg-hover, #333336);
+}
+.oe-iconbtn:active:not(:disabled) {
+  background: var(--bg-active, #3a3a3e);
+}
+.oe-iconbtn.is-active {
+  color: var(--accent, #22d3ee);
+}
+.oe-iconbtn.is-active:hover:not(:disabled) {
+  background: var(--accent-dim, rgba(34, 211, 238, 0.16));
+}
+.oe-iconbtn:disabled {
+  color: var(--text-faint, #5c5c60);
+  cursor: default;
+}
+.oe-iconbtn:focus-visible {
+  outline: 1.5px solid var(--accent, #22d3ee);
+  outline-offset: 1px;
+}
+
+.oe-iconbtn__caret {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: 0.8;
+}
+.oe-iconbtn__dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #22d3ee);
+}
+
+/* ---------------- Button ---------------- */
+
+.oe-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, opacity 0.12s;
+}
+.oe-btn--sm { height: 24px; padding: 0 8px; font-size: 12px; border-radius: 4px; }
+.oe-btn--md { height: 28px; padding: 0 12px; font-size: 13px; }
+.oe-btn--lg { height: 34px; padding: 0 16px; font-size: 14px; }
+.oe-btn--block { display: flex; width: 100%; }
+
+.oe-btn--primary {
+  background: var(--accent, #22d3ee);
+  color: var(--text-on-accent, #0b1a1c);
+}
+.oe-btn--primary:hover:not(:disabled) { background: var(--accent-hover, #4fdcf2); }
+.oe-btn--primary:active:not(:disabled) { background: var(--accent-pressed, #17b5cc); }
+
+.oe-btn--secondary {
+  background: var(--bg-raised, #2c2c2f);
+  color: var(--text, #e6e6e6);
+}
+.oe-btn--secondary:hover:not(:disabled) { background: var(--bg-hover, #333336); }
+.oe-btn--secondary:active:not(:disabled) { background: var(--bg-active, #3a3a3e); }
+
+.oe-btn--ghost {
+  background: transparent;
+  color: var(--text, #e6e6e6);
+}
+.oe-btn--ghost:hover:not(:disabled) { background: var(--bg-hover, #333336); }
+
+.oe-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.oe-btn:focus-visible {
+  outline: 1.5px solid var(--accent, #22d3ee);
+  outline-offset: 2px;
+}
+
+/* ---------------- Toolbar ---------------- */
+
+.oe-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.oe-divider {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--border-strong, #404044);
+}
+
+/* ---------------- Gallery (dev only) ---------------- */
+
+.oe-gallery {
+  padding: 16px;
+  background: var(--bg-window, #0f0f10);
+  color: var(--text, #e6e6e6);
+  font: 13px/1.4 var(--font, system-ui, sans-serif);
+  min-height: 100%;
+  box-sizing: border-box;
+}
+.oe-gallery h2 {
+  margin: 20px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim, #8a8a8a);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.oe-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+}
+.oe-gallery__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 4px 8px;
+  border-radius: 8px;
+  background: var(--bg-panel, #1c1c1e);
+}
+.oe-gallery__cell span {
+  font-size: 11px;
+  color: var(--text-dim, #8a8a8a);
+  text-align: center;
+  word-break: break-word;
+}
+.oe-gallery__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--bg-panel, #1c1c1e);
+}
