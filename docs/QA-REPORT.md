@@ -165,3 +165,119 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
 
 **Persistence**
 - One project at a time (the last one opened). There is no project list or home screen yet.
+
+## Memory — 2026-10-19
+
+**Incident.** On 18 Oct the Mac (24 GB) ran out of swap and froze. Activity Monitor showed Google
+Chrome at ~8 GB, with the editor open in a tab that was not being used (a few clips imported
+earlier). After the reboot Chrome wrote 2.1 GB to disk in ~4.5 min.
+
+**How it was measured.** A probe drove one Playwright Chromium at a time against its own Vite on a
+private port. Every 5 s it sampled the JS heap (CDP `Performance.getMetrics` after a forced GC), the
+DOM counters, the RSS and the **phys_footprint** of the browser's process tree (`top` MEM, the
+number Activity Monitor shows), counters for rAF / timers / object URLs / `<video>` / canvas /
+`toBlob` / `fetch` / `decodeAudioData` calls, and every IndexedDB `put` (wrapped by an init script)
+with the profile's IndexedDB folder size. A kill switch stopped the run above 3 GB or below 20 %
+free system memory; none came close. Media was `test-media/` plus a 60 s 1080×1920 clip
+(`v-long-60s.mp4`, 30 MB). The runs were repeated in Chromium with the Metal GPU (like real Chrome)
+and in the headless shell (software decode and raster).
+
+### What made the tab big
+
+1. **Nothing grew on its own in JavaScript.** In every scenario the idle tab made **0 rAF calls, 0
+   IndexedDB writes and 0 extra object URLs**. The JS heap stayed at 5.6 MB (empty) and 8–12 MB
+   (with media) for 3 minutes. That held with the tab hidden, after playback, and with Vite HMR
+   reloading the page every 5 s. There was no autosave loop and no store → save → store loop.
+2. **The memory was media decoders that the app never released while it was idle.** Each live
+   `<video>` holds a demuxer, a decoder and its frame pool: **~30 MB per 1080×1920 element in GPU
+   Chromium** (renderer + GPU) and ~70 MB in the software path. 4K phone footage is 4× the pixels.
+   - **Timeline filmstrip:** one hidden `<video preload=auto>` per asset, kept for the whole
+     session. Removing an asset only dropped `src` without `load()`, so the element kept its
+     resource.
+   - **Preview pool:** one `<video>` per *clip* (not per asset), capped at 12. Elements were only
+     freed inside a render, so a paused, idle editor never freed anything. After scrubbing 8 clips,
+     8–9 decoders stayed alive indefinitely, and elements of deleted clips stayed in the DOM.
+   - **Preview audio:** one `<audio>` per audible clip, with no cap. They were only freed during
+     playback, so after a pause they all stayed. The AudioContext also kept running while paused.
+   - Result: after 60 s of playback 8 media elements stayed alive. After 6 delete/re-import cycles
+     15 stayed alive, and that count never came back down.
+3. **Waveforms read the whole file into memory.** `fetch(url).arrayBuffer()` followed by
+   `decodeAudioData` on the entire file. For the 30 MB clip that was a +30 MB JS-heap peak and
+   **+154 MB** in the renderer, and the cost grows with file size (a 1.5 GB phone clip means a
+   1.5 GB ArrayBuffer plus the decode). It ran again after every reload for every audio clip,
+   including audio extracted from video clips.
+4. **Blob writes.** Every import writes the whole file to IndexedDB: 41 MB of media meant 41 MB
+   written, and importing a file that was already in the bin wrote it a second time. While idle the
+   app wrote **0 bytes** (no `put` at all, and the profile's IndexedDB folder size stayed flat), and
+   a project save is a few KB. So the 2.1 GB of post-reboot writes did not come from an autosave
+   loop. Importing large phone clips does write their full size, once per import.
+
+Our test files are small, so we could not reproduce 8 GB exactly. The mechanism is the count of
+live decoders multiplied by their size, plus whole-file waveform decodes. Neither came back down
+while the tab sat idle, and both scale with real 4K footage.
+
+**Not an app leak, for the record.** In the headless shell, every `drawImage` of a freshly seeked
+frame left ~6 MB of renderer memory behind (100 draws = +600 MB). A `critical` memory-pressure
+notification did not release it. The same test in GPU Chromium (ANGLE/Metal, which is what Chrome
+uses) retained nothing (+61 MB for 100 draws, about the same as 100 `VideoFrame.copyTo`). So the
+headless RSS numbers below include that artefact. The phys_footprint table from GPU Chromium is the
+one to trust.
+
+### Fixes
+
+| Area | Before | Now |
+|---|---|---|
+| Preview `<video>` pool | 12 per clip, freed only during a render | **≤ 6**, LRU. Off-screen elements are freed 3 s later by **one one-shot timer**, also while paused. Release = pause, drop `src`, `load()`, detach. Images are capped at 12 and swept the same way. |
+| Preview `<audio>` voices | unbounded, freed only while playing | **≤ 8**, LRU. All are freed 3 s after a pause. The AudioContext is suspended. |
+| Hidden tab | everything stayed alive | `visibilitychange` → pause, release every decoder and voice, no renders. Visible again → exactly one frame is drawn. |
+| Filmstrip grabber `<video>` | one per asset, kept forever | lives only while it has work, freed 2 s after its queue drains (with `load()`), recreated on demand |
+| Filmstrip thumbnails | 1500 entries, no byte limit | `ByteLRU` with a **150 MB** budget (JPEG + decoded tile) and 4000 entries. Evicted object URLs are revoked. Each grab canvas is zeroed after `toBlob`. |
+| Library posters | unbounded `Map` of data URLs | `ByteLRU` with a **24 MB** budget, dropped when the asset is removed |
+| Waveform peaks | whole file → `arrayBuffer` → `decodeAudioData` | **streamed** with Mediabunny (`BlobSource` reads in chunks, `AudioSampleSink` decodes chunk by chunk). Each chunk is reduced into a `PeakAccumulator` and closed. Only the envelope is kept (200 floats/s, ≈ 2.9 MB per hour), in a `ByteLRU` with a **32 MB** budget. One decode at a time. The Web Audio fallback only runs for files ≤ 64 MB, and its buffer is dropped. |
+| Object URLs | revoked on asset removal | still revoked. The registry also keeps the Blob, so readers stream it instead of fetching a copy. |
+| IndexedDB blobs | written on every import, even when the same file was already in the bin | written **once**. Importing a file that is still stored (same name, size and mtime) reuses the stored blob. A blob deleted with its asset is written again on the next import. |
+| Autosave | 0.8 s debounce on every project change | 0.8 s debounce, **≥ 2 s between writes**, and **skipped when the JSON (minus `updatedAt`) is unchanged**. JSON only, never Blobs. A save only touches `saveStatus`, so it cannot schedule another save. |
+| Undo history | 200 snapshots | 200 steps **and** ≈ 64 MB of estimated JSON (measured once per snapshot in a WeakMap). Snapshots are JSON-only (tested). |
+| Watchdog | none | Every 30 s it reads `measureUserAgentSpecificMemory` (when cross-origin isolated) or `performance.memory`. Above **1.5 GB** of heap it flushes every registered cache (filmstrip, posters, peaks, off-screen decoders) and shows the toast **"Memory high — caches cleared"**. It stops while the tab is hidden. |
+| Debug readout | none | `?debug=1`: heap / soft limit, thumbnail entries and MB, peaks MB, live preview videos / images / audio + grabbers, object URLs, undo steps and project writes. Refreshes every 2 s, only while visible. |
+
+All limits live in `src/media/memory.ts` (`MEMORY_LIMITS`).
+
+### Before vs after
+
+GPU Chromium (ANGLE / Metal), phys_footprint of the whole browser in MB. Media = 5 files incl.
+the 60 s 1080×1920 clip, all on the timeline. "Live media" is the number of `<video>`/`<audio>`
+elements still holding a source at the end of the idle period.
+
+| Scenario | Footprint at idle start (before → after) | Footprint at idle end (before → after) | Live media at end (before → after) | Idle rAF / IDB writes (before → after) |
+|---|---|---|---|---|
+| b. media on timeline, idle 90 s | 679 → 677 | 557 → **488** | 4 → **1** | 0 / 0 → 0 / 0 |
+| c. same, tab hidden 60 s | 745 → 673 | 585 → **504** | 4 → **0** | 0 / 0 → 0 / 0 |
+| d. 60 s playback, then idle 60 s | 688 → 703 | 586 → 593 | 8 → **1** | 0 / 0 → 0 / 0 |
+| e. 6 × (scrub 40 positions, zoom, delete all, re-import), idle 45 s | 1158 → **883** | 843 → **643** | 13 → **1** | 0 / 0 → 0 / 0 |
+| 8 × 60 s clips, scrub 60 positions, idle 60 s | 919 → **772** | 747 → **570** | 9 → **1** | 0 / 0 → 0 / 0 |
+
+Headless shell (software decode), RSS of the whole browser in MB, idle 3 min unless noted:
+
+| Scenario | Peak (before → after) | Idle end (before → after) | JS heap idle start → end (after) |
+|---|---|---|---|
+| a. empty project, 170 s | 360 → 363 | 359 → 362 | 5.7 → 5.7 MB |
+| b. media on timeline, 170 s | 1076 → 1023 | 1040 → **449** | 8.5 → 8.5 MB |
+| d. playback then idle 120 s | 1603 → **1424** | 1510 → **1309** | 9.6 → 9.6 MB |
+| e. cycles, idle 60 s | 2053 → **1606** | 998 → 1460 ¹ | 11.9 → 11.8 MB |
+| 8 clips scrubbed, idle 90 s | 1808 → **1386** | 994 → 1276 ¹ | 9.2 → 9.2 MB |
+
+¹ Between 40 and 90 s into the idle period, Chromium's own idle-player suspension released the
+(still alive) old elements in the before runs. The after runs had already released them, but the
+headless shell's drawImage artefact above keeps their memory in RSS. The footprint table is the one
+that reflects real Chrome.
+
+### Regression tests
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **334 / 334 pass** (22 files). New: `src/media/memory.test.ts` covers the LRU (budget, count cap, oversize reject, replace and evict, `deleteWhere`/`clear`, `close()` of VideoFrame-like values), the cache registry, and the watchdog decision plus its interval stopping while hidden and leaving no timer behind. `src/player/pool.test.ts` (jsdom) checks the ≤ 6 video cap, the release while paused with the timer disarming afterwards, `releaseAll`, the audio voice cap, release after a pause and resume cancelling it, and that `PreviewEngine` runs no rAF while paused, pauses and frees everything when hidden, and draws exactly one frame when visible again. `src/store/autosave.test.ts` checks there is no write in 10 idle minutes, that a save never schedules a save, debounce plus the minimum gap, the skip when unchanged, and that only JSON is written. `src/store/history.test.ts` checks the count and byte caps and that snapshots are JSON-only. `peaks.test.ts` checks that the streamed envelope equals `computePeaks` and stays at 200 floats/s. |
+| `npm run build` | passes |
+| `e2e/memory.spec.ts` | pass. It imports 5 files onto the timeline and idles 75 s. The JS heap is 9.01 → 9.02 MB, browser RSS 929 → 905 MB (samples 928 → 905, never rising), and **0 IndexedDB writes and 0 rAF calls** while idle. Live: 1 preview video, 0 voices, 0 grabbers. Hidden: 0 elements and no rAF. Visible again: 1 video. A second test checks that after playback every off-screen decoder is released while paused. |
+| `e2e/smoke.spec.ts`, `flows.spec.ts`, `shortcuts.spec.ts` | pass (run one at a time, `--workers=1`) |

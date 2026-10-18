@@ -41,6 +41,7 @@ import type {
   TransitionType,
   Us,
 } from '../model/types';
+import { capHistory } from './history';
 import * as ops from './ops';
 
 export type SelectMode = 'replace' | 'add' | 'toggle';
@@ -215,7 +216,7 @@ function edit<T>(set: SetFn, get: GetFn, recipe: (draft: Project, ctx: ops.EditC
   if (s.txBase) {
     set({ project: next });
   } else {
-    set({ project: next, past: [...s.past, before].slice(-LIMITS.undoCap), future: [] });
+    set({ project: next, past: capHistory([...s.past, before]), future: [] });
   }
   pruneSelection(set, get);
   return result;
@@ -614,7 +615,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const { past, future, project } = get();
     const next = future[0];
     if (!next) return;
-    set({ project: withAssets(next, project), past: [...past, project].slice(-LIMITS.undoCap), future: future.slice(1), playing: false });
+    set({ project: withAssets(next, project), past: capHistory([...past, project]), future: future.slice(1), playing: false });
     pruneSelection(set, get);
   },
   beginTx: () => {
@@ -624,7 +625,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   commitTx: () => {
     const s = get();
     if (!s.txBase) return;
-    if (s.txBase !== s.project) set({ past: [...s.past, s.txBase].slice(-LIMITS.undoCap), future: [], txBase: null });
+    if (s.txBase !== s.project) set({ past: capHistory([...s.past, s.txBase]), future: [], txBase: null });
     else set({ txBase: null });
   },
   cancelTx: () => {

@@ -11,6 +11,9 @@ if (import.meta.env.DEV) {
   void import('./store').then(({ useEditor }) => {
     (window as unknown as { __oe?: typeof useEditor }).__oe = useEditor;
   });
+  void Promise.all([import('./ui/MemoryReadout'), import('./media/memory')]).then(([readout, memory]) => {
+    (window as unknown as { __oeMem?: unknown }).__oeMem = { snapshot: readout.memorySnapshot, flush: memory.flushAllCaches };
+  });
 }
 
 createRoot(document.getElementById('root')!).render(

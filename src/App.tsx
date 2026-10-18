@@ -16,6 +16,9 @@ import { onAppEvent } from './ui/appEvents';
 import { Icon } from './ui/Icon';
 import { ShortcutsPanel } from './ui/ShortcutsPanel';
 import { Toaster } from './ui/Toaster';
+import { startMemoryWatchdog } from './media/watchdog';
+import { showToast } from './ui/appEvents';
+import { debugEnabled, MemoryReadout } from './ui/MemoryReadout';
 
 interface Sizes {
   left: number; // px
@@ -68,6 +71,7 @@ function TopBar({ onExport, onShortcuts }: { onExport: () => void; onShortcuts: 
   const setProjectName = useEditor((s) => s.setProjectName);
   const saveStatus = useEditor((s) => s.saveStatus);
   const [draft, setDraft] = useState<string | null>(null);
+  const [showDebug] = useState(debugEnabled);
   const saved = saveStatus.error
     ? `Save failed: ${saveStatus.error}`
     : saveStatus.saving
@@ -77,7 +81,10 @@ function TopBar({ onExport, onShortcuts }: { onExport: () => void; onShortcuts: 
         : 'Not saved yet';
   return (
     <header className="topbar">
-      <div className="topbar__left">{saved}</div>
+      <div className="topbar__left">
+        <span>{saved}</span>
+        {showDebug && <MemoryReadout />}
+      </div>
       <div className="topbar__title">
         <input
           aria-label="Project name"
@@ -133,6 +140,9 @@ export default function App() {
       stop?.();
     };
   }, []);
+
+  // Memory watchdog: past the heap soft limit, flush the media caches and say so.
+  useEffect(() => startMemoryWatchdog({ onFlush: () => showToast('Memory high — caches cleared') }), []);
 
   // ⌘E comes through the shared shortcut table (src/timeline/shortcutDefs.ts)
   useEffect(() => onAppEvent('export', () => setExportOpen(true)), []);

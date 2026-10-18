@@ -98,8 +98,19 @@ real-time WebM export.
   belong to the browser and cannot be taken by a web page.
 
 **Persistence**
-- The project JSON and the media blobs live in IndexedDB.
-- The project autosaves 0.8 s after each change and reloads on the next visit.
+- The project JSON and the media blobs live in IndexedDB. A media file is written once, at import.
+- The project JSON autosaves 0.8 s after each change (at most one write per 2 s, skipped when
+  nothing changed) and reloads on the next visit. An idle tab writes nothing.
+
+**Memory limits** (all in `src/media/memory.ts`; measurements in `docs/QA-REPORT.md` § Memory)
+- Preview: at most 6 hidden `<video>` and 8 `<audio>` elements; anything the current frame does not
+  use is released 3 s later, also while paused. A hidden tab pauses and releases every decoder.
+- Caches are byte-budgeted LRUs: filmstrip thumbnails 150 MB, library posters 24 MB, waveform
+  peaks 32 MB. Waveforms are decoded by streaming the file (Mediabunny), never the whole file.
+- Undo: 200 steps and about 64 MB of snapshots.
+- A watchdog reads the JS heap every 30 s; past 1.5 GB it clears the caches and shows
+  "Memory high — caches cleared". Open the app with `?debug=1` for a live memory readout in the
+  top bar.
 
 **Export**
 - MP4: H.264 + AAC, muxed with Mediabunny and frame-exact.

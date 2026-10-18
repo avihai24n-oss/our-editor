@@ -1,15 +1,23 @@
 /**
- * Video frame thumbnails for the timeline filmstrip: one hidden <video> per asset, frames grabbed
- * by seeking and drawing to a canvas, stored as small JPEG object URLs in an LRU cache.
- * Requests are served newest-first (LIFO), so tiles that just scrolled into view load first.
- * Browser only.
+ * Video frame thumbnails for the timeline filmstrip: a hidden <video> per asset grabs frames by
+ * seeking and drawing to a canvas; they are stored as small JPEG object URLs in a byte-budgeted
+ * LRU (MEMORY_LIMITS.thumbBytes). Requests are served newest-first (LIFO), so tiles that just
+ * scrolled into view load first.
+ *
+ * Memory rules: the grabber <video> (a decoder) only lives while it has work — it is released
+ * MEMORY_LIMITS.grabberIdleMs after its queue drains, and recreated on the next request. Evicted
+ * thumbnails have their object URL revoked. Browser only.
  */
+import { ByteLRU } from '../../media/lru';
+import { MEMORY_LIMITS, registerCache } from '../../media/memory';
 import type { Id } from '../../model/types';
 
-const MAX_ENTRIES = 1500;
-
-/** key → object URL (insertion order = LRU order). */
-const cache = new Map<string, string>();
+/** key → object URL. */
+const cache = new ByteLRU<string>({
+  maxBytes: MEMORY_LIMITS.thumbBytes,
+  maxEntries: MEMORY_LIMITS.thumbEntries,
+  onEvict: (_k, url) => URL.revokeObjectURL(url),
+});
 const waiters = new Map<string, ((url: string | null) => void)[]>();
 
 interface Job {
@@ -24,6 +32,7 @@ interface Grabber {
   ready: Promise<boolean>;
   queue: Job[];
   busy: boolean;
+  idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const grabbers = new Map<Id, Grabber>();
@@ -32,13 +41,7 @@ export const thumbKey = (assetId: Id, timeSec: number, height: number): string =
 
 /** Cached thumbnail URL, or undefined. */
 export function peekThumb(assetId: Id, timeSec: number, height: number): string | undefined {
-  const key = thumbKey(assetId, timeSec, height);
-  const v = cache.get(key);
-  if (v) {
-    cache.delete(key);
-    cache.set(key, v);
-  }
-  return v;
+  return cache.get(thumbKey(assetId, timeSec, height));
 }
 
 /** Resolves an object URL of the frame at `timeSec` (already quantised by the caller), or null. */
@@ -61,8 +64,12 @@ export function getThumb(assetId: Id, url: string, timeSec: number, height: numb
 
 function grabberFor(assetId: Id, url: string): Grabber {
   const old = grabbers.get(assetId);
-  if (old && old.url === url) return old;
-  if (old) old.video.removeAttribute('src');
+  if (old && old.url === url) {
+    if (old.idleTimer) clearTimeout(old.idleTimer);
+    old.idleTimer = null;
+    return old;
+  }
+  if (old) releaseGrabber(assetId, old);
   const video = document.createElement('video');
   video.muted = true;
   video.preload = 'auto';
@@ -73,7 +80,7 @@ function grabberFor(assetId: Id, url: string): Grabber {
     video.addEventListener('error', () => resolve(false), { once: true });
   });
   video.src = url;
-  const g: Grabber = { url, video, ready, queue: [], busy: false };
+  const g: Grabber = { url, video, ready, queue: [], busy: false, idleTimer: null };
   grabbers.set(assetId, g);
   return g;
 }
@@ -85,32 +92,46 @@ async function pump(g: Grabber): Promise<void> {
     const ok = await g.ready;
     while (g.queue.length) {
       const job = g.queue.pop()!; // LIFO: newest request first
-      if (cache.has(job.key)) {
-        settle(job.key, cache.get(job.key)!);
+      const hit = cache.get(job.key);
+      if (hit) {
+        settle(job.key, hit);
         continue;
       }
       const out = ok ? await grab(g.video, job.time, job.height).catch(() => null) : null;
-      if (out) put(job.key, out);
-      settle(job.key, out);
+      const stored = out && cache.set(job.key, out.url, out.bytes) ? out.url : null;
+      settle(job.key, stored);
     }
   } finally {
     g.busy = false;
+    scheduleRelease(g);
   }
 }
+
+/** Frees the grabber's decoder once it has had no work for a moment. */
+function scheduleRelease(g: Grabber): void {
+  if (g.idleTimer) clearTimeout(g.idleTimer);
+  g.idleTimer = setTimeout(() => {
+    g.idleTimer = null;
+    if (g.busy || g.queue.length) return;
+    for (const [id, x] of grabbers) if (x === g) releaseGrabber(id, g);
+  }, MEMORY_LIMITS.grabberIdleMs);
+}
+
+function releaseGrabber(assetId: Id, g: Grabber): void {
+  if (g.idleTimer) clearTimeout(g.idleTimer);
+  g.idleTimer = null;
+  g.video.removeAttribute('src');
+  g.video.load(); // without load() the element keeps the old resource (and its decoder)
+  if (grabbers.get(assetId) === g) grabbers.delete(assetId);
+}
+
+/** Live grabber elements (for tests and the debug readout). */
+export const liveGrabbers = (): number => grabbers.size;
 
 function settle(key: string, url: string | null): void {
   const list = waiters.get(key);
   waiters.delete(key);
   list?.forEach((r) => r(url));
-}
-
-function put(key: string, url: string): void {
-  cache.set(key, url);
-  while (cache.size > MAX_ENTRIES) {
-    const oldest = cache.keys().next().value as string;
-    URL.revokeObjectURL(cache.get(oldest)!);
-    cache.delete(oldest);
-  }
 }
 
 function seek(video: HTMLVideoElement, t: number): Promise<void> {
@@ -143,7 +164,7 @@ function seek(video: HTMLVideoElement, t: number): Promise<void> {
   });
 }
 
-async function grab(video: HTMLVideoElement, t: number, height: number): Promise<string | null> {
+async function grab(video: HTMLVideoElement, t: number, height: number): Promise<{ url: string; bytes: number } | null> {
   await seek(video, t);
   const vw = video.videoWidth || 16;
   const vh = video.videoHeight || 9;
@@ -157,18 +178,24 @@ async function grab(video: HTMLVideoElement, t: number, height: number): Promise
   if (!ctx) return null;
   ctx.drawImage(video, 0, 0, w, h);
   const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.7));
-  return blob ? URL.createObjectURL(blob) : null;
+  // free the canvas backing store now rather than at the next GC
+  canvas.width = 0;
+  canvas.height = 0;
+  // the JPEG blob plus the decoded bitmap the browser keeps for a visible tile
+  return blob ? { url: URL.createObjectURL(blob), bytes: blob.size + w * h * 4 } : null;
 }
 
 /** Drops the grabber and cached frames of one asset. */
 export function forgetThumbs(assetId: Id): void {
   const g = grabbers.get(assetId);
-  if (g) g.video.removeAttribute('src');
-  grabbers.delete(assetId);
-  for (const [k, url] of cache) {
-    if (k.startsWith(`${assetId}@`)) {
-      URL.revokeObjectURL(url);
-      cache.delete(k);
-    }
-  }
+  if (g) releaseGrabber(assetId, g);
+  cache.deleteWhere((k) => k.startsWith(`${assetId}@`));
 }
+
+/** Drops every cached thumbnail and idle grabber (memory watchdog). Visible tiles re-request. */
+export function flushThumbs(): void {
+  cache.clear();
+  for (const [id, g] of [...grabbers]) if (!g.busy && !g.queue.length) releaseGrabber(id, g);
+}
+
+registerCache('filmstrip', flushThumbs, () => ({ entries: cache.size, bytes: cache.bytes }));

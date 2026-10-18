@@ -5,9 +5,16 @@
  * - Playing: a requestAnimationFrame loop reads the clock (AudioContext time when audio is
  *   running), renders getFrameState(project, t), keeps media elements in sync, and writes the
  *   playhead to the store ~30×/s. An external playhead change while playing (scrub) re-anchors.
+ *
+ * Idle rules: nothing runs while paused except one-shot renders after a change. When the tab is
+ * hidden the engine pauses playback and frees every media element and the audio voices (the
+ * AudioContext is suspended); when it is visible again one frame is rendered and only the
+ * elements that frame needs come back. Registered as the "preview" cache so the memory watchdog
+ * can flush it.
  */
 import { getFrameState, type MediaDrawOp } from '../engine/frameState';
 import { createLayerProvider, renderFrame, type DrawnBox } from '../engine/render';
+import { registerCache } from '../media/memory';
 import { onAssetUrlsChange } from '../media/registry';
 import { projectDuration } from '../model/time';
 import type { Id, Us } from '../model/types';
@@ -18,6 +25,10 @@ import { MediaPool } from './mediaPool';
 
 const PRELOAD_AHEAD_US = 800_000;
 const STORE_WRITE_MS = 33;
+
+let active: PreviewEngine | null = null;
+/** The mounted engine (debug readout, e2e). */
+export const activePreviewEngine = (): PreviewEngine | null => active;
 
 export interface PreviewEngineOptions {
   onBoxes?: (boxes: DrawnBox[]) => void;
@@ -47,13 +58,30 @@ export class PreviewEngine {
   }
 
   start(): void {
+    active = this;
     this.unsub.push(useEditor.subscribe((s, prev) => this.onStore(s, prev)));
     this.unsub.push(onAssetUrlsChange(() => this.invalidate()));
+    if (typeof document !== 'undefined') {
+      const onVis = () => this.onVisibility(document.visibilityState === 'hidden');
+      document.addEventListener('visibilitychange', onVis);
+      this.unsub.push(() => document.removeEventListener('visibilitychange', onVis));
+    }
+    this.unsub.push(
+      registerCache(
+        'preview',
+        () => this.flush(),
+        () => {
+          const p = this.pool.stats();
+          return { entries: p.videos + p.images + this.audio.voiceCount, bytes: 0 };
+        },
+      ),
+    );
     if (useEditor.getState().playing) void this.startPlayback();
     else this.invalidate();
   }
 
   dispose(): void {
+    if (active === this) active = null;
     this.disposed = true;
     this.unsub.forEach((u) => u());
     this.unsub = [];
@@ -81,6 +109,8 @@ export class PreviewEngine {
   /** Re-render the current playhead on the next animation frame (paused mode). */
   invalidate(): void {
     if (this.disposed || this.clock.isRunning || this.pendingRender) return;
+    // a hidden tab draws nothing (and must not recreate decoders); visibilitychange re-renders
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     this.pendingRender = requestAnimationFrame(() => {
       this.pendingRender = 0;
       if (this.clock.isRunning) return;
@@ -91,6 +121,35 @@ export class PreviewEngine {
       // at the very end show the last frame instead of an empty canvas
       this.renderAt(end > 0 && t >= end ? Math.max(0, end - 1) : t, false);
     });
+  }
+
+  /** Live media elements (tests, debug readout). */
+  stats(): { videos: number; images: number; voices: number; looping: boolean } {
+    return { ...this.pool.stats(), voices: this.audio.voiceCount, looping: this.raf !== 0 || this.pendingRender !== 0 };
+  }
+
+  /** Tab hidden: stop playback and free every decoder. Visible again: draw the current frame. */
+  onVisibility(hidden: boolean): void {
+    if (this.disposed) return;
+    if (hidden) {
+      if (useEditor.getState().playing) useEditor.getState().pause(); // → stopPlayback
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+      cancelAnimationFrame(this.pendingRender);
+      this.pendingRender = 0;
+      this.pool.releaseAll();
+      this.audio.releaseAll();
+    } else {
+      this.invalidate();
+    }
+  }
+
+  /** Memory watchdog: free everything off screen, keep drawing the current frame. */
+  private flush(): void {
+    if (this.clock.isRunning) return;
+    this.pool.releaseAll();
+    this.audio.releaseAll();
+    this.invalidate();
   }
 
   // ---------------------------------------------------------------- store

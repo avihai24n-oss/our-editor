@@ -60,3 +60,39 @@ describe('filmstrip maths', () => {
     expect(tileRange(1200, 1300, 50, 1000)).toEqual([0, -1]);
   });
 });
+
+describe('PeakAccumulator (streamed waveform)', () => {
+  it('gives the same envelope as computePeaks when fed in chunks', async () => {
+    const { PeakAccumulator } = await import('./peaks');
+    const sr = 8000;
+    const n = sr * 3;
+    const a = new Float32Array(n);
+    const b = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      a[i] = Math.sin(i / 7) * ((i % 3000) / 3000);
+      b[i] = Math.cos(i / 11) * 0.3;
+    }
+    const whole = computePeaks([a, b], sr);
+    const acc = new PeakAccumulator(200, 3);
+    for (let s = 0; s < n; s += 1152) {
+      const e = Math.min(n, s + 1152);
+      acc.push([a.slice(s, e), b.slice(s, e)], sr, s / sr);
+    }
+    const streamed = acc.result(3);
+    expect(streamed.data.length).toBe(whole.data.length);
+    let maxDiff = 0;
+    for (let i = 0; i < whole.data.length; i++) maxDiff = Math.max(maxDiff, Math.abs(whole.data[i]! - streamed.data[i]!));
+    expect(maxDiff).toBeLessThan(1e-6);
+  });
+
+  it('keeps only the envelope: 200 floats per second, however long the source', async () => {
+    const { PeakAccumulator } = await import('./peaks');
+    const acc = new PeakAccumulator(200, 0);
+    const chunk = new Float32Array(48_000).fill(0.5);
+    for (let s = 0; s < 60; s++) acc.push([chunk], 48_000, s); // one minute, chunk by chunk
+    const p = acc.result();
+    expect(p.data.length).toBe(200 * 60);
+    expect(p.data.byteLength).toBe(200 * 60 * 4);
+    expect(p.data[100]).toBeCloseTo(0.5);
+  });
+});

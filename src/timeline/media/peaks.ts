@@ -37,6 +37,58 @@ export function computePeaks(channels: readonly Float32Array[], sampleRate: numb
   return { data, pps, duration };
 }
 
+/**
+ * Streaming version of computePeaks: feed decoded chunks in order (or with their timestamps) and
+ * read the envelope at the end. Only the envelope is kept — never the PCM — so a long file costs
+ * PEAKS_PER_SEC × 4 bytes per second (≈ 2.9 MB per hour) however big it is.
+ */
+export class PeakAccumulator {
+  private data: Float32Array;
+  private maxBucket = 0;
+
+  constructor(
+    readonly pps = PEAKS_PER_SEC,
+    expectedDurationSec = 0,
+  ) {
+    this.data = new Float32Array(Math.max(16, Math.ceil(expectedDurationSec * pps) + 1));
+  }
+
+  /** `channels` = planar samples of one chunk; `startSec` = the chunk's timestamp. */
+  push(channels: readonly Float32Array[], sampleRate: number, startSec: number): void {
+    if (sampleRate <= 0) return;
+    const per = sampleRate / this.pps;
+    const frames = channels.reduce((m, c) => Math.max(m, c.length), 0);
+    if (!frames) return;
+    const first = Math.max(0, Math.floor(startSec * this.pps));
+    const last = Math.max(first, Math.ceil((startSec + frames / sampleRate) * this.pps) - 1);
+    this.ensure(last + 1);
+    const offset = startSec * sampleRate; // fractional frame index of sample 0
+    for (const ch of channels) {
+      for (let i = 0; i < ch.length; i++) {
+        const b = Math.floor((offset + i) / per);
+        if (b < 0) continue;
+        const v = ch[i]! < 0 ? -ch[i]! : ch[i]!;
+        if (v > this.data[b]!) this.data[b] = v > 1 ? 1 : v;
+      }
+    }
+    if (last + 1 > this.maxBucket) this.maxBucket = last + 1;
+  }
+
+  /** The envelope so far. `durationSec` trims/extends to the known source duration. */
+  result(durationSec?: number): Peaks {
+    const buckets = durationSec !== undefined ? Math.max(0, Math.ceil(durationSec * this.pps)) : this.maxBucket;
+    this.ensure(buckets);
+    return { data: this.data.slice(0, buckets), pps: this.pps, duration: durationSec ?? buckets / this.pps };
+  }
+
+  private ensure(n: number): void {
+    if (n <= this.data.length) return;
+    const next = new Float32Array(Math.max(n, this.data.length * 2));
+    next.set(this.data);
+    this.data = next;
+  }
+}
+
 /** Max peak over source seconds [t0, t1). Out-of-range → 0. Always reads at least one bucket. */
 export function peakAt(p: Peaks, t0: number, t1: number): number {
   const n = p.data.length;

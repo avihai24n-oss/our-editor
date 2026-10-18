@@ -3,9 +3,14 @@
  * per-clip GainNode (volume dB × fades, from AudioOp.gain) → master → speakers.
  * Speed = element.playbackRate; "Change audio pitch" = !preservesPitch.
  * The AudioContext clock drives the playback clock (see PreviewEngine).
+ *
+ * Memory rules: at most MEMORY_LIMITS.previewVoices elements (LRU). After a pause every voice is
+ * released MEMORY_LIMITS.idleReleaseMs later by one one-shot timer (an <audio> on a video file
+ * holds a demuxer and an audio decoder); `releaseAll()` frees them at once (tab hidden, watchdog).
  */
 import type { AudioOp } from '../engine/frameState';
 import { getAssetUrl } from '../media/registry';
+import { MEMORY_LIMITS } from '../media/memory';
 import type { Id } from '../model/types';
 import { decideSync, MAX_RATE } from './sync';
 
@@ -18,12 +23,14 @@ interface Voice {
   lastUsed: number;
 }
 
-const EVICT_AFTER_MS = 8000;
+const EVICT_AFTER_MS = MEMORY_LIMITS.idleReleaseMs;
+const MAX_VOICES = MEMORY_LIMITS.previewVoices;
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private voices = new Map<Id, Voice>();
+  private releaseTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Lazily creates the AudioContext. Call from a user gesture path (play) when possible. */
   context(): AudioContext | null {
@@ -65,6 +72,7 @@ export class AudioEngine {
 
   /** Call every tick while playing. Ops come from getFrameState(project, t).audio. */
   sync(ops: readonly AudioOp[], fps: number): void {
+    this.cancelRelease();
     const ctx = this.ctx;
     const now = performance.now();
     const live = new Set<Id>();
@@ -100,14 +108,42 @@ export class AudioEngine {
       if (!v.el.paused) v.el.pause();
       if (now - v.lastUsed > EVICT_AFTER_MS) this.release(id, v);
     }
+    if (this.voices.size > MAX_VOICES) {
+      const old = [...this.voices.entries()].filter(([id]) => !live.has(id)).sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+      for (const [id, v] of old.slice(0, this.voices.size - MAX_VOICES)) this.release(id, v);
+    }
   }
 
+  /** Pause everything; the voices are freed a moment later unless playback resumes. */
   stopAll(): void {
     for (const v of this.voices.values()) if (!v.el.paused) v.el.pause();
+    this.cancelRelease();
+    if (!this.voices.size) return;
+    this.releaseTimer = setTimeout(() => {
+      this.releaseTimer = null;
+      this.releaseAll();
+    }, EVICT_AFTER_MS);
+  }
+
+  /** Frees every voice now (tab hidden, memory pressure). The AudioContext is suspended. */
+  releaseAll(): void {
+    this.cancelRelease();
+    for (const [id, v] of [...this.voices]) this.release(id, v);
+    if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend().catch(() => undefined);
+  }
+
+  get voiceCount(): number {
+    return this.voices.size;
+  }
+
+  private cancelRelease(): void {
+    if (this.releaseTimer) clearTimeout(this.releaseTimer);
+    this.releaseTimer = null;
   }
 
   dispose(): void {
-    for (const [id, v] of this.voices) this.release(id, v);
+    this.cancelRelease();
+    for (const [id, v] of [...this.voices]) this.release(id, v);
     void this.ctx?.close().catch(() => undefined);
     this.ctx = null;
     this.master = null;

@@ -5,7 +5,7 @@
 import { createAsset } from '../model/defaults';
 import { secToUs } from '../model/time';
 import type { Id, MediaAsset, MediaKind, Project } from '../model/types';
-import { getBlob, putBlob } from '../store/persistence';
+import { getBlob, hasBlob, putBlob } from '../store/persistence';
 import { registerAssetUrl } from './registry';
 
 export function kindOfFile(file: File): MediaKind | null {
@@ -106,13 +106,39 @@ export async function importFile(file: File): Promise<MediaAsset> {
     height: probe.height,
     hasAudio: kind === 'image' ? false : probe.hasAudio,
   });
-  try {
-    await putBlob(asset.blobKey, file);
-  } catch (e) {
-    console.warn('Could not persist media blob; it will be lost on reload', e);
+  // The blob is written ONCE: re-importing the same file this session reuses the stored copy
+  // instead of writing the whole file to IndexedDB again.
+  const sig = fileSignature(file);
+  const known = storedBySignature.get(sig);
+  let reused = false;
+  if (known) {
+    try {
+      reused = await hasBlob(known);
+    } catch {
+      reused = false;
+    }
+  }
+  if (reused && known) {
+    asset.blobKey = known;
+  } else {
+    try {
+      await putBlob(asset.blobKey, file);
+      storedBySignature.set(sig, asset.blobKey);
+    } catch (e) {
+      console.warn('Could not persist media blob; it will be lost on reload', e);
+    }
   }
   registerAssetUrl(asset.id, file);
   return asset;
+}
+
+/** name|size|lastModified → blobKey of a copy already written this session. */
+const storedBySignature = new Map<string, Id>();
+const fileSignature = (f: File): string => `${f.name}|${f.size}|${f.lastModified}`;
+
+/** The stored copy is being deleted: the next import of that file writes it again. */
+export function forgetStoredBlob(key: Id): void {
+  for (const [sig, k] of storedBySignature) if (k === key) storedBySignature.delete(sig);
 }
 
 /** Imports several files; failures are reported, successes returned. */

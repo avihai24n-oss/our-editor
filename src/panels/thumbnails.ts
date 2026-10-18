@@ -7,10 +7,19 @@
  * `getVideoThumb` too (read-only use).
  */
 import { useEffect, useSyncExternalStore } from 'react';
+import { ByteLRU } from '../media/lru';
+import { MEMORY_LIMITS, registerCache } from '../media/memory';
 import { getAssetUrl, onAssetUrlsChange } from '../media/registry';
-import type { MediaAsset } from '../model/types';
+import type { Id, MediaAsset } from '../model/types';
 
-const thumbs = new Map<string, string>(); // assetId → data URL ('' = failed)
+/** assetId → data URL ('' = failed), byte-budgeted (MEMORY_LIMITS.posterBytes). */
+const thumbs = new ByteLRU<string>({ maxBytes: MEMORY_LIMITS.posterBytes });
+registerCache('posters', () => thumbs.clear(), () => ({ entries: thumbs.size, bytes: thumbs.bytes }));
+
+/** Drops one asset's poster (asset removed). */
+export function forgetPoster(assetId: Id): void {
+  thumbs.delete(assetId);
+}
 const pending = new Set<string>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -64,7 +73,10 @@ function grabFrame(url: string, durationSec: number): Promise<string> {
         c.width = w;
         c.height = h;
         c.getContext('2d')?.drawImage(v, 0, 0, w, h);
-        done(null, c.toDataURL('image/jpeg', 0.75));
+        const data = c.toDataURL('image/jpeg', 0.75);
+        c.width = 0;
+        c.height = 0;
+        done(null, data);
       } catch (e) {
         done(e instanceof Error ? e : new Error(String(e)));
       }
@@ -83,8 +95,8 @@ export function getVideoThumb(asset: Pick<MediaAsset, 'id' | 'duration'>): strin
   queue = queue
     .then(() => grabFrame(url, asset.duration / 1e6))
     .then(
-      (data) => void thumbs.set(asset.id, data),
-      () => void thumbs.set(asset.id, ''),
+      (data) => void thumbs.set(asset.id, data, data.length * 2),
+      () => void thumbs.set(asset.id, '', 0),
     )
     .finally(() => {
       pending.delete(asset.id);

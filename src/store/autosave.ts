@@ -1,26 +1,66 @@
 /**
- * Autosave + boot. `startAutosave()` saves the project 800 ms after the last change and on
- * page hide. `bootProject()` loads the last project (and its media URLs) or keeps a new one.
+ * Autosave + boot. `startAutosave()` saves the project JSON MEMORY_LIMITS.autosaveDebounceMs after
+ * the last change and on page hide. `bootProject()` loads the last project (and its media URLs)
+ * or keeps a new one.
+ *
+ * Write rules (an idle tab writes nothing):
+ * - only the project JSON is written; media blobs are written once, at import (media/import.ts);
+ * - a save is skipped when the JSON (minus `updatedAt`) equals the last one written;
+ * - two writes are at least MEMORY_LIMITS.autosaveMinGapMs apart;
+ * - only `project` changes schedule a save; the save itself only touches `saveStatus`, so a save
+ *   can never schedule another one.
  */
 import { restoreAssetUrls } from '../media/import';
+import { MEMORY_LIMITS } from '../media/memory';
+import type { Project } from '../model/types';
 import { useEditor } from './index';
 import { loadLastProject, saveProject } from './persistence';
 
-const DEBOUNCE_MS = 800;
+const DEBOUNCE_MS = MEMORY_LIMITS.autosaveDebounceMs;
+const MIN_GAP_MS = MEMORY_LIMITS.autosaveMinGapMs;
 
-export async function saveNow(): Promise<void> {
+/** JSON of the project without its timestamp: equal fingerprints = nothing to save. */
+export function projectFingerprint(p: Project): string {
+  return JSON.stringify({ ...p, updatedAt: 0 });
+}
+
+let lastWritten: string | null = null;
+let lastWriteAt = -Infinity;
+let writes = 0;
+
+/** Number of project writes this session (tests, debug readout). */
+export const autosaveWrites = (): number => writes;
+
+/** Test helper. */
+export function resetAutosaveState(): void {
+  lastWritten = null;
+  lastWriteAt = -Infinity;
+  writes = 0;
+}
+
+/** Saves now unless the project is unchanged since the last write. Returns true when it wrote. */
+export async function saveNow(force = false): Promise<boolean> {
   const { project, setSaveStatus } = useEditor.getState();
+  const fp = projectFingerprint(project);
+  if (!force && fp === lastWritten) return false;
   setSaveStatus({ saving: true });
   try {
+    lastWriteAt = Date.now();
+    writes++;
     await saveProject(project);
+    lastWritten = fp;
     setSaveStatus({ saving: false, lastSavedAt: Date.now(), error: null });
+    return true;
   } catch (e) {
     setSaveStatus({ saving: false, error: e instanceof Error ? e.message : String(e) });
+    return false;
   }
 }
 
 export function startAutosave(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // the loaded project is already on disk: do not write it back
+  lastWritten ??= projectFingerprint(useEditor.getState().project);
   const flush = () => {
     if (timer) {
       clearTimeout(timer);
@@ -28,13 +68,17 @@ export function startAutosave(): () => void {
       void saveNow();
     }
   };
-  const unsub = useEditor.subscribe((s, prev) => {
-    if (s.project === prev.project) return;
+  const schedule = () => {
     if (timer) clearTimeout(timer);
+    const wait = Math.max(DEBOUNCE_MS, lastWriteAt + MIN_GAP_MS - Date.now());
     timer = setTimeout(() => {
       timer = null;
       void saveNow();
-    }, DEBOUNCE_MS);
+    }, wait);
+  };
+  const unsub = useEditor.subscribe((s, prev) => {
+    if (s.project === prev.project) return;
+    schedule();
   });
   const onHide = () => {
     if (document.visibilityState === 'hidden') flush();

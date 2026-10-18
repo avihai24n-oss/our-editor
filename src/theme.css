@@ -453,3 +453,20 @@ input[type='range']::-webkit-slider-thumb {
 .menu__item.is-active {
   color: var(--accent);
 }
+
+/* ?debug=1 memory readout in the top bar */
+.topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.mem-readout {
+  display: flex;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}

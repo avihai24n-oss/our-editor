@@ -79,6 +79,11 @@ export async function getBlob(key: Id): Promise<Blob | null> {
   return b ?? null;
 }
 
+export async function hasBlob(key: Id): Promise<boolean> {
+  const n = await run<number>('blobs', 'readonly', (s) => s.count(key));
+  return n > 0;
+}
+
 export async function deleteBlob(key: Id): Promise<void> {
   await run('blobs', 'readwrite', (s) => s.delete(key));
 }

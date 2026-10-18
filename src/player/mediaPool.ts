@@ -3,12 +3,22 @@
  * on screen together during a transition) and <img> elements keyed by asset id.
  * Implements FrameSources for the compositor. Video elements are muted — sound goes through
  * the AudioEngine.
+ *
+ * Memory rules (each <video> holds a decoder and its frame pool, ~70 MB for 1080×1920 in
+ * Chromium's software path and more for 4K):
+ * - at most MEMORY_LIMITS.previewVideos elements; the least recently used one is released first;
+ * - elements the current frame does not use are released MEMORY_LIMITS.idleReleaseMs after the
+ *   preview stops using them, by ONE one-shot timer (no polling), also while paused and idle;
+ * - `releaseAll()` (tab hidden, memory watchdog) frees every element; the next render recreates
+ *   the ones on screen;
+ * - release = pause, drop src, load() (otherwise the element keeps the resource), detach.
  */
 import type { MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
 import { getAssetUrl } from '../media/registry';
 import { findClip } from '../model/project';
 import { clipContains } from '../model/time';
+import { MEMORY_LIMITS } from '../media/memory';
 import type { Id, Project, Us } from '../model/types';
 import { decideSync } from './sync';
 
@@ -34,8 +44,9 @@ interface ImageEntry {
   lastUsed: number;
 }
 
-const EVICT_AFTER_MS = 8000;
-const MAX_VIDEOS = 12;
+const EVICT_AFTER_MS = MEMORY_LIMITS.idleReleaseMs;
+const MAX_VIDEOS = MEMORY_LIMITS.previewVideos;
+const MAX_IMAGES = 12;
 
 let hiddenHost: HTMLDivElement | null = null;
 function host(): HTMLDivElement {
@@ -51,6 +62,11 @@ export class MediaPool implements FrameSources {
   private videos = new Map<Id, VideoEntry>();
   private images = new Map<Id, ImageEntry>();
   private project: Project | null = null;
+  /** Clips the last rendered frame (plus preloads) uses; everything else is releasable. */
+  private keep: ReadonlySet<Id> = new Set();
+  private sweepTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Image assets the last rendered frame (plus preloads) uses. */
+  private frameImages = new Set<Id>();
 
   /** `onReady` is called whenever a new frame becomes drawable (load, seek done). */
   constructor(private onReady: () => void) {}
@@ -82,9 +98,11 @@ export class MediaPool implements FrameSources {
    */
   sync(ops: readonly MediaDrawOp[], t: Us, playing: boolean, fps: number): void {
     const now = performance.now();
+    this.frameImages = new Set();
     for (const op of ops) {
       if (op.mediaType === 'image') {
         this.image(op.assetId);
+        this.frameImages.add(op.assetId);
         continue;
       }
       const e = this.video(op.clipId, op.assetId);
@@ -106,6 +124,7 @@ export class MediaPool implements FrameSources {
     for (const op of ops) {
       if (op.mediaType === 'image') {
         this.image(op.assetId);
+        this.frameImages.add(op.assetId);
         continue;
       }
       if (this.videos.has(op.clipId)) continue;
@@ -116,28 +135,89 @@ export class MediaPool implements FrameSources {
     }
   }
 
-  /** Pause every video not in `keep`; free the ones unused for a while. */
+  /** Pause every video not in `keep`; free the ones unused for a while (now, or by the sweep timer). */
   idle(keep: ReadonlySet<Id>): void {
+    this.keep = keep;
     const now = performance.now();
     for (const [id, e] of this.videos) {
       if (keep.has(id)) continue;
       if (!e.el.paused) e.el.pause();
       if (now - e.lastUsed > EVICT_AFTER_MS) this.release(id, e);
     }
-    if (this.videos.size > MAX_VIDEOS) {
-      const old = [...this.videos.entries()].filter(([id]) => !keep.has(id)).sort((a, b) => a[1].lastUsed - b[1].lastUsed);
-      for (const [id, e] of old.slice(0, this.videos.size - MAX_VIDEOS)) this.release(id, e);
-    }
+    this.enforceCap(keep);
+    this.scheduleSweep();
   }
 
   pauseAll(): void {
     for (const e of this.videos.values()) if (!e.el.paused) e.el.pause();
   }
 
-  dispose(): void {
-    for (const [id, e] of this.videos) this.release(id, e);
+  /** Frees every element (tab hidden, memory pressure). The next render recreates what it needs. */
+  releaseAll(): void {
+    this.clearSweep();
+    for (const [id, e] of [...this.videos]) this.release(id, e);
     for (const e of this.images.values()) e.el.removeAttribute('src');
     this.images.clear();
+    this.frameImages = new Set();
+  }
+
+  /** Live element counts (tests, debug readout). */
+  stats(): { videos: number; images: number } {
+    return { videos: this.videos.size, images: this.images.size };
+  }
+
+  dispose(): void {
+    this.releaseAll();
+  }
+
+  /** One-shot: releases whatever is still unused when the oldest unused element expires. */
+  private scheduleSweep(): void {
+    this.clearSweep();
+    let next = Infinity;
+    for (const [id, e] of this.videos) if (!this.keep.has(id)) next = Math.min(next, e.lastUsed + EVICT_AFTER_MS);
+    const imgIds = new Set<Id>();
+    for (const [id, e] of this.images) {
+      if (this.imageInUse(id)) continue;
+      imgIds.add(id);
+      next = Math.min(next, e.lastUsed + EVICT_AFTER_MS);
+    }
+    if (!Number.isFinite(next)) return;
+    const wait = Math.max(50, next - performance.now() + 1);
+    this.sweepTimer = setTimeout(() => {
+      this.sweepTimer = null;
+      const now = performance.now();
+      for (const [id, e] of [...this.videos]) if (!this.keep.has(id) && now - e.lastUsed >= EVICT_AFTER_MS) this.release(id, e);
+      for (const [id, e] of [...this.images]) {
+        if (!this.imageInUse(id) && now - e.lastUsed >= EVICT_AFTER_MS) {
+          e.el.removeAttribute('src');
+          this.images.delete(id);
+        }
+      }
+      this.scheduleSweep();
+    }, wait);
+  }
+
+  private clearSweep(): void {
+    if (this.sweepTimer) clearTimeout(this.sweepTimer);
+    this.sweepTimer = null;
+  }
+
+  private imageInUse(assetId: Id): boolean {
+    return this.frameImages.has(assetId);
+  }
+
+  private enforceCap(keep: ReadonlySet<Id>): void {
+    if (this.videos.size > MAX_VIDEOS) {
+      const old = [...this.videos.entries()].filter(([id]) => !keep.has(id)).sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+      for (const [id, e] of old.slice(0, this.videos.size - MAX_VIDEOS)) this.release(id, e);
+    }
+    if (this.images.size > MAX_IMAGES) {
+      const old = [...this.images.entries()].filter(([id]) => !this.imageInUse(id)).sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+      for (const [id, e] of old.slice(0, this.images.size - MAX_IMAGES)) {
+        e.el.removeAttribute('src');
+        this.images.delete(id);
+      }
+    }
   }
 
   // ---------------------------------------------------------------- internals
