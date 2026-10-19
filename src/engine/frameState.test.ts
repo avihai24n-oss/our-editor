@@ -80,7 +80,7 @@ describe('getFrameState', () => {
       adjust: { contrast: 10 },
     });
     const op = getFrameState(st().project, S(1)).ops[0] as MediaDrawOp;
-    expect(op.transform).toEqual({ x: 50, y: -20, scale: 1.5, rotation: 30, opacity: 0.5, flipH: true, flipV: false });
+    expect(op.transform).toEqual({ x: 50, y: -20, scale: 1.5, scaleX: 1.5, scaleY: 1.5, rotation: 30, opacity: 0.5, flipH: true, flipV: false });
     expect(op.composite).toBe('screen');
     expect(op.color.grayscale).toBe(0.5);
     expect(op.color.contrast).toBe(10);

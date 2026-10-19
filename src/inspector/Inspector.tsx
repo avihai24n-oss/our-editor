@@ -16,8 +16,7 @@ import { AnimationTab } from './tabs/AnimationTab';
 import { AudioTab, SpeedTab } from './tabs/AudioSpeedTabs';
 import { MultiPanel, ProjectPanel, TransitionPanel } from './tabs/OtherPanels';
 import { TextTab } from './tabs/TextTab';
-import { BlendSection, TransformSection } from './tabs/TransformSection';
-import { SegmentedTabs } from './controls';
+import { VideoTab } from './tabs/VideoTab';
 import './inspector.css';
 
 function Shell(props: { tabs: { id: string; label: string }[]; value: string; onChange: (id: string) => void; children: React.ReactNode; testId: string }) {
@@ -60,20 +59,7 @@ export function Inspector() {
     const tab = pickTab(tabs, wanted as InspectorTab);
     let body: React.ReactNode = null;
     if (tab === 'video' && clip.type !== 'audio' && clip.type !== 'text') {
-      body = (
-        <>
-          <SegmentedTabs
-            items={[
-              { id: 'basic', label: 'Basic' },
-              { id: 'mask', label: 'Mask', disabled: true },
-            ]}
-            value="basic"
-            onChange={() => undefined}
-          />
-          <TransformSection clip={clip} />
-          <BlendSection clip={clip} />
-        </>
-      );
+      body = <VideoTab clip={clip} />;
     } else if (tab === 'audio' && (clip.type === 'video' || clip.type === 'audio')) body = <AudioTab clip={clip} />;
     else if (tab === 'speed' && (clip.type === 'video' || clip.type === 'audio')) body = <SpeedTab clip={clip} sub={speedSub} onSubChange={setSpeedSub} />;
     else if (tab === 'animation' && clip.type !== 'audio') body = <AnimationTab key={clip.id} clip={clip} />;

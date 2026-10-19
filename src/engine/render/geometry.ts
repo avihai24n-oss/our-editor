@@ -71,6 +71,22 @@ export function scaleFromDrag(startScale: number, centre: Pt, from: Pt, to: Pt, 
   return Math.min(max, Math.max(min, Math.round(s * 1000) / 1000));
 }
 
+/**
+ * Corner drag with Uniform scale off: both axis scales grow by the same factor (keeps the
+ * width/height ratio the user set), each clamped to [min, max].
+ */
+export function scaleXYFromDrag(startX: number, startY: number, centre: Pt, from: Pt, to: Pt, min = 0.01, max = 4): { scaleX: number; scaleY: number } {
+  const d0 = Math.hypot(from.x - centre.x, from.y - centre.y);
+  const d1 = Math.hypot(to.x - centre.x, to.y - centre.y);
+  if (d0 < 1e-6) return { scaleX: startX, scaleY: startY };
+  let f = d1 / d0;
+  // keep the ratio when one axis would hit a limit
+  f = Math.min(f, max / Math.max(startX, startY));
+  f = Math.max(f, min / Math.min(startX, startY));
+  const r = (v: number) => Math.min(max, Math.max(min, Math.round(v * 1000) / 1000));
+  return { scaleX: r(startX * f), scaleY: r(startY * f) };
+}
+
 /** Rotate handle drag. Snaps to multiples of 90° within `snapDeg`. Result in (-180, 180]. */
 export function rotateFromDrag(startRotation: number, centre: Pt, from: Pt, to: Pt, snapDeg = 4): number {
   const a0 = Math.atan2(from.y - centre.y, from.x - centre.x);

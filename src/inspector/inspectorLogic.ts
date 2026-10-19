@@ -5,7 +5,7 @@
 import { LIMITS } from '../model/catalog';
 import { findClip, findTransition } from '../model/project';
 import { clamp } from '../model/time';
-import type { Clip, Id, MediaAsset, Project, Us } from '../model/types';
+import type { Clip, ClipMask, Crop, Id, MaskShape, MediaAsset, Project, Transform, Us } from '../model/types';
 
 // ---------------------------------------------------------------- tabs
 
@@ -100,13 +100,15 @@ export function transitionMax(p: Project, transitionId: Id): Us {
 export function displayedBox(
   src: { width: number; height: number },
   canvas: { width: number; height: number },
-  scale: number,
+  scale: number | { x: number; y: number },
   rotationDeg: number,
   fit = true,
 ): { width: number; height: number } {
   const k = fit && src.width > 0 && src.height > 0 ? Math.min(canvas.width / src.width, canvas.height / src.height) : 1;
-  const w = src.width * k * scale;
-  const h = src.height * k * scale;
+  const sx = typeof scale === 'number' ? scale : scale.x;
+  const sy = typeof scale === 'number' ? scale : scale.y;
+  const w = src.width * k * sx;
+  const h = src.height * k * sy;
   const r = (rotationDeg * Math.PI) / 180;
   const c = Math.abs(Math.cos(r));
   const s = Math.abs(Math.sin(r));
@@ -158,4 +160,50 @@ export function applyAllTargets(p: Project, clipId: Id): Id[] {
     .filter((t) => kind.includes(t.kind) && !t.locked)
     .flatMap((t) => t.clips)
     .map((c) => c.id);
+}
+
+// ---------------------------------------------------------------- Video tab: uniform scale, mask
+
+/**
+ * Uniform scale switch. Off: width and height start from the current uniform scale. On: the
+ * uniform scale takes the width scale (the clip keeps its width).
+ */
+export function uniformScalePatch(tf: Pick<Transform, 'scale' | 'scaleX' | 'scaleY'>, on: boolean): Partial<Transform> {
+  if (on) return { uniformScale: true, scale: tf.scaleX };
+  return { uniformScale: false, scaleX: tf.scale, scaleY: tf.scale };
+}
+
+/** The clip's picture at scale 1 (contain-fit, minus crop) in project px: what mask fractions refer to. */
+export function pictureBox(
+  src: { width?: number; height?: number } | undefined,
+  canvas: { width: number; height: number },
+  crop?: Crop,
+): { w: number; h: number } {
+  const sw = src?.width || canvas.width;
+  const sh = src?.height || canvas.height;
+  const k = Math.min(canvas.width / sw, canvas.height / sh);
+  const c = crop ?? { left: 0, top: 0, right: 0, bottom: 0 };
+  return { w: sw * k * Math.max(0, 1 - c.left - c.right), h: sh * k * Math.max(0, 1 - c.top - c.bottom) };
+}
+
+/**
+ * Mask geometry when a shape tile is picked. Position, rotation, feather and invert carry over from
+ * the previous shape; the size is each shape's default: Circle / Heart / Star a square half the
+ * picture's shorter side, Rectangle 60 % × 40 %, Mirror a band 30 % of the height, Linear the
+ * whole picture (its size is unused).
+ */
+export function maskForShape(shape: MaskShape, prev: ClipMask, box: { w: number; h: number }): Partial<ClipMask> {
+  if (shape === 'none') return { shape };
+  const keep = prev.shape === 'none' ? { x: 0, y: 0, rotation: 0 } : { x: prev.x, y: prev.y, rotation: prev.rotation };
+  const side = 0.5 * Math.min(box.w, box.h);
+  const sq = { width: box.w > 0 ? side / box.w : 0.5, height: box.h > 0 ? side / box.h : 0.5 };
+  const size =
+    shape === 'circle' || shape === 'heart' || shape === 'star'
+      ? sq
+      : shape === 'rectangle'
+        ? { width: 0.6, height: 0.4 }
+        : shape === 'mirror'
+          ? { width: 1, height: 0.3 }
+          : { width: 1, height: 1 };
+  return { shape, ...keep, ...size, roundCorners: shape === 'rectangle' ? prev.roundCorners : 0 };
 }

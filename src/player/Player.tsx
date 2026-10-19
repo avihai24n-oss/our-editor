@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DrawnBox } from '../engine/render';
-import { hitTest, letterbox, moveWithSnap, rotateFromDrag, scaleFromDrag, type Pt } from '../engine/render/geometry';
+import { hitTest, letterbox, moveWithSnap, rotateFromDrag, scaleFromDrag, scaleXYFromDrag, type Pt } from '../engine/render/geometry';
 import { ASPECTS, LIMITS } from '../model/catalog';
 import { findClip } from '../model/project';
 import { formatTimecode, projectDuration } from '../model/time';
@@ -29,7 +29,7 @@ const ZOOMS: { id: ZoomMode; label: string }[] = [
 
 type Gesture =
   | { kind: 'move'; clipId: Id; startPt: Pt; startX: number; startY: number }
-  | { kind: 'scale'; clipId: Id; startPt: Pt; startScale: number; centre: Pt }
+  | { kind: 'scale'; clipId: Id; startPt: Pt; startScale: number; centre: Pt; uniform: boolean; startScaleX: number; startScaleY: number }
   | { kind: 'rotate'; clipId: Id; startPt: Pt; startRotation: number; centre: Pt };
 
 const sameBox = (a: DrawnBox | null, b: DrawnBox | null) =>
@@ -190,7 +190,9 @@ export function Player() {
     if (!clip || clip.type === 'audio') return;
     const centre = { x: selBox.cx, y: selBox.cy };
     const startPt = toProject(e);
-    if (kind === 'scale') beginGesture({ kind, clipId: clip.id, startPt, startScale: clip.transform.scale, centre }, e);
+    const tf = clip.transform;
+    if (kind === 'scale')
+      beginGesture({ kind, clipId: clip.id, startPt, startScale: tf.scale, centre, uniform: tf.uniformScale !== false, startScaleX: tf.scaleX ?? tf.scale, startScaleY: tf.scaleY ?? tf.scale }, e);
     else beginGesture({ kind, clipId: clip.id, startPt, startRotation: clip.transform.rotation, centre }, e);
   };
 
@@ -205,7 +207,8 @@ export function Player() {
       setGuides((p) => (p.x === m.guideX && p.y === m.guideY ? p : { x: m.guideX, y: m.guideY }));
       s.updateClip(g.clipId, { transform: { x: m.x, y: m.y } });
     } else if (g.kind === 'scale') {
-      s.updateClip(g.clipId, { transform: { scale: scaleFromDrag(g.startScale, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax) } });
+      if (g.uniform) s.updateClip(g.clipId, { transform: { scale: scaleFromDrag(g.startScale, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax) } });
+      else s.updateClip(g.clipId, { transform: scaleXYFromDrag(g.startScaleX, g.startScaleY, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax) });
     } else {
       s.updateClip(g.clipId, { transform: { rotation: rotateFromDrag(g.startRotation, g.centre, g.startPt, pt, e.altKey ? 0 : 4) } });
     }

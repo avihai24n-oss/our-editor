@@ -7,7 +7,9 @@
  * CSS colour filter + blur, tone passes (temperature/tint/fade/vignette) and text.
  */
 import type { DrawOp, FrameState, MediaDrawOp, TextDrawOp } from '../frameState';
+import { chromaKeyPixels, chromaParams } from './chroma';
 import { cssFilter, tonePasses, type TonePass } from './color';
+import { applyMask, maskGeometry } from './mask';
 import { fontString, layoutText, type TextLayout } from './textLayout';
 import type { Ctx2D, DrawnBox, RenderOptions, SourceImage } from './types';
 
@@ -38,10 +40,14 @@ export function mediaLocalBox(op: MediaDrawOp): LocalBox {
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v || 0));
 
 /** Box in project px after the op transform (for hit testing / selection). */
+/** Per-axis scale of an op (ops built before Uniform scale existed only carry `scale`). */
+export const axisScale = (tf: VisualOp['transform']): { x: number; y: number } => ({ x: tf.scaleX ?? tf.scale, y: tf.scaleY ?? tf.scale });
+
 export function projectBox(op: VisualOp, local: LocalBox, W: number, H: number): DrawnBox {
   const tf = op.transform;
-  const sx = tf.scale * (tf.flipH ? -1 : 1);
-  const sy = tf.scale * (tf.flipV ? -1 : 1);
+  const ax = axisScale(tf);
+  const sx = ax.x * (tf.flipH ? -1 : 1);
+  const sy = ax.y * (tf.flipV ? -1 : 1);
   const a = (tf.rotation * Math.PI) / 180;
   const lx = local.ox * sx;
   const ly = local.oy * sy;
@@ -49,8 +55,8 @@ export function projectBox(op: VisualOp, local: LocalBox, W: number, H: number):
     clipId: op.clipId,
     cx: W / 2 + tf.x + lx * Math.cos(a) - ly * Math.sin(a),
     cy: H / 2 + tf.y + lx * Math.sin(a) + ly * Math.cos(a),
-    w: Math.abs(local.w * tf.scale),
-    h: Math.abs(local.h * tf.scale),
+    w: Math.abs(local.w * ax.x),
+    h: Math.abs(local.h * ax.y),
     rotation: tf.rotation,
   };
 }
@@ -60,15 +66,49 @@ function applyOpTransform(ctx: Ctx2D, op: VisualOp, W: number, H: number, scale:
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.translate(W / 2 + tf.x, H / 2 + tf.y);
   if (tf.rotation) ctx.rotate((tf.rotation * Math.PI) / 180);
-  ctx.scale(tf.scale * (tf.flipH ? -1 : 1), tf.scale * (tf.flipV ? -1 : 1));
+  const ax = axisScale(tf);
+  ctx.scale(ax.x * (tf.flipH ? -1 : 1), ax.y * (tf.flipV ? -1 : 1));
 }
 
-function drawMedia(ctx: Ctx2D, op: MediaDrawOp, src: SourceImage, box: LocalBox): void {
+/** Chroma key works on a copy no bigger than this (px per side). */
+export const CHROMA_MAX_SIDE = 2048;
+let chromaCtx: Ctx2D | null | undefined;
+function chromaScratch(w: number, h: number): Ctx2D | null {
+  if (chromaCtx === undefined) {
+    chromaCtx = null;
+    const opts = { willReadFrequently: true };
+    if (typeof OffscreenCanvas !== 'undefined') chromaCtx = new OffscreenCanvas(w, h).getContext('2d', opts) as Ctx2D | null;
+    else if (typeof document !== 'undefined') chromaCtx = document.createElement('canvas').getContext('2d', opts) as Ctx2D | null;
+  }
+  if (!chromaCtx) return null;
+  if (chromaCtx.canvas.width !== w) chromaCtx.canvas.width = w;
+  if (chromaCtx.canvas.height !== h) chromaCtx.canvas.height = h;
+  return chromaCtx;
+}
+
+/** `pxPerLocal` = output px per local px (sizes the chroma-key copy to what is shown). */
+function drawMedia(ctx: Ctx2D, op: MediaDrawOp, src: SourceImage, box: LocalBox, pxPerLocal: { x: number; y: number }): void {
   const { left, top, right, bottom } = op.crop;
   const sx = clamp01(left) * src.width;
   const sy = clamp01(top) * src.height;
   const sw = Math.max(1, src.width * (1 - clamp01(left) - clamp01(right)));
   const sh = Math.max(1, src.height * (1 - clamp01(top) - clamp01(bottom)));
+  if (op.chroma) {
+    const w = Math.max(1, Math.min(CHROMA_MAX_SIDE, Math.round(box.w * pxPerLocal.x), Math.round(sw)));
+    const h = Math.max(1, Math.min(CHROMA_MAX_SIDE, Math.round(box.h * pxPerLocal.y), Math.round(sh)));
+    const c = chromaScratch(w, h);
+    if (c) {
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.globalCompositeOperation = 'copy';
+      c.drawImage(src.image, sx, sy, sw, sh, 0, 0, w, h);
+      c.globalCompositeOperation = 'source-over';
+      const img = c.getImageData(0, 0, w, h);
+      chromaKeyPixels(img.data, chromaParams(op.chroma));
+      c.putImageData(img, 0, 0);
+      ctx.drawImage(c.canvas as CanvasImageSource, 0, 0, w, h, box.ox - box.w / 2, box.oy - box.h / 2, box.w, box.h);
+      return;
+    }
+  }
   ctx.drawImage(src.image, sx, sy, sw, sh, box.ox - box.w / 2, box.oy - box.h / 2, box.w, box.h);
 }
 
@@ -212,17 +252,22 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
       textLayout = layoutTextOp(ctx, op, W);
       local = { w: textLayout.width, h: textLayout.height, ox: 0, oy: 0 };
     }
-    boxes.push(projectBox(op, local, W, H));
+    const isBackground = op.kind === 'media' && op.role === 'background';
+    if (!isBackground) boxes.push(projectBox(op, local, W, H));
 
     const alpha = Math.min(1, Math.max(0, op.transform.opacity));
     if (alpha <= 0 || local.w <= 0 || local.h <= 0) continue;
     if (op.kind === 'media' && !src) continue;
+    if (isBackground && src === 'missing') continue;
     if (op.clipRect && (op.clipRect.w <= 0 || op.clipRect.h <= 0)) continue;
 
     const filter = cssFilter(op.color, op.blur * k);
     const passes = src === 'missing' ? [] : tonePasses(op.color);
-    const layer = passes.length ? opts.layers?.get(tw, th) ?? null : null;
+    const mask = op.kind === 'media' && op.mask && src !== 'missing' ? maskGeometry(op.mask, local) : null;
+    const linearBurn = op.blendMode === 'linear-burn';
+    const layer = passes.length || mask || linearBurn ? opts.layers?.get(tw, th) ?? null : null;
     const target = layer ?? ctx;
+    const ax = axisScale(op.transform);
 
     // ---- draw the clip (directly, or onto the scratch layer)
     target.save();
@@ -237,15 +282,18 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     applyOpTransform(target, op, W, H, k);
     if (op.kind === 'media') {
       if (src === 'missing') drawMissing(target, local);
-      else if (src) drawMedia(target, op, src, local);
+      else if (src) drawMedia(target, op, src, local, { x: k * Math.abs(ax.x), y: k * Math.abs(ax.y) });
     } else if (textLayout) {
       drawText(target, op, textLayout, k * op.transform.scale);
     }
-    if (layer) drawTonePasses(target, passes, local);
+    if (layer && passes.length) drawTonePasses(target, passes, local);
+    if (layer && mask) applyMask(target, mask, k * Math.sqrt(Math.abs(ax.x * ax.y)));
     target.restore();
 
     // ---- composite the layer
-    if (layer) {
+    if (layer && linearBurn) {
+      compositeLinearBurn(ctx, layer, alpha, op.clipRect, tw, th);
+    } else if (layer) {
       ctx.save();
       resetCtx(ctx);
       if (op.clipRect) clipToRect(ctx, op.clipRect, tw, th);
@@ -257,6 +305,56 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
   }
   ctx.restore();
   return boxes;
+}
+
+let invCtx: Ctx2D | null | undefined;
+function inverseScratch(w: number, h: number): Ctx2D | null {
+  if (invCtx === undefined) {
+    invCtx = null;
+    if (typeof OffscreenCanvas !== 'undefined') invCtx = new OffscreenCanvas(w, h).getContext('2d') as Ctx2D | null;
+    else if (typeof document !== 'undefined') invCtx = document.createElement('canvas').getContext('2d');
+  }
+  if (!invCtx) return null;
+  if (invCtx.canvas.width !== w) invCtx.canvas.width = w;
+  if (invCtx.canvas.height !== h) invCtx.canvas.height = h;
+  return invCtx;
+}
+
+/**
+ * Linear burn (result = dst + src − 1, faded by opacity) with Canvas 2D primitives:
+ * invert dst · add the inverted source (lighter, × opacity) · invert again
+ * = 1 − ((1 − dst) + α(1 − src)) = dst − α(1 − src), clamped at 0.
+ */
+function compositeLinearBurn(ctx: Ctx2D, layer: Ctx2D, alpha: number, rect: VisualOp['clipRect'], tw: number, th: number): void {
+  const w = layer.canvas.width;
+  const h = layer.canvas.height;
+  const inv = inverseScratch(w, h);
+  if (!inv) return;
+  // inverted source with the source's own coverage
+  inv.save();
+  resetCtx(inv);
+  inv.globalCompositeOperation = 'copy';
+  inv.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+  inv.globalCompositeOperation = 'difference';
+  inv.fillStyle = '#ffffff';
+  inv.fillRect(0, 0, w, h);
+  inv.globalCompositeOperation = 'destination-in';
+  inv.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+  inv.restore();
+
+  ctx.save();
+  resetCtx(ctx);
+  if (rect) clipToRect(ctx, rect, tw, th);
+  ctx.globalCompositeOperation = 'difference';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, tw, th);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(inv.canvas as CanvasImageSource, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'difference';
+  ctx.fillRect(0, 0, tw, th);
+  ctx.restore();
 }
 
 /** Default LayerProvider: one reusable OffscreenCanvas (or <canvas>) resized on demand. */

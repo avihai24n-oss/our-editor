@@ -1,6 +1,7 @@
 /**
  * Pure read-only helpers over a Project (no React, no DOM). Safe to call from anywhere.
  */
+import { defaultCanvasBackground, defaultChroma, defaultMask } from './defaults';
 import { clipEnd } from './time';
 import type {
   AudioClip,
@@ -124,7 +125,9 @@ export function migrateProject(p: Project): Project {
   let changed = false;
   const tracks = p.tracks.map((t) => {
     let tChanged = false;
-    const clips = t.clips.map((c) => {
+    const clips = t.clips.map((c0) => {
+      const c = migrateVideoTabFields(c0);
+      if (c !== c0) tChanged = true;
       if (c.type === 'audio') return c;
       const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
       if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean') return c;
@@ -136,4 +139,34 @@ export function migrateProject(p: Project): Project {
     return { ...t, clips };
   });
   return changed ? { ...p, tracks } : p;
+}
+
+/**
+ * Video-tab fields added on 19 Oct 2026: transform.uniformScale / scaleX / scaleY on every visual
+ * clip, and mask / chroma / canvas on video and image clips. Missing fields get their defaults
+ * (scaleX / scaleY start from the clip's uniform scale). Returns the same object when nothing is
+ * missing.
+ */
+export function migrateVideoTabFields(c: Clip): Clip {
+  if (c.type === 'audio') return c;
+  let out: Clip = c;
+  const tf = c.transform as VisualClip['transform'] & Partial<Pick<VisualClip['transform'], 'uniformScale' | 'scaleX' | 'scaleY'>>;
+  if (typeof tf.uniformScale !== 'boolean' || typeof tf.scaleX !== 'number' || typeof tf.scaleY !== 'number') {
+    out = {
+      ...out,
+      transform: { ...tf, uniformScale: tf.uniformScale ?? true, scaleX: tf.scaleX ?? tf.scale, scaleY: tf.scaleY ?? tf.scale },
+    } as Clip;
+  }
+  if (c.type === 'video' || c.type === 'image') {
+    const m = c as Partial<Pick<VideoClip, 'mask' | 'chroma' | 'canvas'>>;
+    if (!m.mask || !m.chroma || !m.canvas) {
+      out = {
+        ...out,
+        mask: m.mask ? { ...defaultMask(), ...m.mask } : defaultMask(),
+        chroma: m.chroma ? { ...defaultChroma(), ...m.chroma } : defaultChroma(),
+        canvas: m.canvas ? { ...defaultCanvasBackground(), ...m.canvas } : defaultCanvasBackground(),
+      } as Clip;
+    }
+  }
+  return out;
 }

@@ -10,7 +10,7 @@ import { Icon } from '../../ui/Icon';
 import { FieldRow, KeyframeButton, NumberBox, Section, SliderRow, ToggleRow, fromPct, toPct } from '../controls';
 import { ALIGN_ITEMS, AlignIcon } from '../controls/AlignIcons';
 import { RotationDial } from '../controls/RotationDial';
-import { alignPosition, displayedBox, normalizeAngle, type AlignKind } from '../inspectorLogic';
+import { alignPosition, displayedBox, normalizeAngle, uniformScalePatch, type AlignKind } from '../inspectorLogic';
 
 let measureCtx: CanvasRenderingContext2D | null | undefined;
 /** Approximate unscaled text box in project px (for the align buttons). */
@@ -30,9 +30,11 @@ function textBox(t: TextStyle): { width: number; height: number } {
 
 function boxFor(clip: VisualClip, asset: MediaAsset | undefined, settings: ProjectSettings) {
   const canvas = { width: settings.width, height: settings.height };
-  if (clip.type === 'text') return displayedBox(textBox(clip.text), canvas, clip.transform.scale, clip.transform.rotation, false);
+  const tf = clip.transform;
+  const s = tf.uniformScale === false ? { x: tf.scaleX, y: tf.scaleY } : tf.scale;
+  if (clip.type === 'text') return displayedBox(textBox(clip.text), canvas, s, tf.rotation, false);
   const src = { width: asset?.width || canvas.width, height: asset?.height || canvas.height };
-  return displayedBox(src, canvas, clip.transform.scale, clip.transform.rotation);
+  return displayedBox(src, canvas, s, tf.rotation);
 }
 
 export function TransformSection({ clip }: { clip: VisualClip }) {
@@ -43,7 +45,9 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
   const set = (patch: Partial<typeof t>) => updateClip(clip.id, { transform: patch });
   const halfW = settings.width;
   const halfH = settings.height;
-  const isDefault = t.scale === 1 && t.x === 0 && t.y === 0 && t.rotation === 0 && !t.flipH && !t.flipV;
+  const uniform = t.uniformScale !== false;
+  const isDefault =
+    t.scale === 1 && t.x === 0 && t.y === 0 && t.rotation === 0 && !t.flipH && !t.flipV && uniform && (t.scaleX ?? 1) === 1 && (t.scaleY ?? 1) === 1;
 
   const align = (kind: AlignKind) => {
     const box = boxFor(clip, asset, settings);
@@ -58,19 +62,42 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
       resetDisabled={isDefault}
       onReset={() => {
         const d = defaultTransform();
-        set({ scale: d.scale, x: d.x, y: d.y, rotation: d.rotation, flipH: d.flipH, flipV: d.flipV });
+        set({ scale: d.scale, x: d.x, y: d.y, rotation: d.rotation, flipH: d.flipH, flipV: d.flipV, uniformScale: d.uniformScale, scaleX: d.scaleX, scaleY: d.scaleY });
       }}
     >
-      <SliderRow
-        label="Scale"
-        value={toPct(t.scale)}
-        min={LIMITS.scaleMin * 100}
-        max={LIMITS.scaleMax * 100}
-        unit="%"
-        onChange={(v) => set({ scale: Math.round(v) / 100 })}
-        testId="scale-row"
-      />
-      <ToggleRow label="Uniform scale" on onChange={() => undefined} disabled title="Separate width / height scaling — coming soon" />
+      {uniform ? (
+        <SliderRow
+          label="Scale"
+          value={toPct(t.scale)}
+          min={LIMITS.scaleMin * 100}
+          max={LIMITS.scaleMax * 100}
+          unit="%"
+          onChange={(v) => set({ scale: Math.round(v) / 100 })}
+          testId="scale-row"
+        />
+      ) : (
+        <>
+          <SliderRow
+            label="Scale width"
+            value={toPct(t.scaleX)}
+            min={LIMITS.scaleMin * 100}
+            max={LIMITS.scaleMax * 100}
+            unit="%"
+            onChange={(v) => set({ scaleX: Math.round(v) / 100 })}
+            testId="scale-x-row"
+          />
+          <SliderRow
+            label="Scale height"
+            value={toPct(t.scaleY)}
+            min={LIMITS.scaleMin * 100}
+            max={LIMITS.scaleMax * 100}
+            unit="%"
+            onChange={(v) => set({ scaleY: Math.round(v) / 100 })}
+            testId="scale-y-row"
+          />
+        </>
+      )}
+      <ToggleRow label="Uniform scale" on={uniform} onChange={(on) => set(uniformScalePatch(t, on))} />
       <div className="irow">
         <span className="irow__label">Position</span>
         <div className="irow__ctl">

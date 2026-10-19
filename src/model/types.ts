@@ -114,6 +114,64 @@ export interface Transform {
   /** Mirror (toolbar). */
   flipH: boolean;
   flipV: boolean;
+  /**
+   * CapCut "Uniform scale" switch (Video › Basic › Transform). true: `scale` scales both axes.
+   * false: `scaleX` / `scaleY` (same units and range as `scale`) scale width and height separately.
+   */
+  uniformScale: boolean;
+  scaleX: number;
+  scaleY: number;
+}
+
+// ---------------------------------------------------------------- Video tab (mask, chroma key, canvas)
+
+/** Video › Mask shapes (CapCut's non-AI masks). 'none' = no mask. */
+export type MaskShape = 'none' | 'linear' | 'mirror' | 'circle' | 'rectangle' | 'heart' | 'star';
+
+/**
+ * Video › Mask. Geometry is relative to the clip's own picture (its fitted, cropped box at
+ * scale 1), so the mask moves, scales and rotates with the clip:
+ * x / y = offset of the mask centre from the picture centre, as fractions of the picture
+ * width / height; width / height = mask size as fractions of the picture width / height.
+ */
+export interface ClipMask {
+  shape: MaskShape;
+  x: number;
+  y: number;
+  /** Degrees, clockwise, on top of the clip rotation. */
+  rotation: number;
+  width: number;
+  height: number;
+  /** 0..100: soft edge. */
+  feather: number;
+  /** 0..100: rectangle corner radius (100 = half the shorter side). */
+  roundCorners: number;
+  /** Show the outside of the shape instead of the inside. */
+  invert: boolean;
+}
+
+/** Video › Remove BG › Chroma key (non-AI colour key). */
+export interface ChromaKey {
+  enabled: boolean;
+  /** Key colour, CSS hex. */
+  color: string;
+  /** 0..100: how far from the key colour (in chroma) a pixel is still removed. */
+  intensity: number;
+  /** 0..100: softness of the key edge (partially transparent band). */
+  shadow: number;
+}
+
+export type CanvasBackgroundType = 'none' | 'color' | 'blur' | 'image';
+
+/** Video › Basic › Canvas: what fills the frame around a main-track clip. */
+export interface CanvasBackground {
+  type: CanvasBackgroundType;
+  /** type 'color': CSS hex. */
+  color: string;
+  /** type 'blur': level 1..4 (CapCut's four blur tiles). */
+  blur: number;
+  /** type 'image': an image asset of the project (null = not chosen yet). */
+  assetId: Id | null;
 }
 
 /** Crop rectangle as fractions of the source (0 = no crop on that side). v1: model + render only, UI is v2. */
@@ -133,6 +191,7 @@ export type BlendMode =
   | 'lighten'
   | 'hard-light'
   | 'soft-light'
+  | 'linear-burn'
   | 'color-burn'
   | 'color-dodge';
 
@@ -259,7 +318,15 @@ export interface TimedMediaFields {
   preservePitch: boolean;
 }
 
-export interface VideoClip extends ClipBase, VisualFields, TimedMediaFields {
+/** Video-tab fields of clips that show a media picture (video, image). */
+export interface MediaVisualFields {
+  mask: ClipMask;
+  chroma: ChromaKey;
+  /** Only used on the main track (CapCut shows Canvas for main-track clips). */
+  canvas: CanvasBackground;
+}
+
+export interface VideoClip extends ClipBase, VisualFields, MediaVisualFields, TimedMediaFields {
   type: 'video';
   audio: AudioProps;
   /**
@@ -271,7 +338,7 @@ export interface VideoClip extends ClipBase, VisualFields, TimedMediaFields {
   audioLink?: Id;
 }
 
-export interface ImageClip extends ClipBase, VisualFields {
+export interface ImageClip extends ClipBase, VisualFields, MediaVisualFields {
   type: 'image';
   assetId: Id;
 }
@@ -311,6 +378,9 @@ export interface ClipPatch {
   animationOut?: ClipAnimation | null;
   filter?: FilterRef | null;
   adjust?: Partial<Adjust>;
+  mask?: Partial<ClipMask>;
+  chroma?: Partial<ChromaKey>;
+  canvas?: Partial<CanvasBackground>;
   audio?: Partial<AudioProps>;
   text?: Partial<Omit<TextStyle, 'stroke' | 'background' | 'shadow'>> & {
     stroke?: Partial<TextStyle['stroke']>;
