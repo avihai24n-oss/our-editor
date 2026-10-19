@@ -330,3 +330,31 @@ test('zooming keeps the anchor and never paints a frame without the clip under i
   await stopSampler(page);
   expect(s.filter((x) => !x.underAnchor).length, 'frames with no clip under the zoom anchor').toBe(0);
 });
+
+test('an empty timeline does not shake at fractional page zoom (scrollbar toggle loop)', async ({ page }) => {
+  // Reported on a Mac with "Show scroll bars: Always": the empty timeline moved up and down
+  // without stopping. At a fractional zoom the rows overflowed by a sub-pixel, the scrollbars
+  // appeared, the rows were re-fitted, the scrollbars vanished, and so on every frame.
+  await openApp(page);
+  for (const z of [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25]) {
+    await page.evaluate((zz) => {
+      document.documentElement.style.zoom = String(zz);
+    }, z);
+    await page.waitForTimeout(300);
+    const states = await page.evaluate(
+      () =>
+        new Promise<number>((res) => {
+          const sc = document.querySelector('.tl-scroller') as HTMLElement;
+          const seen = new Set<string>();
+          let n = 0;
+          const tick = () => {
+            seen.add([sc.clientWidth, sc.clientHeight, sc.scrollWidth, sc.scrollHeight, sc.scrollTop].join(','));
+            if (++n < 90) requestAnimationFrame(tick);
+            else res(seen.size);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    expect(states, `zoom ${z}: scroller geometry must not change while idle`).toBe(1);
+  }
+});

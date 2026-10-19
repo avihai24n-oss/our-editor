@@ -69,6 +69,14 @@
 .tl-scroller {
   flex: 1;
   min-height: 0;
+  /* The rows fill exactly the visible height and the lane at least the visible width, so the
+     scroller's size must not depend on whether a scrollbar is showing. With always-visible
+     scrollbars (macOS "Show scroll bars: Always", or a mouse attached) and a fractional page zoom,
+     a sub-pixel overflow made the scrollbars appear, the client area shrank, the rows were
+     re-fitted, the scrollbars vanished and the cycle repeated every frame: the timeline shook up
+     and down. Content that only has to fill the view now stays 1px short of it in both directions
+     (geometry.ts contentWidth, Timeline.tsx minRowsH), so no scrollbar appears unless there is
+     real content to scroll to. */
   overflow: auto;
   position: relative;
   overscroll-behavior: contain;

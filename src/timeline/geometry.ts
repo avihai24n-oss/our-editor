@@ -141,7 +141,9 @@ export const anchoredScroll = (anchorUs: Us, offsetPx: number, zoom: number): nu
 
 /** Total lane width: the edit plus room to drop after the end, never less than the viewport. */
 export function contentWidth(durationUs: Us, zoom: number, viewportPx: number): number {
-  return Math.ceil(Math.max(viewportPx, usToPx(durationUs, zoom) + Math.max(200, viewportPx * 0.6)));
+  // filling the view stays 1px short of it: at a fractional page zoom a lane exactly as wide as the
+  // view can overflow by a sub-pixel and toggle the scrollbars every frame (the timeline shook)
+  return Math.max(Math.floor(viewportPx) - 1, Math.ceil(usToPx(durationUs, zoom) + Math.max(200, viewportPx * 0.6)));
 }
 
 /**
@@ -151,7 +153,10 @@ export function contentWidth(durationUs: Us, zoom: number, viewportPx: number): 
  * the user scrolls back.
  */
 export function stableContentWidth(durationUs: Us, zoom: number, viewportPx: number, scrollLeft: number): number {
-  return Math.max(contentWidth(durationUs, zoom, viewportPx), Math.ceil(Math.max(0, scrollLeft) + viewportPx));
+  // only when actually scrolled: at scrollLeft 0 this would make the lane exactly as wide as the
+  // view and bring back the sub-pixel overflow contentWidth avoids
+  const keep = scrollLeft > 0 ? Math.ceil(scrollLeft + viewportPx) : 0;
+  return Math.max(contentWidth(durationUs, zoom, viewportPx), keep);
 }
 
 /** Where the playhead rides while playback follows it (fraction of the lane from the left). */

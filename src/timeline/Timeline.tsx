@@ -712,7 +712,8 @@ export function Timeline() {
 
   // ---------------------------------------------------------------- render
 
-  const minRowsH = Math.max(0, view.height - RULER_H);
+  // 1px short of the visible height: rounding at fractional zoom must never overflow by a sub-pixel
+  const minRowsH = Math.max(0, view.height - RULER_H - 1);
   // The main track stays where it is while tracks come and go (see bandHeights).
   const mainIdx = rows.findIndex((t) => t.kind === 'main');
   const aboveH = rows.slice(0, Math.max(0, mainIdx)).reduce((h, t) => h + rowHeight(t), 0);

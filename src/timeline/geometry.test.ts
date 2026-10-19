@@ -98,8 +98,11 @@ describe('zoom', () => {
     expect(anchoredScroll(S(10), 200, 100)).toBe(800);
     expect(anchoredScroll(S(1), 500, 100)).toBe(0);
   });
-  it('contentWidth leaves room after the end and fills the viewport', () => {
-    expect(contentWidth(0, 60, 800)).toBe(800);
+  it('contentWidth leaves room after the end and fills the viewport, 1px short', () => {
+    // 1px short so a fractional page zoom can't overflow by a sub-pixel and toggle the scrollbars
+    expect(contentWidth(0, 60, 800)).toBe(799);
+    expect(stableContentWidth(0, 60, 800, 0)).toBe(799);
+    expect(stableContentWidth(0, 60, 800, 50)).toBe(850);
     expect(contentWidth(S(100), 60, 800)).toBeGreaterThan(6000 + 200 - 1);
   });
 });
