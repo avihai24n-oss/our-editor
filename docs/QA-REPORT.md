@@ -1,6 +1,6 @@
 # QA report — v1 integration
 
-Date: 2026-10-18. Scope: the three parallel builds put together: Library + Inspector, Timeline, and
+Date: 2026-10-18 (v1), 2026-10-19 (audits, tabs and their integration — see the last section). Scope: the three parallel builds put together: Library + Inspector, Timeline, and
 Player + Render + Export.
 
 ## Result
@@ -15,81 +15,6 @@ Player + Render + Export.
 | Exported MP4 (ffprobe) | H.264 1080×1920 30 fps + AAC; duration 7.57 s = project duration (±0.2 s) |
 
 Run: `cd e2e && E2E_PORT=5391 npx playwright test`. Screenshots of every step are in `e2e/screens/`.
-
-## Animation tab (CapCut parity) — 2026-10-19
-
-**What CapCut has (research):** sub-tabs `In | Out | Combo` for video/image and `In | Out | Loop`
-for text. A search box ("People are searching …"), category chips (★ favourites, Trending, Basic,
-Light, Glitch, Mask, 3D, Vibration…), and a grid whose first tile is **None**. Tiles carry ☆
-favourite and ⤓ download overlays and a Pro diamond. Hovering a tile plays its preview, a click
-applies it and plays it in the player, and the applied tile gets a cyan outline. A **Duration**
-slider appears under the grid. Applied animations show as ramps on the clip. Combo runs over the
-clip and replaces In/Out. Loop runs for the text's whole duration, and older versions show a
-"Fast ↔ Slow" speed slider. Sources: `docs/capcut-screens/06-animation-in-library.png`,
-`docs/research/01-ui-ux.md` §2.2/§4.5,
-autoae.online/blog/how-to-do-text-animation-in-capcut-pc and capcutguide.com/capcut-text-animation.
-CapCut does not publish exact defaults. Ours are 0.5 s for In/Out (minimum 0.1 s), the whole clip
-for Combo, and 1 s per Loop cycle (0.1–5 s).
-
-**What we built**
-- **One catalogue,** `src/engine/animations.ts`: **53 In, 53 Out, 18 Combo and 15 text Loop**
-  animations. Each one is a pure function of progress that returns an `AnimFrame`
-  (offset, scale, sx/sy, skew + pivot, rotation, alpha, blur, brightness, hue, glow, RGB split,
-  slices, masks, text reveal), with named easings.
-  - In and Out are written once. Out is the time-reverse of In, mirrored, so "Slide Left" enters
-    from the right and exits to the left.
-  - The v1 ids are kept, so old projects still play.
-- **Rendering:** `getFrameState` folds the frames into the op transform plus `op.fx`.
-  `renderFrame` applies skew/scale around the pivot, the masks (clip-box fractions), the light
-  filters, the glitch passes on a scratch layer, and the typewriter reveal.
-  - The player, the export and the tile thumbnails all draw through this one path.
-- **UI:**
-  - Live canvas thumbnails, animated on hover.
-  - Clicking a tile applies it as one undo step and plays its window once in the player.
-  - ☆ favourites persist in localStorage (`our-editor:ui:animation-favorites`).
-  - Search across categories, None, a check badge on the applied tile and a dot on the sub-tab.
-  - A Duration slider (Speed for Loop).
-  - Timeline: In/Out ramps, a Combo ramp, a ∞ badge for Loop and `data-animations` on the clip.
-- **Model:**
-  - New `animationCombo` and `animationLoop` fields (default `null`); `migrateProject` fills them
-    on old projects.
-  - `AnimationType` is now a string id.
-  - The store has `setAnimation(clip, 'in'|'out'|'combo'|'loop', id|null, dur?)` and
-    `setAnimationDuration`.
-- **CapCut rules:** In + Out never exceed the clip, and the slot you edited last wins (the other
-  one shrinks). Combo removes In/Out and the reverse. On a split the Combo stays on the left part
-  and the Loop is kept on both parts.
-
-| Check | Result |
-|---|---|
-| `npm run typecheck` | clean |
-| `npm test` | **947 / 947 pass**. New: `src/engine/animations.test.ts`, 573 tests, every animation checked for its rest state at the right end (In p=1, Out p=0, Combo/Loop both ends), no NaN/∞ on [−0.01, 1.01] or NaN input, actually moves, continuity at 4000 steps (glitches: bounded envelope instead); `src/engine/animationState.test.ts` (clamping, Combo/Loop, undo, split, migration, frame state, renderer: pivot matrix, mask rect, brightness/glow filter, 12 glitch slices, typewriter); `src/inspector/AnimationTab.test.tsx` (sub-tabs per clip type, chips, apply + preview + None + undo, slider clamping, Combo, search, favourites persisted, text Loop) |
-| `npm run build` | passes |
-| `e2e/tab-animation.spec.ts` | pass, details below |
-| other e2e specs (smoke, flows, shortcuts, file-drop, memory, timeline-stability) | all pass, run one at a time through the browser lock |
-
-**e2e evidence** (two white 1080×1920 images on black: A = Fade In 1 s + Slide Left out 1 s,
-B = Wipe Right in 1 s). Values are luma at 7 columns across the middle row, normalised 0 = black
-frame, 1 = white frame:
-
-| time | expected | preview canvas | exported MP4 (720p, ffmpeg frame n = t·30) |
-|---|---|---|---|
-| 0.2 s fade 20 % | 0.20 everywhere | 0.202 × 7 | 0.202 × 7 |
-| 2.8 s slide-left out 80 % | white until 0.488 W | 1 1 1 0 0 0 0 | 1 1 1 0 0 0 0 |
-| 3.5 s wipe-right in 50 % | white until 0.875 W | 1 1 1 1 1 1 0 | 1 1 1 1 1 1 0 |
-
-The spec also checks:
-- Hovering a tile changes its thumbnail.
-- A click previews the animation once, and playback stops on its own.
-- The animations survive a reload.
-- The timeline indicator is shown.
-- There are no console errors.
-
-**Limits**
-- No ⤓ download button: every animation is built in.
-- "3D" is a 2D skew/scale approximation.
-- Loop and Combo are whole-clip effects, not per-character effects.
-- The preview-once has a wall-clock safety stop because headless Chromium's audio clock can stall.
 
 ## Keyboard shortcuts (CapCut parity) — 2026-10-18
 
@@ -162,152 +87,6 @@ so there is one import path.
 
 Screenshots: `e2e/screens/stability-before-*.png` / `stability-after-*.png` (hover and lost
 pointerup, old vs new code), `stability-01…03`, `file-drop-01…03`.
-
-## Audio tab (CapCut parity, no AI) — 2026-10-19
-
-### What CapCut desktop's Audio tab has
-
-Sub-tabs **Basic | Voice changer** (an audio clip's inspector is **Audio | Speed**; a video clip with
-sound adds an **Audio** tab next to Video). Basic, top to bottom (screenshot 03):
-
-| Section | CapCut | Ours |
-|---|---|---|
-| **Basic** ☑ ↺ ◇ | Volume −60…+20 dB (0.0 dB default, slider position 0.75 = 0 dB matches the screenshot), Fade in / Fade out 0.0 s… clip length | Same ranges and units. Checkbox = clip sound on/off. Reset → 0 dB / 0 s / 0 s. |
-| **Normalize loudness** ☑ (Pro) | "Normalize the loudness of the selected clip or clips to a target level." Target −23 LUFS ([capcut.com](https://www.capcut.com/resource/normalize-audio-premiere)) | ITU-R BS.1770-4 integrated loudness of the clip's source span (K-weighting, 400 ms blocks, −70 / −10 LU gates), gain = −23 − measured (±30 dB cap). Readout: "Clip −38.0 LUFS → +15.0 dB". |
-| **Enhance voice** (AI, Pro) | AI | Shown disabled, "AI · Coming soon". |
-| **Video translator** (AI, Pro) | AI, video clips | Shown disabled on video clips only. |
-| **Reduce noise** ☑ (Pro) | AI denoiser | **DSP approximation, labelled "DSP · not AI"**: 80 Hz high-pass + adaptive noise gate (floor = quietest 20 ms block of the last 1.5 s, opens 10 dB above it, clamp −65…−35 dBFS, closes to −30 dB; steady material is never gated). |
-| **Isolate voice** (AI) | AI | Shown disabled. |
-| **Fill channel** ☑ ↺ ◇ ▾ | Copy one channel to both ([capcut.com](https://www.capcut.com/resource/normalize-audio-premiere): "filling right with left") | Left channel / Right channel → both, mono upmixed first. |
-
-**Voice changer** — CapCut has *Voice filters* (non-AI presets: Chipmunk, High, Low, Deep, Robot,
-Megaphone, Echo, Electronic, Distorted, Synth, Vinyl… per
-[capcut.com](https://www.capcut.com/resource/voice-changer-for-pc) and
-[capcut.com](https://www.capcut.com/resource/how-to-change-your-voice)), *Voice characters* (AI
-TTS-style voices) and *Speech to song* (AI). Ours: 11 DSP voice filters with a Strength 0–100
-slider (default 50): Chipmunk (+5…+12 st), High (+2…+6 st), Low (−2…−5 st), Deep (−4…−9 st +
-low-shelf), Robot (50 Hz ring-mod + comb), Electronic (resonant comb), Echo (250 ms feedback delay),
-Megaphone (band-pass + overdrive), Distorted (wave-shaper), Vinyl (band-limit + bit-crush), Big hall
-(seeded convolution reverb). Voice characters and Speech to song are disabled "AI · Coming soon".
-CapCut's exact filter names/parameters could not be confirmed from an official CapCut help page.
-No "Apply to all" exists in CapCut's Audio tab, so none was added.
-
-**Extracted audio:** a video whose sound was extracted (⇧⌘S) shows "This clip's sound was extracted…"
-with **Select audio** and **Restore audio** instead of the controls; the extracted clip inherits every
-audio setting, splits copy them.
-
-### How it works
-
-One FX chain builder (`src/audio/dsp.ts`) is used by **both** the preview `AudioContext`
-(`player/audioEngine.ts`, chain rebuilt when its signature changes) and the export
-`OfflineAudioContext` (`export/offlineMix.ts`): input (forced stereo) → fill channel (splitter →
-merger) → high-pass + `oe-gate` worklet → `oe-pitch` worklet → voice-filter nodes → output gain
-(volume × normalize × fades). The two AudioWorklet processors (`src/audio/worklets.ts`) load from a
-Blob URL in either context. Loudness is measured once per (asset, span) by streaming the file with
-Mediabunny (`src/audio/measure.ts`); preview, inspector readout and export share the cache.
-Export speed: an `AudioBufferSourceNode` shifts pitch with `playbackRate`, so when "Change audio
-pitch" is off the chain's pitch shifter runs at 1/speed. Effect tails are cut at the clip end in both.
-
-Model: `AudioProps` gained `normalize`, `reduceNoise`, `fillChannel`, `voiceFilter`
-(`defaultAudio()` → off); `migrateAudioProps` / `migrateProject` fill them on old projects. Dev hook:
-`window.__oeAudio.voices()` lists each live preview voice's gain, target, normalize gain and stages.
-
-### Measured (e2e/tab-audio.spec.ts → 26 s 720p MP4, ffmpeg)
-
-| Check | Result |
-|---|---|
-| Volume −6 dB | RMS −23.03 → −29.00 dB = **−5.97 dB**; volumedetect max −19.9 → −25.9 dB (**−6.0**) |
-| Fade in 1 s (100 ms astats windows vs ideal linear ramp) | −16.33 / −11.98 / −9.08 / −6.92 / −5.16 / −3.72 / −2.48 / −1.39 / −0.43 dB vs ideal −16.32 / −11.98 / −9.09 / −6.92 / −5.18 / −3.73 / −2.49 / −1.41 / −0.44 (all within 0.02 dB); full level after: +0.02 dB |
-| Normalize | source −38.0 LUFS → export **−23.0 LUFS** (ebur128); preview normalize gain 5.6205 = +15.0 dB, same as the readout |
-| Fill channel (left-only source) | L −23.01 / R −23.01 dB; without fill R = −∞ |
-| Reduce noise (beeps over −50 dBFS hiss) | hiss in pauses −51.1 → **−70.5 dB** (−19.4 dB); beeps −9.06 → −9.02 dB (untouched) |
-| Chipmunk 100 (+12 st) | zero-crossing rate 0.0417 → 0.0827 (×1.98) |
-| Speed 2× keep pitch / change pitch | ZCR 0.0413 (×0.99) / 0.0833 (×2.00) |
-| Preview graph | −6 dB voice gain 0.5005 (target 0.5012), stages `input→gain`; fill `input→fill:left→gain`; noise `input→highpass:80→gate→gain`; chipmunk `input→pitch:2.0000→voice:chipmunk:100→gain` |
-
-Also verified: every control set through the inspector, undo/redo (⌘Z / ⇧⌘Z) of a checkbox, all
-settings intact after a reload, AI rows disabled. Unit tests: `src/audio/audio.test.ts` (dB maths,
-fade points, K-weighting coefficients, EBU Tech 3341 cases 1–2 at 48 / 44.1 kHz, gating, dual-mono,
-streaming = one-shot, normalize gain, pitch ratios, signatures, migration),
-`src/audio/audioStore.test.ts` (undo/redo per control, split / extract / restore, span, save /
-reload) and `src/inspector/AudioTab.test.tsx` (section order, AI rows, checkboxes, reset, voice
-filter strength = one undo step, extracted notice). Totals: `npm test` 376 / 376; typecheck and build
-clean; e2e smoke, flows, shortcuts, file-drop, memory, timeline-stability and tab-audio all pass
-(one at a time).
-
-Limits: Reduce noise is a gate, so hiss *under* speech stays; the pitch shifter delays the clips that use it by ≈ 21 ms
-(under one frame, preview and export alike); keyframes on Volume / Fill
-channel are shown disabled like everywhere else (v2).
-
-## Adjust tab — CapCut parity on a GPU colour pipeline — 2026-10-19
-
-**What CapCut's Adjust tab has** (screenshot `docs/capcut-screens/07-inspector-adjust-basic.png`
-plus CapCut / third-party guides; slider ranges are not published, so CapCut's −50…50 / 0…100
-convention from the screenshot is kept):
-
-| Sub-tab | CapCut | Ours |
-|---|---|---|
-| Basic | Auto adjust ✦, Color match ✦, Color correction ✦ (AI) | shown disabled, "AI · Coming soon" |
-| Basic | LUT: Name (None / imported .cube), Intensity 0–100, Protect skin tone | works: .cube 3D (2–129³) and 1D files, DOMAIN_MIN/MAX, trilinear on a 3D texture, intensity, skin-tone key (non-AI hue/sat key) |
-| Basic | Adjust: Color (Temp, Tint, Saturation), Lightness (Exposure, Brightness, Contrast, Highlights, Shadows, Whites, Blacks, Brilliance), Effects (Sharpen, Clarity, Particles, Fade, Vignette) | all 16 work (Particles = film grain) |
-| HSL | 8 colour ranges × Hue / Saturation / Lightness | works, −100…100 |
-| Curves | Luma + Red / Green / Blue curves with draggable points | works: click to add, drag, double-click or drag out to remove; monotone cubic (Fritsch–Carlson) baked into a 256-entry texture |
-| Color wheel | Lift / Gamma / Gain / Offset wheels with a luminance slider each | works (the "Log" wheel set is not built) |
-| Mask | Limit the adjustment to a shape | works: Linear, Mirror, Circle, Rectangle; position, rotation, size, feather, roundness, invert (inspector controls; no on-canvas handles yet) |
-| Footer | Apply to all, Save as preset | both work; presets persist in localStorage and show in Library › Adjustment › My presets |
-
-Sources: capcut.com/resource/capcut-color-grading, capcut.com/tools/color-wheel,
-capcut.com/tools/hsl-color, filmora.wondershare.com/advanced-video-editing/how-to-color-grade-video-in-capcut.html.
-
-**Pipeline** (`src/engine/color/`): one WebGL2 fragment shader per clip, used by the player and the
-export through the shared compositor (`renderFrame` → `opts.grader`). Media are graded in source
-space (cropped, at the size they are drawn), then drawn with their transform, so blend, opacity,
-animations and transitions are unchanged. Order: LUT → look (grayscale/sepia of the Filters
-library) → white balance + exposure in linear light → brightness (mid-tone gamma) → contrast →
-tone (shadows/highlights/whites/blacks/brilliance) → HSL → saturation → curves → wheels → fade →
-clarity + sharpen → vignette → grain → mask. `math.ts` is the same pipeline in TypeScript: the
-CPU fallback when WebGL2 is missing, the unit-test reference and the Library tile previews. The
-Filters looks run through the same pass (their tiles are rendered by it too).
-
-| Check | Result |
-|---|---|
-| `npm run typecheck` | clean |
-| `npm test` | **392 / 392** (new: `engine/color/color.test.ts` 33 colour-maths tests against reference values — temp/tint/sat/contrast/exposure/brightness/tone/fade, HSL weights, curve monotonicity on 50 random point sets, `.cube` identity/affine/1D/errors, wheels, mask shapes; `model/grade.test.ts` defaults, migration, undo; `inspector/AdjustTab.test.tsx` 8 UI tests) |
-| `npm run build` | passes |
-| `e2e/tab-adjust.spec.ts` | pass (pixel evidence below) |
-| all e2e specs, one at a time through the browser lock | smoke 1, flows 1, shortcuts 2, file-drop 2, memory 2, timeline-stability 7, tab-adjust 2 — all pass |
-
-**Pixel evidence** (SMPTE bars, 16:9 project, t = 1 s, 5×5 averages at the centre of each top bar):
-
-| State | grey | yellow | cyan | green | magenta | red | blue |
-|---|---|---|---|---|---|---|---|
-| baseline (preview) | 191,191,191 | 195,181,2 | 0,172,190 | 0,161,0 | 205,30,191 | 208,19,1 | 0,11,190 |
-| Saturation −50 | 191,191,191 | 171,171,171 | 137,137,137 | 115,115,115 | 79,79,79 | 58,58,58 | 22,22,22 |
-| Temp +50 | 211,188,160 | 212,175,1 | 0,175,164 | 0,161,0 | 216,27,152 | 209,16,1 | 0,15,188 |
-| identity .cube | = baseline (0 difference) | | | | | | |
-| R↔B swap .cube | 191,191,191 | 2,181,195 | 190,172,0 | 0,161,0 | 191,30,205 | 1,19,208 | 190,11,0 |
-| inverting curve (dragged) | 64,64,64 | 60,74,253 | 255,83,65 | 255,94,255 | 50,225,64 | 47,236,254 | 255,244,65 |
-
-- Undo after Saturation restores the baseline exactly; the curve drags are one undo step each.
-- After a reload the graded preview is identical (max difference 0).
-- **GPU vs CPU:** the shader and `math.ts` agree on a 64×32 test card for nine settings groups:
-  max difference 0 (1 for HSL and mask), mean 0.00.
-- **Export:** the graded MP4 equals the CPU reference applied to the *ungraded* MP4's pixels within
-  3 levels — the export runs the same pass. The export differs from the *preview* by up to 29 on
-  saturated bars, but the ungraded export already differs from the ungraded preview by 30 (red
-  bar 190,0,0 in the export vs 208,19,1 in the player): the `<video>` element and Mediabunny decode
-  this BT.601-tagged clip with different matrices. That is a pre-existing player/export
-  difference, not the colour pass; the grey bar (no chroma) matches within 1.
-
-**Model** (`src/model/types.ts`): `Adjust` gains `whites, blacks, brilliance, clarity, grain`;
-every visual clip gains `grade: { lut, hsl, curves, wheels, mask }` (each section with its own
-`enabled`). `migrateProject` fills both for old projects (SCHEMA_VERSION unchanged, additive).
-`updateClip({ grade: { hsl } })` replaces one section and deep-clones it.
-
-**Limits:** LUT files live in this browser's IndexedDB (`our-editor-luts`), not in the project; a
-project opened elsewhere shows "LUT (missing)" and renders without it. Text clips are graded as a
-whole canvas layer (vignette and mask are relative to the canvas, not the text box). No keyframes,
-no on-canvas mask handles, no Log wheels. Vignette keeps the v1 range 0…100 (darken only).
 
 ## Flows verified in real Chromium (Playwright)
 
@@ -417,41 +196,31 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
 - **In / out area** (I / O / ⇧X) is drawn on the ruler but nothing uses it yet (export range,
   ripple-delete of the area are later).
 - **Extract audio** links the video and the audio clip by a shared `audioLink` id; split pieces
-  stay linked. Duplicating or pasting a linked video copies the link, so "restore" on the copy
-  also restores the original.
+  stay linked. (Since the timeline audit, duplicated / pasted copies get fresh link ids and
+  one-sided links are dropped — see [AUDIT-timeline.md](AUDIT-timeline.md).)
 
 **Player**
 - When a new clip id appears (right after a split, for example), the preview can be black for one
   frame while that clip's `<video>` element loads its first frame.
 
 **Export**
-- Fixed in the export audit (2026-10-19, [AUDIT-export.md](AUDIT-export.md)): speed-changed clips now
-  keep their pitch in the export (WSOLA time-stretch, like the preview), loud overlapping clips go
-  through a peak limiter instead of clipping, and the WebM fallback file now has a duration.
-
-- ~~Speed changes also change pitch in the export~~ — fixed by the Speed tab work (WSOLA time-stretch, see § Speed tab).
-
-- Pitch-kept speed changes are undone in the export by a delay-line pitch shifter (see § Audio tab). It is clean on tones and speech but is not a WSOLA time-stretch like the browser's `preservesPitch`, and it is limited to 0.25×–4× pitch compensation, so pitch is only fully kept for speeds 0.25×–4×.
-- Highlights, Shadows and Sharpen are CSS-filter approximations. The WebGL colour pass is v2.
+- ~~Speed changes also change pitch in the export~~ — fixed: pitch-kept speed (standard and
+  curves) is rendered with ONE WSOLA time-stretch (`src/export/audioDsp.ts` `stretchMapped`, see
+  § Integration), the mix goes through a peak limiter, and the WebM fallback file now has a
+  duration ([AUDIT-export.md](AUDIT-export.md)).
+- ~~Highlights, Shadows and Sharpen are CSS-filter approximations~~ — done: the WebGL2 colour pass
+  (see "Adjust tab") renders every Adjust control in player and export.
 - The WebM fallback (browsers without WebCodecs) records in real time and is not frame-exact
   (61 frames for 60, audio ≈15 ms late).
 - The AAC track runs up to ~28 ms (1344 samples, silent) past the project end: the encoder's last
   1024-sample frame. The video track is exact.
+- A stalled WebCodecs decoder / encoder now fails the export with a message after 20 s instead of
+  hanging (§ Integration); the underlying browser stall itself was not reproduced.
 
 **Not built**
 - Stickers, Effects, Captions and Templates tabs are placeholders ("Coming soon").
-- Combo animations, HSL / Curves, "Save as preset" and Speed › Velocity effects are shown disabled (Speed › Curve is built, see § Speed tab).
-
-- Speed changes also change pitch in the export; the preview keeps the pitch. Time-stretch is v2.
-- ~~Highlights, Shadows and Sharpen are CSS-filter approximations.~~ Done 2026-10-19: the WebGL2
-  colour pass (see "Adjust tab" below) renders every Adjust control in player and export.
-- The WebM fallback (browsers without WebCodecs) records in real time, is not frame-exact, and its
-  file has no duration header.
-
-**Not built**
-- Stickers, Effects, Captions and Templates tabs are placeholders ("Coming soon").
-- Speed Curve and Combo animations are shown disabled. (HSL / Curves / Color wheel / Mask and
-  "Save as preset" work since 2026-10-19.)
+- Speed › Velocity effects are shown disabled. (Speed › Curve, Combo / Loop animations, HSL /
+  Curves / Color wheel / Mask and "Save as preset" work since 2026-10-19.)
 - **No AI features**, as requested.
 
 **Persistence**
@@ -591,6 +360,37 @@ dropdown, the toolbar icon, the cursors and (through `shortcutDefs.ts`) the keys
   work from any control except text fields (the zoom slider now only keeps its arrow / page keys).
 - No toast on switching: CapCut shows none; the toolbar icon + cursor are the indicator.
 
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **360 / 360 pass** (24 files). New `src/timeline/tools.test.ts` (13): tool table order and keys, modifier combos never pick a tool, Hebrew layout, distinct SVG cursors with hotspots, `bladeTime` (frame snap, playhead pull, edge refusal), `clipsOnSide` (left / right / crossing / locked) |
+| `npm run build` | passes |
+| `e2e/tool-modes.spec.ts` (new) | pass: B → blade cursor on clips and lanes, handles hidden, cut line inside the hovered clip with timecode tip, follows the mouse, snaps to the playhead, click splits (4 clips, one undo step), still armed, a drag in split mode moves nothing, ruler scrubs; A → grab cursor, no line, drag moves a clip again; Esc → Select; ⌘B keeps Select; B works with the zoom slider focused, not in the project-name field; dropdown lists Select A / Split B / Select leftward [ / Select rightward ]; rightward hover line + outlined targets, click selects; `[` selects left of the playhead and arms leftward, click on clip / empty lane re-anchors; Esc / A / menu back to Select |
+| `e2e/shortcuts.spec.ts` | pass (now also checks that `[` / `]` arm the side tools and A leaves them) |
+| `e2e/smoke`, `timeline-stability`, `file-drop`, `flows`, `memory` | all pass, run one spec at a time (one Chromium, workers=1, own Vite on :5467; peak Chromium RSS 1.47 GB) |
+
+## Library functional audit — 2026-10-19
+
+Every Library control was audited against its real effect: the store, IndexedDB, the timeline DOM,
+player-canvas pixels read with `getImageData`, and the state after a reload. The full table is in
+**[AUDIT-library.md](AUDIT-library.md)**. `e2e/audit-library.spec.ts` has 14 tests; 4 of them fail
+on the previous code. Fixed:
+
+- delete + ⌘Z left orphan clips and destroyed the media (removing an asset is now one undo step,
+  and media is freed only when no history step can reach it);
+- clips on locked tracks survived the deletion of their asset;
+- "+" added clips to a locked main track;
+- the same file imported twice made duplicate tiles;
+- "Media lost" could not be relinked;
+- Delete on a focused tile deleted the timeline selection;
+- orphan blobs are swept at boot.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean / passes |
+| `npm test` | 358 / 358 pass (24 files; new `src/store/assetLifecycle.test.ts`) |
+| e2e, one spec at a time, workers = 1 | smoke 1, flows 1, file-drop 2, shortcuts 2, timeline-stability 7, memory 2, audit-library 14: all pass |
+
 ## Speed tab (Standard · Curve · Velocity effects) — 2026-10-19
 
 ### What CapCut desktop's Speed tab has
@@ -668,6 +468,101 @@ tab opens on Curve with Hero selected), then sets 2x in Standard (curve removed)
 slow-mo is disabled. Screenshots: `e2e/screens/tab-speed-*.png`; raw numbers:
 `e2e/test-results/tab-speed-measurements.json`.
 
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **407 / 407 pass** (27 files). New: `src/model/speedCurve.test.ts` (property tests against a Simpson integral and a midpoint integral of `speedAtTime` on 40+ random curves and every preset; F monotone; inverse round-trips; slices exact; flat extension), `src/store/speedCurve.store.test.ts` (apply / None / standard replaces curve / undo / clamping / exact split, trim in and out, delete-left/right, extract audio, migration, frameState ops), `src/export/timeStretch.test.ts` (resample 2x → 880 Hz, 0.5x → 220 Hz; WSOLA keeps 440 Hz at 0.25x–3.7x with full level; curve audio follows / keeps pitch), `src/inspector/SpeedTab.test.tsx`, `followRate` in `player.test.ts`; the store fuzz now applies random curves |
+| `npm run build` | passes |
+| `e2e/tab-speed.spec.ts` | **12 / 12 pass** |
+| `smoke`, `flows`, `shortcuts`, `timeline-stability`, `file-drop`, `memory` | pass (one at a time, through the browser lock) |
+
+**Seen once:** in the first full run the 0.5x export stopped advancing at video frame 125 / 300
+(no error, the download never came). It did not reproduce in three later runs. The stall was in the
+video phase (`ExportFrameSource` / Mediabunny decode), not in the audio mix. It ran while ten agents
+shared the machine. **Integration:** the export can no longer hang silently — a stalled decoder
+is restarted once, and a 20 s watchdog fails the export with a message (§ Integration).
+
+**Limits:** speeds above 16x are silent in the preview (browser playbackRate limit; the export
+is fine). Velocity effects are not built. CapCut's Pro badge on Curve is not shown.
+
+## Audio tab (CapCut parity, no AI) — 2026-10-19
+
+### What CapCut desktop's Audio tab has
+
+Sub-tabs **Basic | Voice changer** (an audio clip's inspector is **Audio | Speed**; a video clip with
+sound adds an **Audio** tab next to Video). Basic, top to bottom (screenshot 03):
+
+| Section | CapCut | Ours |
+|---|---|---|
+| **Basic** ☑ ↺ ◇ | Volume −60…+20 dB (0.0 dB default, slider position 0.75 = 0 dB matches the screenshot), Fade in / Fade out 0.0 s… clip length | Same ranges and units. Checkbox = clip sound on/off. Reset → 0 dB / 0 s / 0 s. |
+| **Normalize loudness** ☑ (Pro) | "Normalize the loudness of the selected clip or clips to a target level." Target −23 LUFS ([capcut.com](https://www.capcut.com/resource/normalize-audio-premiere)) | ITU-R BS.1770-4 integrated loudness of the clip's source span (K-weighting, 400 ms blocks, −70 / −10 LU gates), gain = −23 − measured (±30 dB cap). Readout: "Clip −38.0 LUFS → +15.0 dB". |
+| **Enhance voice** (AI, Pro) | AI | Shown disabled, "AI · Coming soon". |
+| **Video translator** (AI, Pro) | AI, video clips | Shown disabled on video clips only. |
+| **Reduce noise** ☑ (Pro) | AI denoiser | **DSP approximation, labelled "DSP · not AI"**: 80 Hz high-pass + adaptive noise gate (floor = quietest 20 ms block of the last 1.5 s, opens 10 dB above it, clamp −65…−35 dBFS, closes to −30 dB; steady material is never gated). |
+| **Isolate voice** (AI) | AI | Shown disabled. |
+| **Fill channel** ☑ ↺ ◇ ▾ | Copy one channel to both ([capcut.com](https://www.capcut.com/resource/normalize-audio-premiere): "filling right with left") | Left channel / Right channel → both, mono upmixed first. |
+
+**Voice changer** — CapCut has *Voice filters* (non-AI presets: Chipmunk, High, Low, Deep, Robot,
+Megaphone, Echo, Electronic, Distorted, Synth, Vinyl… per
+[capcut.com](https://www.capcut.com/resource/voice-changer-for-pc) and
+[capcut.com](https://www.capcut.com/resource/how-to-change-your-voice)), *Voice characters* (AI
+TTS-style voices) and *Speech to song* (AI). Ours: 11 DSP voice filters with a Strength 0–100
+slider (default 50): Chipmunk (+5…+12 st), High (+2…+6 st), Low (−2…−5 st), Deep (−4…−9 st +
+low-shelf), Robot (50 Hz ring-mod + comb), Electronic (resonant comb), Echo (250 ms feedback delay),
+Megaphone (band-pass + overdrive), Distorted (wave-shaper), Vinyl (band-limit + bit-crush), Big hall
+(seeded convolution reverb). Voice characters and Speech to song are disabled "AI · Coming soon".
+CapCut's exact filter names/parameters could not be confirmed from an official CapCut help page.
+No "Apply to all" exists in CapCut's Audio tab, so none was added.
+
+**Extracted audio:** a video whose sound was extracted (⇧⌘S) shows "This clip's sound was extracted…"
+with **Select audio** and **Restore audio** instead of the controls; the extracted clip inherits every
+audio setting, splits copy them.
+
+### How it works
+
+One FX chain builder (`src/audio/dsp.ts`) is used by **both** the preview `AudioContext`
+(`player/audioEngine.ts`, chain rebuilt when its signature changes) and the export
+`OfflineAudioContext` (`export/offlineMix.ts`): input (forced stereo) → fill channel (splitter →
+merger) → high-pass + `oe-gate` worklet → `oe-pitch` worklet → voice-filter nodes → output gain
+(volume × normalize × fades). The two AudioWorklet processors (`src/audio/worklets.ts`) load from a
+Blob URL in either context. Loudness is measured once per (asset, span) by streaming the file with
+Mediabunny (`src/audio/measure.ts`); preview, inspector readout and export share the cache.
+Export speed: ~~when "Change audio pitch" is off the chain's pitch shifter runs at 1/speed~~ —
+since the integration the clip is first rendered at rate 1 by the shared WSOLA stretcher (pitch
+kept) or resampled (pitch changed), so the chain's pitch shifter only carries the voice filter
+(§ Integration). Effect tails are cut at the clip end in both.
+
+Model: `AudioProps` gained `normalize`, `reduceNoise`, `fillChannel`, `voiceFilter`
+(`defaultAudio()` → off); `migrateAudioProps` / `migrateProject` fill them on old projects. Dev hook:
+`window.__oeAudio.voices()` lists each live preview voice's gain, target, normalize gain and stages.
+
+### Measured (e2e/tab-audio.spec.ts → 26 s 720p MP4, ffmpeg)
+
+| Check | Result |
+|---|---|
+| Volume −6 dB | RMS −23.03 → −29.00 dB = **−5.97 dB**; volumedetect max −19.9 → −25.9 dB (**−6.0**) |
+| Fade in 1 s (100 ms astats windows vs ideal linear ramp) | −16.33 / −11.98 / −9.08 / −6.92 / −5.16 / −3.72 / −2.48 / −1.39 / −0.43 dB vs ideal −16.32 / −11.98 / −9.09 / −6.92 / −5.18 / −3.73 / −2.49 / −1.41 / −0.44 (all within 0.02 dB); full level after: +0.02 dB |
+| Normalize | source −38.0 LUFS → export **−23.0 LUFS** (ebur128); preview normalize gain 5.6205 = +15.0 dB, same as the readout |
+| Fill channel (left-only source) | L −23.01 / R −23.01 dB; without fill R = −∞ |
+| Reduce noise (beeps over −50 dBFS hiss) | hiss in pauses −51.1 → **−70.5 dB** (−19.4 dB); beeps −9.06 → −9.02 dB (untouched) |
+| Chipmunk 100 (+12 st) | zero-crossing rate 0.0417 → 0.0827 (×1.98) |
+| Speed 2× keep pitch / change pitch | ZCR 0.0413 (×0.99) / 0.0833 (×2.00) |
+| Preview graph | −6 dB voice gain 0.5005 (target 0.5012), stages `input→gain`; fill `input→fill:left→gain`; noise `input→highpass:80→gate→gain`; chipmunk `input→pitch:2.0000→voice:chipmunk:100→gain` |
+
+Also verified: every control set through the inspector, undo/redo (⌘Z / ⇧⌘Z) of a checkbox, all
+settings intact after a reload, AI rows disabled. Unit tests: `src/audio/audio.test.ts` (dB maths,
+fade points, K-weighting coefficients, EBU Tech 3341 cases 1–2 at 48 / 44.1 kHz, gating, dual-mono,
+streaming = one-shot, normalize gain, pitch ratios, signatures, migration),
+`src/audio/audioStore.test.ts` (undo/redo per control, split / extract / restore, span, save /
+reload) and `src/inspector/AudioTab.test.tsx` (section order, AI rows, checkboxes, reset, voice
+filter strength = one undo step, extracted notice). Totals: `npm test` 376 / 376; typecheck and build
+clean; e2e smoke, flows, shortcuts, file-drop, memory, timeline-stability and tab-audio all pass
+(one at a time).
+
+Limits: Reduce noise is a gate, so hiss *under* speech stays; the pitch shifter delays the clips that use it by ≈ 21 ms
+(under one frame, preview and export alike); keyframes on Volume / Fill
+channel are shown disabled like everywhere else (v2).
+
 ## Inspector › Video tab — 2026-10-19
 
 Shown for video and image clips. Layout follows CapCut desktop (`docs/capcut-screens/02`): sub-tabs
@@ -701,47 +596,6 @@ projects (scaleX/Y start from the saved scale). All edits are store actions → 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm test` | **360 / 360 pass** (24 files). New `src/timeline/tools.test.ts` (13): tool table order and keys, modifier combos never pick a tool, Hebrew layout, distinct SVG cursors with hotspots, `bladeTime` (frame snap, playhead pull, edge refusal), `clipsOnSide` (left / right / crossing / locked) |
-| `npm run build` | passes |
-| `e2e/tool-modes.spec.ts` (new) | pass: B → blade cursor on clips and lanes, handles hidden, cut line inside the hovered clip with timecode tip, follows the mouse, snaps to the playhead, click splits (4 clips, one undo step), still armed, a drag in split mode moves nothing, ruler scrubs; A → grab cursor, no line, drag moves a clip again; Esc → Select; ⌘B keeps Select; B works with the zoom slider focused, not in the project-name field; dropdown lists Select A / Split B / Select leftward [ / Select rightward ]; rightward hover line + outlined targets, click selects; `[` selects left of the playhead and arms leftward, click on clip / empty lane re-anchors; Esc / A / menu back to Select |
-| `e2e/shortcuts.spec.ts` | pass (now also checks that `[` / `]` arm the side tools and A leaves them) |
-| `e2e/smoke`, `timeline-stability`, `file-drop`, `flows`, `memory` | all pass, run one spec at a time (one Chromium, workers=1, own Vite on :5467; peak Chromium RSS 1.47 GB) |
-
-## Library functional audit — 2026-10-19
-
-Every Library control was audited against its real effect: the store, IndexedDB, the timeline DOM,
-player-canvas pixels read with `getImageData`, and the state after a reload. The full table is in
-**[AUDIT-library.md](AUDIT-library.md)**. `e2e/audit-library.spec.ts` has 14 tests; 4 of them fail
-on the previous code. Fixed:
-
-- delete + ⌘Z left orphan clips and destroyed the media (removing an asset is now one undo step,
-  and media is freed only when no history step can reach it);
-- clips on locked tracks survived the deletion of their asset;
-- "+" added clips to a locked main track;
-- the same file imported twice made duplicate tiles;
-- "Media lost" could not be relinked;
-- Delete on a focused tile deleted the timeline selection;
-- orphan blobs are swept at boot.
-
-| Check | Result |
-|---|---|
-| `npm run typecheck` / `npm run build` | clean / passes |
-| `npm test` | 358 / 358 pass (24 files; new `src/store/assetLifecycle.test.ts`) |
-| e2e, one spec at a time, workers = 1 | smoke 1, flows 1, file-drop 2, shortcuts 2, timeline-stability 7, memory 2, audit-library 14: all pass |
-
-| `npm test` | **407 / 407 pass** (27 files). New: `src/model/speedCurve.test.ts` (property tests against a Simpson integral and a midpoint integral of `speedAtTime` on 40+ random curves and every preset; F monotone; inverse round-trips; slices exact; flat extension), `src/store/speedCurve.store.test.ts` (apply / None / standard replaces curve / undo / clamping / exact split, trim in and out, delete-left/right, extract audio, migration, frameState ops), `src/export/timeStretch.test.ts` (resample 2x → 880 Hz, 0.5x → 220 Hz; WSOLA keeps 440 Hz at 0.25x–3.7x with full level; curve audio follows / keeps pitch), `src/inspector/SpeedTab.test.tsx`, `followRate` in `player.test.ts`; the store fuzz now applies random curves |
-| `npm run build` | passes |
-| `e2e/tab-speed.spec.ts` | **12 / 12 pass** |
-| `smoke`, `flows`, `shortcuts`, `timeline-stability`, `file-drop`, `memory` | pass (one at a time, through the browser lock) |
-
-**Seen once:** in the first full run the 0.5x export stopped advancing at video frame 125 / 300
-(no error, the download never came). It did not reproduce in three later runs. The stall was in the
-video phase (`ExportFrameSource` / Mediabunny decode), not in the audio mix. It ran while ten agents
-shared the machine, so it is noted here rather than fixed.
-
-**Limits:** speeds above 16x are silent in the preview (browser playbackRate limit; the export
-is fine). Velocity effects are not built. CapCut's Pro badge on Curve is not shown.
-
 | `npm test` | **378 / 378 pass** (25 files). New: `src/engine/render/videoTab.test.ts` (defaults, clamping + undo, migration, per-axis frame state, canvas background ops, linear burn op, mask geometry for all six shapes incl. feather / invert / rotation / round corners, star & heart polygons, chroma key alpha + despill, non-uniform corner drag, compositor calls for masks / blur / linear burn) and `src/inspector/VideoTab.test.tsx` (uniform switch, picture box, default mask sizes, on-canvas mask maths incl. flipped / rotated clips, the tab UI: AI rows disabled, image vs video, overlay has no Canvas, Canvas + Apply to all + undo, chroma, mask tiles / invert / size) |
 | `npm run build` | passes |
 | `e2e/tab-video.spec.ts` (new) | pass. Drives the real UI and samples the player canvas with `getImageData` (numbers below), then reloads and exports a 1080p MP4 and reads its frame at 1 s with ffmpeg (`-ss 1 -frames:v 1` → PNG → rgb24) |
@@ -783,3 +637,223 @@ custom mask and Remove BG's AI cut-outs are not built; the Canvas "Image" choice
 already in the Media pool; feathering a closed shape is a gaussian blur (CapCut's edge falloff
 may differ slightly); a non-uniformly scaled clip shears a rotated mask, as in the math of any 2D
 transform. Crop stays on the timeline toolbar (CapCut has no crop control in this tab).
+
+## Adjust tab — CapCut parity on a GPU colour pipeline — 2026-10-19
+
+**What CapCut's Adjust tab has** (screenshot `docs/capcut-screens/07-inspector-adjust-basic.png`
+plus CapCut / third-party guides; slider ranges are not published, so CapCut's −50…50 / 0…100
+convention from the screenshot is kept):
+
+| Sub-tab | CapCut | Ours |
+|---|---|---|
+| Basic | Auto adjust ✦, Color match ✦, Color correction ✦ (AI) | shown disabled, "AI · Coming soon" |
+| Basic | LUT: Name (None / imported .cube), Intensity 0–100, Protect skin tone | works: .cube 3D (2–129³) and 1D files, DOMAIN_MIN/MAX, trilinear on a 3D texture, intensity, skin-tone key (non-AI hue/sat key) |
+| Basic | Adjust: Color (Temp, Tint, Saturation), Lightness (Exposure, Brightness, Contrast, Highlights, Shadows, Whites, Blacks, Brilliance), Effects (Sharpen, Clarity, Particles, Fade, Vignette) | all 16 work (Particles = film grain) |
+| HSL | 8 colour ranges × Hue / Saturation / Lightness | works, −100…100 |
+| Curves | Luma + Red / Green / Blue curves with draggable points | works: click to add, drag, double-click or drag out to remove; monotone cubic (Fritsch–Carlson) baked into a 256-entry texture |
+| Color wheel | Lift / Gamma / Gain / Offset wheels with a luminance slider each | works (the "Log" wheel set is not built) |
+| Mask | Limit the adjustment to a shape | works: Linear, Mirror, Circle, Rectangle; position, rotation, size, feather, roundness, invert (inspector controls; no on-canvas handles yet) |
+| Footer | Apply to all, Save as preset | both work; presets persist in localStorage and show in Library › Adjustment › My presets |
+
+Sources: capcut.com/resource/capcut-color-grading, capcut.com/tools/color-wheel,
+capcut.com/tools/hsl-color, filmora.wondershare.com/advanced-video-editing/how-to-color-grade-video-in-capcut.html.
+
+**Pipeline** (`src/engine/color/`): one WebGL2 fragment shader per clip, used by the player and the
+export through the shared compositor (`renderFrame` → `opts.grader`). Media are graded in source
+space (cropped, at the size they are drawn), then drawn with their transform, so blend, opacity,
+animations and transitions are unchanged. Order: LUT → look (grayscale/sepia of the Filters
+library) → white balance + exposure in linear light → brightness (mid-tone gamma) → contrast →
+tone (shadows/highlights/whites/blacks/brilliance) → HSL → saturation → curves → wheels → fade →
+clarity + sharpen → vignette → grain → mask. `math.ts` is the same pipeline in TypeScript: the
+CPU fallback when WebGL2 is missing, the unit-test reference and the Library tile previews. The
+Filters looks run through the same pass (their tiles are rendered by it too).
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **392 / 392** (new: `engine/color/color.test.ts` 33 colour-maths tests against reference values — temp/tint/sat/contrast/exposure/brightness/tone/fade, HSL weights, curve monotonicity on 50 random point sets, `.cube` identity/affine/1D/errors, wheels, mask shapes; `model/grade.test.ts` defaults, migration, undo; `inspector/AdjustTab.test.tsx` 8 UI tests) |
+| `npm run build` | passes |
+| `e2e/tab-adjust.spec.ts` | pass (pixel evidence below) |
+| all e2e specs, one at a time through the browser lock | smoke 1, flows 1, shortcuts 2, file-drop 2, memory 2, timeline-stability 7, tab-adjust 2 — all pass |
+
+**Pixel evidence** (SMPTE bars, 16:9 project, t = 1 s, 5×5 averages at the centre of each top bar):
+
+| State | grey | yellow | cyan | green | magenta | red | blue |
+|---|---|---|---|---|---|---|---|
+| baseline (preview) | 191,191,191 | 195,181,2 | 0,172,190 | 0,161,0 | 205,30,191 | 208,19,1 | 0,11,190 |
+| Saturation −50 | 191,191,191 | 171,171,171 | 137,137,137 | 115,115,115 | 79,79,79 | 58,58,58 | 22,22,22 |
+| Temp +50 | 211,188,160 | 212,175,1 | 0,175,164 | 0,161,0 | 216,27,152 | 209,16,1 | 0,15,188 |
+| identity .cube | = baseline (0 difference) | | | | | | |
+| R↔B swap .cube | 191,191,191 | 2,181,195 | 190,172,0 | 0,161,0 | 191,30,205 | 1,19,208 | 190,11,0 |
+| inverting curve (dragged) | 64,64,64 | 60,74,253 | 255,83,65 | 255,94,255 | 50,225,64 | 47,236,254 | 255,244,65 |
+
+- Undo after Saturation restores the baseline exactly; the curve drags are one undo step each.
+- After a reload the graded preview is identical (max difference 0).
+- **GPU vs CPU:** the shader and `math.ts` agree on a 64×32 test card for nine settings groups:
+  max difference 0 (1 for HSL and mask), mean 0.00.
+- **Export:** the graded MP4 equals the CPU reference applied to the *ungraded* MP4's pixels within
+  3 levels — the export runs the same pass. The export differs from the *preview* by up to 29 on
+  saturated bars, but the ungraded export already differs from the ungraded preview by 30 (red
+  bar 190,0,0 in the export vs 208,19,1 in the player): the `<video>` element and Mediabunny decode
+  this BT.601-tagged clip with different matrices. That is a pre-existing player/export
+  difference, not the colour pass; the grey bar (no chroma) matches within 1.
+
+**Model** (`src/model/types.ts`): `Adjust` gains `whites, blacks, brilliance, clarity, grain`;
+every visual clip gains `grade: { lut, hsl, curves, wheels, mask }` (each section with its own
+`enabled`). `migrateProject` fills both for old projects (SCHEMA_VERSION unchanged, additive).
+`updateClip({ grade: { hsl } })` replaces one section and deep-clones it.
+
+**Limits:** LUT files live in this browser's IndexedDB (`our-editor-luts`), not in the project; a
+project opened elsewhere shows "LUT (missing)" and renders without it. Text clips are graded as a
+whole canvas layer (vignette and mask are relative to the canvas, not the text box). No keyframes,
+no on-canvas mask handles, no Log wheels. Vignette keeps the v1 range 0…100 (darken only).
+
+## Animation tab (CapCut parity) — 2026-10-19
+
+**What CapCut has (research):** sub-tabs `In | Out | Combo` for video/image and `In | Out | Loop`
+for text. A search box ("People are searching …"), category chips (★ favourites, Trending, Basic,
+Light, Glitch, Mask, 3D, Vibration…), and a grid whose first tile is **None**. Tiles carry ☆
+favourite and ⤓ download overlays and a Pro diamond. Hovering a tile plays its preview, a click
+applies it and plays it in the player, and the applied tile gets a cyan outline. A **Duration**
+slider appears under the grid. Applied animations show as ramps on the clip. Combo runs over the
+clip and replaces In/Out. Loop runs for the text's whole duration, and older versions show a
+"Fast ↔ Slow" speed slider. Sources: `docs/capcut-screens/06-animation-in-library.png`,
+`docs/research/01-ui-ux.md` §2.2/§4.5,
+autoae.online/blog/how-to-do-text-animation-in-capcut-pc and capcutguide.com/capcut-text-animation.
+CapCut does not publish exact defaults. Ours are 0.5 s for In/Out (minimum 0.1 s), the whole clip
+for Combo, and 1 s per Loop cycle (0.1–5 s).
+
+**What we built**
+- **One catalogue,** `src/engine/animations.ts`: **53 In, 53 Out, 18 Combo and 15 text Loop**
+  animations. Each one is a pure function of progress that returns an `AnimFrame`
+  (offset, scale, sx/sy, skew + pivot, rotation, alpha, blur, brightness, hue, glow, RGB split,
+  slices, masks, text reveal), with named easings.
+  - In and Out are written once. Out is the time-reverse of In, mirrored, so "Slide Left" enters
+    from the right and exits to the left.
+  - The v1 ids are kept, so old projects still play.
+- **Rendering:** `getFrameState` folds the frames into the op transform plus `op.fx`.
+  `renderFrame` applies skew/scale around the pivot, the masks (clip-box fractions), the light
+  filters, the glitch passes on a scratch layer, and the typewriter reveal.
+  - The player, the export and the tile thumbnails all draw through this one path.
+- **UI:**
+  - Live canvas thumbnails, animated on hover.
+  - Clicking a tile applies it as one undo step and plays its window once in the player.
+  - ☆ favourites persist in localStorage (`our-editor:ui:animation-favorites`).
+  - Search across categories, None, a check badge on the applied tile and a dot on the sub-tab.
+  - A Duration slider (Speed for Loop).
+  - Timeline: In/Out ramps, a Combo ramp, a ∞ badge for Loop and `data-animations` on the clip.
+- **Model:**
+  - New `animationCombo` and `animationLoop` fields (default `null`); `migrateProject` fills them
+    on old projects.
+  - `AnimationType` is now a string id.
+  - The store has `setAnimation(clip, 'in'|'out'|'combo'|'loop', id|null, dur?)` and
+    `setAnimationDuration`.
+- **CapCut rules:** In + Out never exceed the clip, and the slot you edited last wins (the other
+  one shrinks). Combo removes In/Out and the reverse. On a split the Combo stays on the left part
+  and the Loop is kept on both parts.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **947 / 947 pass**. New: `src/engine/animations.test.ts`, 573 tests, every animation checked for its rest state at the right end (In p=1, Out p=0, Combo/Loop both ends), no NaN/∞ on [−0.01, 1.01] or NaN input, actually moves, continuity at 4000 steps (glitches: bounded envelope instead); `src/engine/animationState.test.ts` (clamping, Combo/Loop, undo, split, migration, frame state, renderer: pivot matrix, mask rect, brightness/glow filter, 12 glitch slices, typewriter); `src/inspector/AnimationTab.test.tsx` (sub-tabs per clip type, chips, apply + preview + None + undo, slider clamping, Combo, search, favourites persisted, text Loop) |
+| `npm run build` | passes |
+| `e2e/tab-animation.spec.ts` | pass, details below |
+| other e2e specs (smoke, flows, shortcuts, file-drop, memory, timeline-stability) | all pass, run one at a time through the browser lock |
+
+**e2e evidence** (two white 1080×1920 images on black: A = Fade In 1 s + Slide Left out 1 s,
+B = Wipe Right in 1 s). Values are luma at 7 columns across the middle row, normalised 0 = black
+frame, 1 = white frame:
+
+| time | expected | preview canvas | exported MP4 (720p, ffmpeg frame n = t·30) |
+|---|---|---|---|
+| 0.2 s fade 20 % | 0.20 everywhere | 0.202 × 7 | 0.202 × 7 |
+| 2.8 s slide-left out 80 % | white until 0.488 W | 1 1 1 0 0 0 0 | 1 1 1 0 0 0 0 |
+| 3.5 s wipe-right in 50 % | white until 0.875 W | 1 1 1 1 1 1 0 | 1 1 1 1 1 1 0 |
+
+The spec also checks:
+- Hovering a tile changes its thumbnail.
+- A click previews the animation once, and playback stops on its own.
+- The animations survive a reload.
+- The timeline indicator is shown.
+- There are no console errors.
+
+**Limits**
+- No ⤓ download button: every animation is built in.
+- "3D" is a 2D skew/scale approximation.
+- Loop and Combo are whole-clip effects, not per-character effects.
+- The preview-once has a wall-clock safety stop because headless Chromium's audio clock can stall.
+
+## Integration of the nine agent branches — 2026-10-19
+
+`integration` = `main` (tool modes) + `agent/qa-timeline`, `qa-library`, `qa-render`, `qa-export`
+(audits, merged first) + `tab-speed`, `tab-audio`, `tab-video`, `tab-adjust`, `tab-animation`
+(features), one `--no-ff` merge each, typecheck + `npm test` green after every merge. Audit details:
+[AUDIT-timeline.md](AUDIT-timeline.md), [AUDIT-library.md](AUDIT-library.md),
+[AUDIT-render.md](AUDIT-render.md), [AUDIT-export.md](AUDIT-export.md).
+
+**How the overlaps were unified**
+
+- **Undo / bin (qa-timeline × qa-library).** qa-timeline's magnet-on-undo symmetry
+  (`magnetFor` / `magnetAt` / `pushPast`) and qa-library's `patchAllDocs` both kept; `withAssets`
+  dropped (removing an asset is an undo step now; imports patch every snapshot). `patchAllDocs`
+  carries the magnet record across patched snapshots. Locked main track: qa-timeline's rule wins
+  (new media goes to a free overlay track — qa-library's "refuse" branch had become unreachable);
+  its unit and e2e tests follow.
+- **Time-stretch: one implementation.** Three existed: tab-audio's delay-line pitch shifter at
+  1/speed, tab-speed's WSOLA `stretchMapped`, qa-export's WSOLA `stretchPreservePitch`. Kept
+  **qa-export's WSOLA** (±512-sample search refined to 1 sample), generalised to tab-speed's
+  source-map interface so it renders standard speed *and* speed curves:
+  `src/export/audioDsp.ts` `stretchMapped` (`stretchPreservePitch` is its constant-rate case).
+  Measured on a 440 Hz sine, 0.5×–3×: sine-fit SNR **56–78 dB** vs 45–57 dB for tab-speed's
+  variant, same pitch (440.00 Hz) and envelope ripple; ~2× slower (≤ 70 ms per 4 s of audio).
+  The delay-line shifter now only carries the voice filters (no speed compensation).
+- **Mix order** (`offlineMix.ts`, mirrored by `audioEngine.ts`): per-clip speed mapping / stretch
+  → FX chain (fill channel, reduce noise, voice filter) → gain (volume × normalize × fades) →
+  bus → peak limiter. Normalize measures the curve-aware source span (same key as the preview).
+- **Draw path** (`renderFrame.ts`): grade (source space, per-axis scale) → chroma key on the
+  graded source → transform incl. the animation's skew / non-uniform scale and animation masks
+  → Video › Mask on the clip layer → animation light filter → glitch → blend (normal or the
+  linear-burn passes). The Adjust mask only limits the grade (inside the grade params); both
+  masks coexist (`MASK_SHAPES` vs `ADJUST_MASK_SHAPES`).
+- **Preview sync** (`sync.ts`, `mediaPool.ts`): speed curves follow `followRate`; standard speed
+  keeps qa-render's nudge; frame lookups use `FRAME_LOOKUP_EPS_US`; qa-export's colour re-wrap
+  reads the registered Blob (no fetch copy).
+- **Store ops**: trim / split / setSpeed keep both the curve slicing (tab-speed) and the
+  media-length flooring (qa-timeline); `fitToMedia` uses the curve's mean speed.
+- **Migrations**: `migrateProject` runs one pipeline of per-feature clip migrations
+  (checkboxes, speed curve, audio FX, video-tab fields, grade, animation slots).
+  `src/model/migrate.fixtures.test.ts` loads projects saved by **c339bf3 and by every branch**
+  (fixtures written by each build's own store) plus the integration build.
+- **e2e helpers**: `e2e/audit-helpers.ts` is one module re-exporting `e2e/audit/{library,render,
+  export}.ts`; colliding names are namespaced (`RENDER_AM` / `ensureRenderMedia`, `EXPORT_AM` /
+  `ensureExportMedia`).
+
+**Bugs fixed during integration**
+
+- **Export could hang silently** (the 0.5× stall at frame 125 / 300). Every await in the frame
+  loop could wait forever if WebCodecs stopped answering. Now: a decoder read silent for 8 s is
+  abandoned and the stream reopened once (`SequentialReader`); every frame step, the start and the
+  finalize are guarded by a 20 s watchdog that fails the export with "Export stopped responding
+  at video frame N / M … (decoding "x" at s)"; cleanup is bounded. Unit: `watchdog.test.ts`;
+  e2e: `export-watchdog.spec.ts` (an injected hang is reported in 3.5 s, the next export works).
+- **Colour-matrix fix × WebGL grader agree**: graded smptebars (BT.601-tagged HD and untagged SD),
+  preview vs export, max 2 levels per bar (audit-export "the colour-matrix fix and the WebGL grade
+  agree").
+- `inspector.css` lost two closing braces in the merge (every rule after the Speed section was
+  ignored — the Video tab's Canvas swatches had no size); restored and checked against every
+  branch's rule blocks.
+- `NumberBox`: the select-all on focus could land after the first typed key and swallow it (flaky
+  transition duration edit).
+- Audit specs updated to the merged behaviour: `[` / `]` arm the side tools, Shift+B opens the real
+  Curve panel, Look tiles are graded JPEGs with a sample scene, Adjust / animation expectations come
+  from the shared colour pipeline and the animation catalogue, the export audit resets projects
+  without freeing the imported media.
+
+**Combined scenario** (`e2e/combined.spec.ts`): one clip with a speed curve + In animation +
+Adjust grade and colour wheel + circle mask with non-uniform scale + Robot voice filter + a mix
+transition. 9 undo steps all undone with ⌘Z (back to the empty timeline) and redone with ⌘⇧Z
+(byte-identical document); preview voice chain `input → voice:robot:70 → gain`; exported MP4
+(H.264 720×1280 + AAC) vs the paused preview at 5 times (animation, fast part of the curve, both
+sides of the cut, next clip): MAD 0.8–2.2 / 255, and every preview frame matches its own export
+frame better than frames n ± 1, 2; after a reload the document is identical and the frame is
+pixel-identical (MAD 0).

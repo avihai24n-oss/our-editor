@@ -159,6 +159,9 @@ real-time WebM export.
 - MP4: H.264 + AAC, muxed with Mediabunny and frame-exact.
 - 720p / 1080p / 2K / 4K, bit rate Lower / Recommended / Higher, 24/25/30/50/60 fps.
 - Progress bar, Cancel, and the browser download.
+- Speed-changed audio keeps its pitch (one WSOLA time-stretch for standard speed and curves), the
+  mix goes through a peak limiter, and a stalled browser decoder / encoder fails the export with a
+  message after 20 s instead of hanging.
 
 ## Architecture
 
@@ -172,7 +175,10 @@ src/
   audio/        clip FX chain (dsp.ts) + AudioWorklets shared by preview and export, BS.1770
                 loudness (loudness.ts) and the streamed per-span measurement cache (measure.ts)
   engine/       frameState.ts — THE render contract: (project, t) → what to draw / hear
-    render/     renderFrame (canvas 2D compositor shared by player and export), colour, text layout
+    render/     renderFrame (canvas 2D compositor shared by player and export), colour, text layout,
+                masks, chroma key
+    color/      WebGL2 colour grader (+ CPU fallback): LUT, HSL, curves, wheels, adjust mask
+    animations.ts  the animation catalogue (In / Out / Combo / Loop) used by player, export, thumbs
   media/        import (probe + store blobs), registry (asset → object URL), cleanup on asset removal
   panels/       left Library (tabs, media bin, text/transition/filter/adjust presets)
   inspector/    right Inspector (tabs by selection) + reusable controls
@@ -182,7 +188,9 @@ src/
   export/       Export dialog, runExport (offline audio mix → render every frame → mux), WebM fallback
   ui/           icons, primitives, shared controls
   App.tsx       layout shell (resizable splitters)
-e2e/            Playwright flows (smoke + full editing walk-through, screenshots in e2e/screens/)
+e2e/            Playwright flows, audits (audit-*.spec.ts, helpers in audit-helpers.ts → audit/),
+                per-tab specs (tab-*.spec.ts), combined.spec.ts (every feature on one clip);
+                run one spec at a time: `cd e2e && E2E_PORT=5190 npx playwright test smoke.spec.ts`
 docs/           SPEC-v1.md, research/, integration-notes/, QA-REPORT.md, capcut-screens/
 ```
 
@@ -194,8 +202,8 @@ be undone.
 
 See **[docs/SPEC-v1.md § 5 — v2 backlog](docs/SPEC-v1.md#5-v2-backlog-researched-deferred)**:
 
-- **Editing:** keyframes, crop UI, the right-click menu, Velocity effects, Combo animations and masks.
-- **Colour:** HSL/Curves and a WebGL colour pipeline.
+- **Editing:** keyframes, crop UI, the right-click menu, Velocity effects.
+- ~~Combo animations, masks, HSL / Curves and a WebGL colour pipeline~~ — built 2026-10-19.
 - **Content and project:** stickers/effects, captions, and a project home screen.
 
 Known v1 limits are listed in [docs/QA-REPORT.md](docs/QA-REPORT.md).
