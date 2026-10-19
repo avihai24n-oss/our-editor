@@ -35,6 +35,7 @@ import { Ruler } from './Ruler';
 import { useTimelineShortcuts } from './shortcuts';
 import { Toolbar } from './Toolbar';
 import { TrackHeader } from './TrackHeader';
+import { bladeTime, clipsOnSide, toolDef, toolSide } from './tools';
 import { useTimelineUi } from './uiStore';
 import './timeline.css';
 
@@ -135,7 +136,10 @@ export function Timeline() {
   const [marquee, setMarquee] = useState<Marquee | null>(null);
   const [trimTip, setTrimTip] = useState<{ x: number; text: string } | null>(null);
   const [dropHint, setDropHint] = useState<{ at: Us; rowKey: string | null } | null>(null);
-  const [splitHover, setSplitHover] = useState<Us | null>(null);
+  /** Split tool: where the blade would cut the hovered clip (lane time + the clip's box in tl-rows). */
+  const [splitHover, setSplitHover] = useState<{ t: Us; clipId: Id; top: number; height: number } | null>(null);
+  /** Select leftward / rightward: the time under the pointer. */
+  const [sideHover, setSideHover] = useState<Us | null>(null);
   const gesture = useRef<Gesture | null>(null);
 
   // ---------------------------------------------------------------- view tracking
@@ -500,6 +504,7 @@ export function Timeline() {
       // a gesture hides the hover lines; the player shows what the gesture does, not a stale hover frame
       useTimelineUi.getState().setHoverTime(null);
       setSplitHover(null);
+      setSideHover(null);
       window.addEventListener('pointermove', onWinMove);
       window.addEventListener('pointerup', onWinUp);
       window.addEventListener('pointercancel', onWinUp);
@@ -519,8 +524,31 @@ export function Timeline() {
       const f = findClip(s.project, clip.id);
       if (!f || f.track.locked || gesture.current) return;
 
-      if (useTimelineUi.getState().tool === 'split' && part === 'body') {
-        s.splitClip(clip.id, snapToFrame(timeAt(e.clientX), s.project.settings.fps));
+      const tool = useTimelineUi.getState().tool;
+      if (tool === 'split') {
+        // the blade cuts where its line is drawn: frame-snapped, pulled onto the playhead nearby
+        const t = bladeTime(f.clip, timeAt(e.clientX), s.playhead, s.zoom, s.project.settings.fps, s.snapping && !e.altKey);
+        if (t !== null) s.splitClip(clip.id, t);
+        return;
+      }
+      const side = toolSide(tool);
+      if (side) {
+        // select leftward / rightward: take every clip on that side of the click, then a drag moves them all
+        const t = snapToFrame(timeAt(e.clientX), s.project.settings.fps);
+        s.select(clipsOnSide(s.project, t, side));
+        if (!useEditor.getState().selection.clipIds.includes(clip.id)) return;
+        beginGesture({
+          kind: 'move',
+          pointerId: e.pointerId,
+          clip: f.clip,
+          fromTrack: f.track,
+          x0: e.clientX,
+          y0: e.clientY,
+          started: false,
+          reselect: false,
+          start: f.clip.start,
+          target: { trackId: f.track.id },
+        });
         return;
       }
 
@@ -560,6 +588,12 @@ export function Timeline() {
       const r = sc.getBoundingClientRect();
       if (e.clientX - r.left < HEADER_W) return; // the sticky header column
       if ((e.target as HTMLElement).closest('button')) return;
+      const s = useEditor.getState();
+      const side = toolSide(useTimelineUi.getState().tool);
+      if (side) {
+        s.select(clipsOnSide(s.project, snapToFrame(timeAt(e.clientX), s.project.settings.fps), side));
+        return;
+      }
       beginGesture({
         kind: 'marquee',
         pointerId: e.pointerId,
@@ -569,10 +603,10 @@ export function Timeline() {
         y0: e.clientY,
         additive: e.shiftKey || e.metaKey || e.ctrlKey,
         started: false,
-        base: [...useEditor.getState().selection.clipIds],
+        base: [...s.selection.clipIds],
       });
     },
-    [beginGesture],
+    [beginGesture, timeAt],
   );
 
   const onScrubStart = useCallback(
@@ -608,9 +642,29 @@ export function Timeline() {
       const fps = useEditor.getState().project.settings.fps;
       const t = snapToFrame(timeAt(clientX), fps);
       ui.setHoverTime(ui.previewAxis && inLane ? t : null);
-      const overClip = !!target?.closest('[data-clip-id]');
-      const blade = ui.tool === 'split' && overClip && inLane ? t : null;
-      setSplitHover((h) => (h === blade ? h : blade));
+
+      // split tool: the cut line over the hovered clip, where a click would cut
+      let blade: { t: Us; clipId: Id; top: number; height: number } | null = null;
+      const clipEl = ui.tool === 'split' && inLane ? target?.closest<HTMLElement>('[data-clip-id]') : null;
+      const rowsEl = rowsRef.current;
+      if (clipEl && rowsEl) {
+        const s = useEditor.getState();
+        const f = findClip(s.project, clipEl.dataset.clipId ?? '');
+        const bt = f && !f.track.locked ? bladeTime(f.clip, timeAt(clientX), s.playhead, s.zoom, fps, s.snapping) : null;
+        if (f && bt !== null) {
+          const cr = clipEl.getBoundingClientRect();
+          const rr = rowsEl.getBoundingClientRect();
+          blade = { t: bt, clipId: f.clip.id, top: cr.top - rr.top, height: cr.height };
+        }
+      }
+      setSplitHover((h) =>
+        h === blade || (h && blade && h.t === blade.t && h.clipId === blade.clipId && h.top === blade.top && h.height === blade.height) ? h : blade,
+      );
+
+      // select leftward / rightward: the line the selection would start from (track area only)
+      const inRows = inLane && !!rowsEl && clientY >= rowsEl.getBoundingClientRect().top && clientY >= (r?.top ?? 0) + RULER_H;
+      const side = toolSide(ui.tool) && inRows ? t : null;
+      setSideHover((h) => (h === side ? h : side));
     },
     [laneX, timeAt],
   );
@@ -629,9 +683,13 @@ export function Timeline() {
     pointer.current = null;
     useTimelineUi.getState().setHoverTime(null);
     setSplitHover(null);
+    setSideHover(null);
   }, []);
+  // switching tools redraws the tool lines under a pointer that has not moved
   useEffect(() => {
     if (tool !== 'split') setSplitHover(null);
+    if (!toolSide(tool)) setSideHover(null);
+    refreshHoverRef.current();
   }, [tool]);
 
   // ---------------------------------------------------------------- library / OS drops
@@ -723,6 +781,12 @@ export function Timeline() {
   const visFrom = pxToUs(viewFrom - 200, zoom);
   const visTo = pxToUs(viewTo + 200, zoom);
   const dropRowKey = dropHint?.rowKey ?? null;
+  const activeTool = toolDef(tool);
+  const activeSide = toolSide(tool);
+  const sideTargets = useMemo(
+    () => (activeSide && sideHover !== null ? new Set(clipsOnSide(project, sideHover, activeSide)) : null),
+    [project, activeSide, sideHover],
+  );
 
   const renderGhost = (rowKey: string, h: number) =>
     ghost && ghost.rowKey === rowKey ? (
@@ -733,7 +797,12 @@ export function Timeline() {
     ) : null;
 
   return (
-    <div className={`tl${tool === 'split' ? ' tl--split' : ''}`} data-drop-zone="timeline" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+    <div
+      className={`tl${tool === 'split' ? ' tl--split' : ''}`}
+      data-tool={tool}
+      style={{ ['--tl-tool-cursor' as string]: activeTool.cursor }}
+      data-drop-zone="timeline"
+      onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <Toolbar />
       <div className="tl-scroller" ref={scrollerRef} onPointerMove={onHover} onPointerLeave={onHoverLeave}>
         <div className="tl-content" style={{ width: HEADER_W + contentW }}>
@@ -813,6 +882,7 @@ export function Timeline() {
                           zoom={zoom}
                           height={h}
                           selected={selectedSet.has(c.id)}
+                          toolTarget={!!sideTargets?.has(c.id)}
                           locked={track.locked}
                           ghosted={ghost?.clipId === c.id}
                           viewFrom={viewFrom}
@@ -868,7 +938,22 @@ export function Timeline() {
             {hoverTime !== null && !ghost && (
               <div className="tl-hover" style={{ left: HEADER_W + usToPx(hoverTime, zoom) }} data-testid="timeline-hover" />
             )}
-            {splitHover !== null && <div className="tl-blade" data-testid="timeline-blade" style={{ left: HEADER_W + usToPx(splitHover, zoom) }} />}
+            {splitHover !== null && (
+              <div
+                className="tl-blade"
+                data-testid="timeline-blade"
+                data-time={splitHover.t}
+                data-clip-id={splitHover.clipId}
+                style={{ left: HEADER_W + usToPx(splitHover.t, zoom), top: splitHover.top, height: splitHover.height, bottom: 'auto' }}
+              >
+                <span className="tl-blade__tip">{formatTimecode(splitHover.t, fps)}</span>
+              </div>
+            )}
+            {sideHover !== null && activeSide && (
+              <div className="tl-side" data-testid="timeline-side-line" data-time={sideHover} style={{ left: HEADER_W + usToPx(sideHover, zoom) }}>
+                <span className="tl-side__tip">{activeSide === 'left' ? '← ' : ''}{formatTimecode(sideHover, fps)}{activeSide === 'right' ? ' →' : ''}</span>
+              </div>
+            )}
             {trimTip && (
               <div className="tl-trimtip" style={{ left: HEADER_W + trimTip.x }}>
                 {trimTip.text}

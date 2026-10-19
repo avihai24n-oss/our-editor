@@ -333,3 +333,30 @@ that reflects real Chrome.
 | `npm run build` | passes |
 | `e2e/memory.spec.ts` | pass. It imports 5 files onto the timeline and idles 75 s. The JS heap is 9.01 → 9.02 MB, browser RSS 929 → 905 MB (samples 928 → 905, never rising), and **0 IndexedDB writes and 0 rAF calls** while idle. Live: 1 preview video, 0 voices, 0 grabbers. Hidden: 0 elements and no rAF. Visible again: 1 video. A second test checks that after playback every off-screen decoder is released while paused. |
 | `e2e/smoke.spec.ts`, `flows.spec.ts`, `shortcuts.spec.ts` | pass (run one at a time, `--workers=1`) |
+
+## Timeline tool modes (CapCut cursor tools) — 2026-10-19
+
+Research: `docs/research/07-tool-modes.md`. CapCut desktop's cursor dropdown has four tools —
+**Select (A), Split (B), Select leftward (`[`), Select rightward (`]`)** — and no trim / ripple /
+slip / hand / zoom tool, so those four are what ships. One table, `src/timeline/tools.ts`, drives the
+dropdown, the toolbar icon, the cursors and (through `shortcutDefs.ts`) the keys, panel and tooltips.
+
+- Split: SVG razor cursor (hotspot on the cut line); a thin white cut line over the hovered clip
+  only, with a timecode tip, frame-snapped and pulled onto the playhead within 8 px (snapping on);
+  a click cuts exactly there (one undo step) and the tool stays armed. No moving / trimming in
+  split mode; the ruler still scrubs. ⇧+click split-all is NOT implemented (no CapCut source).
+- Select leftward / rightward: own cursors; `[` / `]` select left / right of the playhead and arm
+  the tool; a click selects left / right of the click on every unlocked track (a drag from a clip
+  moves the selection); hovering shows the line and outlines the clips a click would take.
+- A, Esc or the dropdown return to Select. Modifier combos never pick a tool (⌘B, ⌘A, ⇧B…). Keys
+  work from any control except text fields (the zoom slider now only keeps its arrow / page keys).
+- No toast on switching: CapCut shows none; the toolbar icon + cursor are the indicator.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **360 / 360 pass** (24 files). New `src/timeline/tools.test.ts` (13): tool table order and keys, modifier combos never pick a tool, Hebrew layout, distinct SVG cursors with hotspots, `bladeTime` (frame snap, playhead pull, edge refusal), `clipsOnSide` (left / right / crossing / locked) |
+| `npm run build` | passes |
+| `e2e/tool-modes.spec.ts` (new) | pass: B → blade cursor on clips and lanes, handles hidden, cut line inside the hovered clip with timecode tip, follows the mouse, snaps to the playhead, click splits (4 clips, one undo step), still armed, a drag in split mode moves nothing, ruler scrubs; A → grab cursor, no line, drag moves a clip again; Esc → Select; ⌘B keeps Select; B works with the zoom slider focused, not in the project-name field; dropdown lists Select A / Split B / Select leftward [ / Select rightward ]; rightward hover line + outlined targets, click selects; `[` selects left of the playhead and arms leftward, click on clip / empty lane re-anchors; Esc / A / menu back to Select |
+| `e2e/shortcuts.spec.ts` | pass (now also checks that `[` / `]` arm the side tools and A leaves them) |
+| `e2e/smoke`, `timeline-stability`, `file-drop`, `flows`, `memory` | all pass, run one spec at a time (one Chromium, workers=1, own Vite on :5467; peak Chromium RSS 1.47 GB) |

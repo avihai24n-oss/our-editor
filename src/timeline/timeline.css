@@ -48,12 +48,17 @@
 .tl-select__menu {
   top: 32px;
   left: 0;
-  min-width: 150px;
+  min-width: 200px;
 }
 .tl-select__menu .menu__item {
   display: flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
+}
+.tl-select__menu kbd {
+  min-width: 1.2em;
+  text-align: right;
 }
 .tl-select__menu kbd {
   margin-left: auto;
@@ -315,8 +320,19 @@
 .tl-clip.is-missing {
   background: #5a1d1d;
 }
-.tl--split .tl-clip {
-  cursor: crosshair;
+/* Tool cursors (./tools.ts): the active tool's SVG cursor over the whole track area. */
+.tl[data-tool]:not([data-tool='select']) .tl-rows,
+.tl[data-tool]:not([data-tool='select']) .tl-lane,
+.tl[data-tool]:not([data-tool='select']) .tl-clip {
+  cursor: var(--tl-tool-cursor, default);
+}
+.tl[data-tool]:not([data-tool='select']) .tl-clip.is-locked {
+  cursor: not-allowed;
+}
+/* select leftward / rightward: the clips a click would take */
+.tl-clip.is-tool-target {
+  box-shadow: inset 0 0 0 2px var(--clip-selected);
+  filter: brightness(1.12);
 }
 .tl-clip__content {
   position: absolute;
@@ -443,7 +459,7 @@
 .tl-clip__handle--right {
   right: 0;
 }
-.tl--split .tl-clip__handle {
+.tl[data-tool]:not([data-tool='select']) .tl-clip__handle {
   display: none;
 }
 .tl-clip.is-selected .tl-clip__handle {
@@ -554,8 +570,32 @@
   white-space: nowrap;
 }
 .tl-blade {
-  background: var(--danger);
-  z-index: 4;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+  z-index: 6;
+}
+.tl-blade__tip,
+.tl-side__tip {
+  position: absolute;
+  top: -17px;
+  left: 0;
+  transform: translateX(-50%);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  padding: 0 4px;
+  font: 10px/14px var(--font-mono);
+  white-space: nowrap;
+  color: var(--text);
+}
+.tl-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--clip-selected);
+  pointer-events: none;
+  z-index: 6;
 }
 .tl-trimtip {
   position: absolute;
@@ -601,4 +641,9 @@
 .tl-area__out {
   right: 0;
   border-left: none;
+}
+.tl-side .tl-side__tip {
+  top: 2px;
+  left: 4px;
+  transform: none;
 }

@@ -92,6 +92,10 @@ test('CapCut shortcuts work in the browser', async ({ page }) => {
   s = await state(page);
   expect(s.selection.sort()).toEqual(s.clips.filter((c) => c.start + c.duration > S(5.5)).map((c) => c.id).sort());
   expect(s.selection).toHaveLength(2); // landscape + tone
+  // [ / ] also arm CapCut's Select leftward / rightward tools; A goes back to Select
+  await expect(page.locator('.tl')).toHaveAttribute('data-tool', 'selectRight');
+  await page.keyboard.press('KeyA');
+  await expect(page.locator('.tl')).toHaveAttribute('data-tool', 'select');
 
   // ---- I / O, ⇧X, ⌥X, Esc
   const area = page.getByTestId('timeline-area');

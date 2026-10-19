@@ -140,10 +140,25 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Essentials', label: 'Export', command: 'export', status: 'works', whileTyping: true, combos: [L('e', { mod: true })] },
 
   // ---------------------------------------------------------------- Tools
-  { group: 'Tools', label: 'Select mode', command: 'toolSelect', status: 'works', combos: [L('a')] },
-  { group: 'Tools', label: 'Split mode', command: 'toolSplit', status: 'works', combos: [L('b')] },
-  { group: 'Tools', label: 'Select clips left of playhead', command: 'selectLeft', status: 'works', combos: [{ codes: ['BracketLeft'] }] },
-  { group: 'Tools', label: 'Select clips right of playhead', command: 'selectRight', status: 'works', combos: [{ codes: ['BracketRight'] }] },
+  // the four cursor tools of CapCut's timeline dropdown (./tools.ts, docs/research/07-tool-modes.md)
+  { group: 'Tools', label: 'Select tool', command: 'toolSelect', status: 'works', combos: [L('a')] },
+  { group: 'Tools', label: 'Split tool (click a clip to cut it)', command: 'toolSplit', status: 'works', combos: [L('b')] },
+  {
+    group: 'Tools',
+    label: 'Select leftward tool',
+    command: 'selectLeft',
+    status: 'works',
+    combos: [{ codes: ['BracketLeft'] }],
+    note: 'Selects the clips left of the playhead; a click selects left of the click',
+  },
+  {
+    group: 'Tools',
+    label: 'Select rightward tool',
+    command: 'selectRight',
+    status: 'works',
+    combos: [{ codes: ['BracketRight'] }],
+    note: 'Selects the clips right of the playhead; a click selects right of the click',
+  },
   { group: 'Tools', label: 'Delete', command: 'delete', status: 'works', combos: [{ keys: ['Backspace'], codes: ['Backspace'] }, { keys: ['Delete'], codes: ['Delete'] }] },
   { group: 'Tools', label: 'Enable / disable clip', command: 'toggleDisable', status: 'works', combos: [L('v')] },
   { group: 'Tools', label: 'Add marker', command: 'marker', status: 'works', combos: [L('m')] },
@@ -195,7 +210,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Timeline & preview', label: 'Fit preview to window', command: 'fitPreview', status: 'works', combos: [L('z', { alt: true, shift: true })] },
   { group: 'Timeline & preview', label: 'Preview axis', command: 'togglePreviewAxis', status: 'works', combos: [L('s')] },
   { group: 'Timeline & preview', label: 'Ignore snapping while dragging', status: 'native', combos: [], text: { mac: 'hold ⌥', win: 'hold Alt' } },
-  { group: 'Timeline & preview', label: 'Cancel / deselect / clear area', command: 'escape', status: 'works', combos: [{ keys: ['Escape'], codes: ['Escape'] }] },
+  { group: 'Timeline & preview', label: 'Back to Select tool / cancel / deselect / clear area', command: 'escape', status: 'works', combos: [{ keys: ['Escape'], codes: ['Escape'] }] },
 
   // ---------------------------------------------------------------- Audio & speed
   { group: 'Audio & speed', label: 'Extract / restore audio', command: 'extractAudio', status: 'works', combos: [L('s', { mod: true, shift: true })] },

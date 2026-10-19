@@ -18,6 +18,8 @@ export interface ClipViewProps {
   zoom: number;
   height: number;
   selected: boolean;
+  /** Select leftward / rightward: a click here would take this clip. */
+  toolTarget?: boolean;
   locked: boolean;
   /** The original of a clip being dragged (drawn faded). */
   ghosted?: boolean;
@@ -27,7 +29,7 @@ export interface ClipViewProps {
   onPointerDown: (e: RPointerEvent, clip: Clip, part: ClipPart) => void;
 }
 
-export const ClipView = memo(function ClipView({ clip, asset, zoom, height, selected, locked, ghosted, viewFrom, viewTo, onPointerDown }: ClipViewProps) {
+export const ClipView = memo(function ClipView({ clip, asset, zoom, height, selected, toolTarget, locked, ghosted, viewFrom, viewTo, onPointerDown }: ClipViewProps) {
   const left = usToPx(clip.start, zoom);
   const width = Math.max(2, usToPx(clip.duration, zoom));
   const fromPx = viewFrom - left;
@@ -41,6 +43,7 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
     'tl-clip',
     `tl-clip--${clip.type}`,
     selected && 'is-selected',
+    toolTarget && !selected && 'is-tool-target',
     clip.disabled && 'is-disabled',
     ghosted && 'is-ghosted',
     locked && 'is-locked',

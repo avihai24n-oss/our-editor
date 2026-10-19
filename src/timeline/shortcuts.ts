@@ -140,11 +140,14 @@ export function runCommand(cmd: Command): boolean {
     case 'export':
       emitAppEvent('export');
       return true;
+    // [ / ]: select by side of the playhead now, and arm the tool so a click re-anchors it
     case 'selectLeft':
       s.selectSide('left');
+      ui.setTool('selectLeft');
       return true;
     case 'selectRight':
       s.selectSide('right');
+      ui.setTool('selectRight');
       return true;
     case 'markIn':
       ui.setAreaIn(s.playhead);

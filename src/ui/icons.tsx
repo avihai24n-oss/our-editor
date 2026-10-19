@@ -145,6 +145,33 @@ const Select = make('Select', (
   <path d="M5.5 4l13 6.2-5.6 1.6-2.5 5.7z" />
 ));
 
+/** Split tool (B): a razor blade over a cut line, CapCut's split-mode cursor icon. */
+const Blade = make('Blade', (
+  <>
+    <path d="M8 3h8v5l-4 3-4-3z" />
+    <path d="M12 4.8v1.8" />
+    <path d="M12 13.5v7.5" />
+  </>
+));
+
+/** Select leftward ([): pointer + bar with a chevron pointing left. */
+const SelectLeft = make('SelectLeft', (
+  <>
+    <path d="M3.5 3l9 4.3-3.9 1.1-1.7 4z" />
+    <path d="M20.5 11v10" />
+    <path d="M18 16h-6m2.2-2.2L12 16l2.2 2.2" />
+  </>
+));
+
+/** Select rightward (]): pointer + bar with a chevron pointing right. */
+const SelectRight = make('SelectRight', (
+  <>
+    <path d="M3.5 3l9 4.3-3.9 1.1-1.7 4z" />
+    <path d="M11.5 11v10" />
+    <path d="M14 16h6m-2.2-2.2L20 16l-2.2 2.2" />
+  </>
+));
+
 const Undo = make('Undo', (
   <>
     <path d="M8.5 5L5 8.5 8.5 12" />
@@ -557,7 +584,7 @@ export const Icons = {
   // library tabs
   Media, Audio, Text, Stickers, Effects, Transitions, Captions, Filters, Adjustment, Templates,
   // timeline toolbar
-  Select, Undo, Redo, Split, DeleteLeft, DeleteRight, Trash, Marker, Crop, Mirror, Rotate, Freeze,
+  Select, Blade, SelectLeft, SelectRight, Undo, Redo, Split, DeleteLeft, DeleteRight, Trash, Marker, Crop, Mirror, Rotate, Freeze,
   // timeline right side
   Mic, Magnet, Link, Unlink, PreviewAxis, ZoomOut, ZoomIn, ZoomFit,
   // track headers

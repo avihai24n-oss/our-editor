@@ -75,7 +75,7 @@ real-time WebM export.
 - Every slider drag or typing session is one undo step.
 
 **Timeline (bottom)**
-- **Toolbar:** select/split tool, undo/redo, split, delete left/right, delete, marker, mirror,
+- **Toolbar:** tool dropdown (Select A, Split B, Select leftward `[`, Select rightward `]` — CapCut's four cursor tools, each with its own cursor; see `docs/research/07-tool-modes.md`), undo/redo, split, delete left/right, delete, marker, mirror,
   rotate; magnet, snapping, linkage, preview axis, zoom slider and fit.
 - **Tracks:** main track (magnetic), overlay tracks above it, text tracks above those, audio tracks
   below. Dropping on the empty space above or below the tracks creates a new track.
@@ -92,7 +92,7 @@ real-time WebM export.
   | Group | Keys (Mac; on Windows Ctrl replaces ⌘ and Alt replaces ⌥) |
   |---|---|
   | Essentials | Space play/pause · ⌘B split · ⇧⌘B split all tracks · Q / W delete left / right · ← / → one frame · ↑ / ↓ previous / next edit · ⇧Z fit timeline · ⌘E export |
-  | Tools | A / B select / split tool · `[` / `]` select clips left / right of the playhead · ⌫ delete · V enable/disable · M marker · I / O mark in / out · ⇧X area = selected clips · ⌥X clear area |
+  | Tools | A Select tool · B Split tool (click a clip to cut it) · `[` / `]` Select leftward / rightward tool (selects left / right of the playhead, then of each click) · Esc back to Select · ⌫ delete · V enable/disable · M marker · I / O mark in / out · ⇧X area = selected clips · ⌥X clear area |
   | Timeline & preview | ⇧← / ⇧→ 10 frames · Home / End · ⌘= / ⌘− zoom · ⌃⌘F or ⇧⌘F full-screen preview (Esc exits) · ⌥⇧Z fit preview to window · S preview axis · Esc cancel / clear area / deselect |
   | Audio & speed | ⇧⌘S extract / restore audio · ⌘R Speed tab · ⇧B Speed › Curve · ⌘. / ⌘, volume ±1 dB · P magnet · N snapping · ~ linkage |
   | Project & clipboard | ⌘I import · ⌘Z / ⇧⌘Z undo / redo · ⌘C / ⌘X / ⌘V copy / cut / paste at the playhead · ⌘D duplicate · ⌘A select all · Tab / ⇧Tab next / previous library tab |

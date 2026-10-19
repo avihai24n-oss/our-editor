@@ -1,6 +1,6 @@
 /**
  * Timeline toolbar (CapCut screenshot 08 + right half of 01).
- * Left: Select ▾ | Undo Redo | Split, Delete left, Delete right, Delete | Marker, Mirror, Rotate.
+ * Left: tool ▾ (Select / Split / Select leftward / Select rightward, ./tools.ts) | Undo Redo | Split, Delete left, Delete right, Delete | Marker, Mirror, Rotate.
  * Right: Main-track magnet, Auto snapping, Linkage, Preview axis | Zoom − / slider / + , Zoom to fit.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -11,6 +11,7 @@ import { selectCanRedo, selectCanUndo, useEditor } from '../store';
 import { Icon, type IconName } from '../ui/Icon';
 import { SLIDER_MAX, sliderToZoom, zoomToSlider } from './geometry';
 import { shortcutLabel, withShortcut as ws } from './shortcutDefs';
+import { TOOLS, toolDef } from './tools';
 import { useTimelineUi } from './uiStore';
 
 interface ToolProps {
@@ -60,6 +61,7 @@ export function Toolbar() {
   );
   const { tool, setTool, linkage, setLinkage, previewAxis, setPreviewAxis, view } = useTimelineUi();
   const a = useEditor.getState;
+  const active = toolDef(tool);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -79,42 +81,37 @@ export function Toolbar() {
           <button
             type="button"
             className="icon-btn tl-select__btn"
-            title={tool === 'split' ? ws('Split mode', 'toolSplit') : ws('Select', 'toolSelect')}
+            title={ws(active.label, active.command)}
+            aria-label={`Tool: ${active.label}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setMenuOpen((o) => !o)}
             data-testid="timeline-tool-menu"
+            data-tool={tool}
           >
-            <Icon name={tool === 'split' ? 'split' : 'select'} />
+            <Icon name={active.icon} />
             <Icon name="chevron-down" size={12} />
           </button>
           {menuOpen && (
-            <div className="menu tl-select__menu" role="menu">
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={tool === 'select'}
-                className={`menu__item${tool === 'select' ? ' is-active' : ''}`}
-                onClick={() => {
-                  setTool('select');
-                  setMenuOpen(false);
-                }}
-              >
-                <Icon name="select" size={14} /> Select <kbd>{shortcutLabel('toolSelect')}</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={tool === 'split'}
-                className={`menu__item${tool === 'split' ? ' is-active' : ''}`}
-                onClick={() => {
-                  setTool('split');
-                  setMenuOpen(false);
-                }}
-              >
-                <Icon name="split" size={14} /> Split <kbd>{shortcutLabel('toolSplit')}</kbd>
-              </button>
+            <div className="menu tl-select__menu" role="menu" data-testid="timeline-tool-list">
+              {TOOLS.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={tool === d.id}
+                  className={`menu__item${tool === d.id ? ' is-active' : ''}`}
+                  data-tool={d.id}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setTool(d.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Icon name={d.icon} size={14} /> <span className="tl-select__label">{d.label}</span> <kbd>{shortcutLabel(d.command)}</kbd>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -145,7 +142,10 @@ export function Toolbar() {
           value={zoomToSlider(zoom)}
           aria-label="Timeline zoom"
           onChange={(e) => view?.zoomTo(sliderToZoom(Number(e.target.value)))}
-          onKeyDown={(e) => e.stopPropagation()}
+          // the slider keeps its own arrow / page / home / end keys; tool letters still reach the editor
+          onKeyDown={(e) => {
+            if (/^(Arrow|Page|Home|End)/.test(e.key)) e.stopPropagation();
+          }}
           data-testid="timeline-zoom"
         />
         <Tool icon="zoom-in" title={ws('Zoom in', 'zoomIn')} onClick={() => view?.zoomBy(1.25)} />

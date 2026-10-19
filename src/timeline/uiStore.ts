@@ -7,7 +7,9 @@ import { create } from 'zustand';
 import type { Clip, Us } from '../model/types';
 import { useEditor } from '../store';
 
-export type Tool = 'select' | 'split';
+import type { Tool } from './tools';
+
+export type { Tool };
 
 const LS_KEY = 'our-editor.timeline.ui';
 
