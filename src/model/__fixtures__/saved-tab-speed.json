@@ -1,0 +1,372 @@
+{
+ "features": [
+  "speedCurve"
+ ],
+ "project": {
+  "id": "prj_79b4480eb756",
+  "name": "Untitled project",
+  "version": 1,
+  "createdAt": 1792422904885,
+  "updatedAt": 1792422904889,
+  "settings": {
+   "aspect": "9:16",
+   "width": 1080,
+   "height": 1920,
+   "fps": 30,
+   "background": "#000000"
+  },
+  "assets": {
+   "ast_ca73c5a2024a": {
+    "kind": "video",
+    "name": "v.mp4",
+    "mime": "video/mp4",
+    "size": 1000,
+    "duration": 10000000,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "id": "ast_ca73c5a2024a",
+    "blobKey": "ast_ca73c5a2024a"
+   },
+   "ast_40ac06d55954": {
+    "kind": "image",
+    "name": "i.png",
+    "mime": "image/png",
+    "size": 100,
+    "duration": 0,
+    "width": 800,
+    "height": 600,
+    "id": "ast_40ac06d55954",
+    "blobKey": "ast_40ac06d55954"
+   },
+   "ast_1d8d690d8df3": {
+    "kind": "audio",
+    "name": "a.wav",
+    "mime": "audio/wav",
+    "size": 100,
+    "duration": 8000000,
+    "id": "ast_1d8d690d8df3",
+    "blobKey": "ast_1d8d690d8df3"
+   }
+  },
+  "tracks": [
+   {
+    "id": "trk_da9aa7484467",
+    "kind": "main",
+    "name": "Main",
+    "locked": false,
+    "hidden": false,
+    "muted": false,
+    "clips": [
+     {
+      "id": "clp_498a1de511af",
+      "trackId": "trk_da9aa7484467",
+      "name": "v.mp4",
+      "start": 0,
+      "disabled": false,
+      "assetId": "ast_ca73c5a2024a",
+      "inPoint": 0,
+      "speed": 1,
+      "speedCurve": null,
+      "preservePitch": true,
+      "duration": 10000000,
+      "type": "video",
+      "audio": {
+       "volumeDb": 0,
+       "fadeIn": 0,
+       "fadeOut": 0,
+       "muted": false
+      },
+      "transform": {
+       "scale": 1,
+       "x": 0,
+       "y": 0,
+       "rotation": 0,
+       "opacity": 1,
+       "flipH": false,
+       "flipV": false
+      },
+      "crop": {
+       "left": 0,
+       "top": 0,
+       "right": 0,
+       "bottom": 0
+      },
+      "blend": "normal",
+      "blendEnabled": true,
+      "animationIn": null,
+      "animationOut": null,
+      "filter": null,
+      "adjust": {
+       "brightness": 10,
+       "contrast": 0,
+       "saturation": 0,
+       "exposure": 0,
+       "temperature": 0,
+       "tint": 0,
+       "highlights": 0,
+       "shadows": 0,
+       "fade": 0,
+       "vignette": 0,
+       "sharpen": 0
+      },
+      "adjustEnabled": true
+     },
+     {
+      "id": "clp_60ee6a33d431",
+      "trackId": "trk_da9aa7484467",
+      "name": "v.mp4",
+      "start": 10000000,
+      "disabled": false,
+      "assetId": "ast_ca73c5a2024a",
+      "inPoint": 0,
+      "speed": 1,
+      "speedCurve": {
+       "preset": "custom",
+       "points": [
+        {
+         "x": 0,
+         "v": 1
+        },
+        {
+         "x": 0.5,
+         "v": 3
+        },
+        {
+         "x": 1,
+         "v": 0.5
+        }
+       ]
+      },
+      "preservePitch": true,
+      "duration": 5993550,
+      "type": "video",
+      "audio": {
+       "volumeDb": 0,
+       "fadeIn": 0,
+       "fadeOut": 0,
+       "muted": false
+      },
+      "transform": {
+       "scale": 1,
+       "x": 0,
+       "y": 0,
+       "rotation": 0,
+       "opacity": 1,
+       "flipH": false,
+       "flipV": false
+      },
+      "crop": {
+       "left": 0,
+       "top": 0,
+       "right": 0,
+       "bottom": 0
+      },
+      "blend": "normal",
+      "blendEnabled": true,
+      "animationIn": null,
+      "animationOut": null,
+      "filter": null,
+      "adjust": {
+       "brightness": 0,
+       "contrast": 0,
+       "saturation": 0,
+       "exposure": 0,
+       "temperature": 0,
+       "tint": 0,
+       "highlights": 0,
+       "shadows": 0,
+       "fade": 0,
+       "vignette": 0,
+       "sharpen": 0
+      },
+      "adjustEnabled": true
+     }
+    ],
+    "transitions": [
+     {
+      "id": "trn_25ff718c2881",
+      "type": "dissolve",
+      "fromClipId": "clp_498a1de511af",
+      "toClipId": "clp_60ee6a33d431",
+      "duration": 500000
+     }
+    ]
+   },
+   {
+    "id": "trk_b869ca6ce5f7",
+    "kind": "overlay",
+    "name": "Overlay",
+    "locked": false,
+    "hidden": false,
+    "muted": false,
+    "clips": [
+     {
+      "id": "clp_fdcede696042",
+      "trackId": "trk_b869ca6ce5f7",
+      "name": "i.png",
+      "start": 0,
+      "disabled": false,
+      "type": "image",
+      "duration": 5000000,
+      "assetId": "ast_40ac06d55954",
+      "transform": {
+       "scale": 1,
+       "x": 0,
+       "y": 0,
+       "rotation": 0,
+       "opacity": 1,
+       "flipH": false,
+       "flipV": false
+      },
+      "crop": {
+       "left": 0,
+       "top": 0,
+       "right": 0,
+       "bottom": 0
+      },
+      "blend": "normal",
+      "blendEnabled": true,
+      "animationIn": null,
+      "animationOut": null,
+      "filter": null,
+      "adjust": {
+       "brightness": 0,
+       "contrast": 0,
+       "saturation": 0,
+       "exposure": 0,
+       "temperature": 0,
+       "tint": 0,
+       "highlights": 0,
+       "shadows": 0,
+       "fade": 0,
+       "vignette": 0,
+       "sharpen": 0
+      },
+      "adjustEnabled": true
+     }
+    ],
+    "transitions": []
+   },
+   {
+    "id": "trk_65af7c9c92a5",
+    "kind": "audio",
+    "name": "Audio",
+    "locked": false,
+    "hidden": false,
+    "muted": false,
+    "clips": [
+     {
+      "id": "clp_62ff8a5c2cb0",
+      "trackId": "trk_65af7c9c92a5",
+      "name": "a.wav",
+      "start": 0,
+      "disabled": false,
+      "assetId": "ast_1d8d690d8df3",
+      "inPoint": 0,
+      "speed": 1.5,
+      "speedCurve": null,
+      "preservePitch": true,
+      "duration": 5333333,
+      "type": "audio",
+      "audio": {
+       "volumeDb": 0,
+       "fadeIn": 0,
+       "fadeOut": 0,
+       "muted": false
+      }
+     }
+    ],
+    "transitions": []
+   },
+   {
+    "id": "trk_60275fcc82c3",
+    "kind": "text",
+    "name": "Text",
+    "locked": false,
+    "hidden": false,
+    "muted": false,
+    "clips": [
+     {
+      "id": "clp_b0078813a1ed",
+      "type": "text",
+      "trackId": "trk_60275fcc82c3",
+      "name": "Hello",
+      "start": 0,
+      "duration": 3000000,
+      "disabled": false,
+      "text": {
+       "content": "Hello",
+       "fontFamily": "system-ui",
+       "fontSize": 72,
+       "color": "#ffffff",
+       "bold": false,
+       "italic": false,
+       "underline": false,
+       "align": "center",
+       "lineHeight": 1.2,
+       "letterSpacing": 0,
+       "stroke": {
+        "enabled": false,
+        "color": "#000000",
+        "width": 6
+       },
+       "background": {
+        "enabled": false,
+        "color": "#000000",
+        "opacity": 0.6
+       },
+       "shadow": {
+        "enabled": false,
+        "color": "#000000",
+        "blur": 8,
+        "offsetX": 0,
+        "offsetY": 4
+       }
+      },
+      "transform": {
+       "scale": 1,
+       "x": 0,
+       "y": 0,
+       "rotation": 0,
+       "opacity": 1,
+       "flipH": false,
+       "flipV": false
+      },
+      "crop": {
+       "left": 0,
+       "top": 0,
+       "right": 0,
+       "bottom": 0
+      },
+      "blend": "normal",
+      "blendEnabled": true,
+      "animationIn": {
+       "type": "fade",
+       "duration": 500000
+      },
+      "animationOut": null,
+      "filter": null,
+      "adjust": {
+       "brightness": 0,
+       "contrast": 0,
+       "saturation": 0,
+       "exposure": 0,
+       "temperature": 0,
+       "tint": 0,
+       "highlights": 0,
+       "shadows": 0,
+       "fade": 0,
+       "vignette": 0,
+       "sharpen": 0
+      },
+      "adjustEnabled": true
+     }
+    ],
+    "transitions": []
+   }
+  ],
+  "markers": []
+ },
+ "savedBy": "tab-speed"
+}
