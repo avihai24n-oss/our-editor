@@ -164,6 +164,76 @@ Limits: Reduce noise is a gate, so hiss *under* speech stays; the pitch shifter 
 (under one frame, preview and export alike); keyframes on Volume / Fill
 channel are shown disabled like everywhere else (v2).
 
+## Adjust tab — CapCut parity on a GPU colour pipeline — 2026-10-19
+
+**What CapCut's Adjust tab has** (screenshot `docs/capcut-screens/07-inspector-adjust-basic.png`
+plus CapCut / third-party guides; slider ranges are not published, so CapCut's −50…50 / 0…100
+convention from the screenshot is kept):
+
+| Sub-tab | CapCut | Ours |
+|---|---|---|
+| Basic | Auto adjust ✦, Color match ✦, Color correction ✦ (AI) | shown disabled, "AI · Coming soon" |
+| Basic | LUT: Name (None / imported .cube), Intensity 0–100, Protect skin tone | works: .cube 3D (2–129³) and 1D files, DOMAIN_MIN/MAX, trilinear on a 3D texture, intensity, skin-tone key (non-AI hue/sat key) |
+| Basic | Adjust: Color (Temp, Tint, Saturation), Lightness (Exposure, Brightness, Contrast, Highlights, Shadows, Whites, Blacks, Brilliance), Effects (Sharpen, Clarity, Particles, Fade, Vignette) | all 16 work (Particles = film grain) |
+| HSL | 8 colour ranges × Hue / Saturation / Lightness | works, −100…100 |
+| Curves | Luma + Red / Green / Blue curves with draggable points | works: click to add, drag, double-click or drag out to remove; monotone cubic (Fritsch–Carlson) baked into a 256-entry texture |
+| Color wheel | Lift / Gamma / Gain / Offset wheels with a luminance slider each | works (the "Log" wheel set is not built) |
+| Mask | Limit the adjustment to a shape | works: Linear, Mirror, Circle, Rectangle; position, rotation, size, feather, roundness, invert (inspector controls; no on-canvas handles yet) |
+| Footer | Apply to all, Save as preset | both work; presets persist in localStorage and show in Library › Adjustment › My presets |
+
+Sources: capcut.com/resource/capcut-color-grading, capcut.com/tools/color-wheel,
+capcut.com/tools/hsl-color, filmora.wondershare.com/advanced-video-editing/how-to-color-grade-video-in-capcut.html.
+
+**Pipeline** (`src/engine/color/`): one WebGL2 fragment shader per clip, used by the player and the
+export through the shared compositor (`renderFrame` → `opts.grader`). Media are graded in source
+space (cropped, at the size they are drawn), then drawn with their transform, so blend, opacity,
+animations and transitions are unchanged. Order: LUT → look (grayscale/sepia of the Filters
+library) → white balance + exposure in linear light → brightness (mid-tone gamma) → contrast →
+tone (shadows/highlights/whites/blacks/brilliance) → HSL → saturation → curves → wheels → fade →
+clarity + sharpen → vignette → grain → mask. `math.ts` is the same pipeline in TypeScript: the
+CPU fallback when WebGL2 is missing, the unit-test reference and the Library tile previews. The
+Filters looks run through the same pass (their tiles are rendered by it too).
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **392 / 392** (new: `engine/color/color.test.ts` 33 colour-maths tests against reference values — temp/tint/sat/contrast/exposure/brightness/tone/fade, HSL weights, curve monotonicity on 50 random point sets, `.cube` identity/affine/1D/errors, wheels, mask shapes; `model/grade.test.ts` defaults, migration, undo; `inspector/AdjustTab.test.tsx` 8 UI tests) |
+| `npm run build` | passes |
+| `e2e/tab-adjust.spec.ts` | pass (pixel evidence below) |
+| all e2e specs, one at a time through the browser lock | smoke 1, flows 1, shortcuts 2, file-drop 2, memory 2, timeline-stability 7, tab-adjust 2 — all pass |
+
+**Pixel evidence** (SMPTE bars, 16:9 project, t = 1 s, 5×5 averages at the centre of each top bar):
+
+| State | grey | yellow | cyan | green | magenta | red | blue |
+|---|---|---|---|---|---|---|---|
+| baseline (preview) | 191,191,191 | 195,181,2 | 0,172,190 | 0,161,0 | 205,30,191 | 208,19,1 | 0,11,190 |
+| Saturation −50 | 191,191,191 | 171,171,171 | 137,137,137 | 115,115,115 | 79,79,79 | 58,58,58 | 22,22,22 |
+| Temp +50 | 211,188,160 | 212,175,1 | 0,175,164 | 0,161,0 | 216,27,152 | 209,16,1 | 0,15,188 |
+| identity .cube | = baseline (0 difference) | | | | | | |
+| R↔B swap .cube | 191,191,191 | 2,181,195 | 190,172,0 | 0,161,0 | 191,30,205 | 1,19,208 | 190,11,0 |
+| inverting curve (dragged) | 64,64,64 | 60,74,253 | 255,83,65 | 255,94,255 | 50,225,64 | 47,236,254 | 255,244,65 |
+
+- Undo after Saturation restores the baseline exactly; the curve drags are one undo step each.
+- After a reload the graded preview is identical (max difference 0).
+- **GPU vs CPU:** the shader and `math.ts` agree on a 64×32 test card for nine settings groups:
+  max difference 0 (1 for HSL and mask), mean 0.00.
+- **Export:** the graded MP4 equals the CPU reference applied to the *ungraded* MP4's pixels within
+  3 levels — the export runs the same pass. The export differs from the *preview* by up to 29 on
+  saturated bars, but the ungraded export already differs from the ungraded preview by 30 (red
+  bar 190,0,0 in the export vs 208,19,1 in the player): the `<video>` element and Mediabunny decode
+  this BT.601-tagged clip with different matrices. That is a pre-existing player/export
+  difference, not the colour pass; the grey bar (no chroma) matches within 1.
+
+**Model** (`src/model/types.ts`): `Adjust` gains `whites, blacks, brilliance, clarity, grain`;
+every visual clip gains `grade: { lut, hsl, curves, wheels, mask }` (each section with its own
+`enabled`). `migrateProject` fills both for old projects (SCHEMA_VERSION unchanged, additive).
+`updateClip({ grade: { hsl } })` replaces one section and deep-clones it.
+
+**Limits:** LUT files live in this browser's IndexedDB (`our-editor-luts`), not in the project; a
+project opened elsewhere shows "LUT (missing)" and renders without it. Text clips are graded as a
+whole canvas layer (vignette and mask are relative to the canvas, not the text box). No keyframes,
+no on-canvas mask handles, no Log wheels. Vignette keeps the v1 range 0…100 (darken only).
+
 ## Flows verified in real Chromium (Playwright)
 
 The test media in `test-media/` is:
@@ -296,6 +366,17 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
 **Not built**
 - Stickers, Effects, Captions and Templates tabs are placeholders ("Coming soon").
 - Combo animations, HSL / Curves, "Save as preset" and Speed › Velocity effects are shown disabled (Speed › Curve is built, see § Speed tab).
+
+- Speed changes also change pitch in the export; the preview keeps the pitch. Time-stretch is v2.
+- ~~Highlights, Shadows and Sharpen are CSS-filter approximations.~~ Done 2026-10-19: the WebGL2
+  colour pass (see "Adjust tab" below) renders every Adjust control in player and export.
+- The WebM fallback (browsers without WebCodecs) records in real time, is not frame-exact, and its
+  file has no duration header.
+
+**Not built**
+- Stickers, Effects, Captions and Templates tabs are placeholders ("Coming soon").
+- Speed Curve and Combo animations are shown disabled. (HSL / Curves / Color wheel / Mask and
+  "Save as preset" work since 2026-10-19.)
 - **No AI features**, as requested.
 
 **Persistence**

@@ -29,6 +29,11 @@ if (import.meta.env.DEV) {
   void Promise.all([import('./ui/MemoryReadout'), import('./media/memory')]).then(([readout, memory]) => {
     (window as unknown as { __oeMem?: unknown }).__oeMem = { snapshot: readout.memorySnapshot, flush: memory.flushAllCaches };
   });
+  void Promise.all([import('./player/PreviewEngine'), import('./engine/color'), import('./model/defaults'), import('./engine/frameState')]).then(([pe, color, defaults, frame]) => {
+    (window as unknown as { __oeColor?: unknown }).__oeColor = () => pe.activePreviewEngine()?.colorPass ?? 'none';
+    // colour lab for e2e: GPU vs CPU parity checks
+    (window as unknown as { __oeColorLab?: unknown }).__oeColorLab = { color, defaults, frame };
+  });
 }
 
 createRoot(document.getElementById('root')!).render(

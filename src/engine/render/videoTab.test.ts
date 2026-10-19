@@ -323,7 +323,7 @@ describe('renderFrame: Video tab', () => {
     expect(layer.log.some((l) => l.startsWith('ellipse(0,0,270,270'))).toBe(true);
     // feather 40 of a 540 px circle: 0.4 × 0.5 × 540 = 108 px ramp → σ = 27 px
     expect(layer.log).toContain('filter=blur(27.00px)');
-    expect(main.log.some((l) => l.startsWith('drawImage(0,0)'))).toBe(true);
+    expect(main.log.some((l) => l.startsWith('drawImage(0,0'))).toBe(true); // the layer, composited at (0,0)
 
     st().updateClip(id, { mask: { invert: true, feather: 0 } });
     const layer2 = fakeCtx(1080, 1920);

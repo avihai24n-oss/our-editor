@@ -3,6 +3,7 @@
  * runs on a visible <canvas> (player) and an OffscreenCanvas (export, later a Worker).
  */
 import type { Id } from '../../model/types';
+import type { ColorGrader } from '../color/grader';
 import type { MediaDrawOp } from '../frameState';
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -52,4 +53,8 @@ export interface RenderOptions {
   layers?: LayerProvider;
   /** Second scratch canvas (linear burn). Defaults to a module-level one. */
   scratch?: LayerProvider;
+  /** Colour pass (WebGL2 or CPU). Absent = the legacy CSS-filter approximation. */
+  grader?: ColorGrader | null;
+  /** Is this LUT loaded? Default: lutLibrary.requestLut (starts loading it and says no). */
+  lutReady?: (id: string) => boolean;
 }

@@ -4,6 +4,9 @@
  *  - Filters: sets clip.filter = {id, intensity 1}; "None" clears it. Intensity lives in the
  *    inspector (Adjust tab).
  *  - Adjustment: sets clip.adjust to a preset (neutral + preset values); "Reset" clears it.
+ *    "My presets" lists the user's presets saved from inspector › Adjust › Save as preset.
+ * Tile previews go through the real colour pipeline (./gradePreview.tsx), so a tile shows
+ * exactly the look the player and the export render.
  */
 import { useShallow } from 'zustand/react/shallow';
 import { FILTERS } from '../model/catalog';
@@ -12,7 +15,9 @@ import { findClip } from '../model/project';
 import type { FilterId } from '../model/types';
 import { useEditor } from '../store';
 import { GridLabel, LibraryBody, PresetTile, useFlash, type SidebarItem } from './LibraryLayout';
-import { adjustToCssFilter, filterCss, selectedVisualIds } from './libraryLogic';
+import { adjustOps, filterOps, GradedLook } from './gradePreview';
+import { selectedVisualIds } from './libraryLogic';
+import { presetPatch, useAdjustPresets } from '../store/adjustPresets';
 import { ADJUST_PRESETS, FILTER_GROUPS } from './presets';
 import { usePref } from './prefs';
 import { useAssetThumb } from './thumbnails';
@@ -26,19 +31,6 @@ function useSelectionThumb() {
     return s.project.assets[f.clip.assetId];
   });
   return useAssetThumb(asset);
-}
-
-function LookPreview({ css, src, none }: { css: string; src?: string; none?: boolean }) {
-  return (
-    <div className="look">
-      {src ? <img src={src} alt="" draggable={false} style={{ filter: css }} /> : <div className="look__scene" style={{ filter: css }} />}
-      {none && (
-        <div className="look__none" aria-hidden>
-          ⊘
-        </div>
-      )}
-    </div>
-  );
 }
 
 function useTargets() {
@@ -71,7 +63,7 @@ export function FiltersTab() {
       <div className="lib__scroll">
         {cat === 'all' && (
           <div className="lib-grid">
-            <PresetTile label="None" active={!!first && current === null} preview={<LookPreview css="none" src={src} none />} onApply={() => apply(null)} />
+            <PresetTile label="None" active={!!first && current === null} preview={<GradedLook ops={filterOps(null)} src={src} none />} onApply={() => apply(null)} />
           </div>
         )}
         {groups.map((g) => (
@@ -88,7 +80,7 @@ export function FiltersTab() {
                     active={current === fid}
                     title={`${def.label} — applies to the selected clip`}
                     testId="filter-preset"
-                    preview={<LookPreview css={filterCss(fid)} src={src} />}
+                    preview={<GradedLook ops={filterOps(fid)} src={src} />}
                     onApply={() => apply(fid)}
                   />
                 );
@@ -104,6 +96,7 @@ export function FiltersTab() {
 
 const ADJ_SIDEBAR: SidebarItem[] = [
   { id: 'presets', label: 'Presets' },
+  { id: 'mine', label: 'My presets' },
   { id: 'layer', label: 'Adjustment layer', disabled: true },
 ];
 
@@ -113,6 +106,8 @@ export function AdjustmentTab() {
   const src = useSelectionThumb();
   const updateClips = useEditor((s) => s.updateClips);
   const [flash, showFlash] = useFlash();
+  const mine = useAdjustPresets((s) => s.presets);
+  const removePreset = useAdjustPresets((s) => s.remove);
 
   const isNeutral = !!first && Object.values(first.adjust).every((v) => v === 0);
   const activeId =
@@ -133,21 +128,61 @@ export function AdjustmentTab() {
   return (
     <LibraryBody sidebar={ADJ_SIDEBAR} value={cat} onChange={setCat}>
       <div className="lib__scroll">
-        <GridLabel>Presets</GridLabel>
-        <div className="lib-grid">
-          <PresetTile label="Reset" active={isNeutral} preview={<LookPreview css="none" src={src} none />} onApply={() => apply(defaultAdjust())} />
-          {ADJUST_PRESETS.map((p) => (
-            <PresetTile
-              key={p.id}
-              label={p.label}
-              active={activeId === p.id}
-              title={`${p.label} — sets Adjust › Basic on the selected clip`}
-              testId="adjust-preset"
-              preview={<LookPreview css={adjustToCssFilter(p.adjust)} src={src} />}
-              onApply={() => apply({ ...defaultAdjust(), ...p.adjust })}
-            />
-          ))}
-        </div>
+        {cat !== 'mine' && (
+          <>
+            <GridLabel>Presets</GridLabel>
+            <div className="lib-grid">
+              <PresetTile label="Reset" active={isNeutral} preview={<GradedLook ops={adjustOps({})} src={src} none />} onApply={() => apply(defaultAdjust())} />
+              {ADJUST_PRESETS.map((p) => (
+                <PresetTile
+                  key={p.id}
+                  label={p.label}
+                  active={activeId === p.id}
+                  title={`${p.label} — sets Adjust › Basic on the selected clip`}
+                  testId="adjust-preset"
+                  preview={<GradedLook ops={adjustOps(p.adjust)} src={src} />}
+                  onApply={() => apply({ ...defaultAdjust(), ...p.adjust })}
+                />
+              ))}
+            </div>
+          </>
+        )}
+        {(cat === 'mine' || mine.length > 0) && (
+          <>
+            <GridLabel>My presets</GridLabel>
+            {mine.length === 0 ? (
+              <p className="lib__hint" data-testid="my-presets-empty">
+                No presets yet. Set up a look in the inspector › Adjust and press “Save as preset”.
+              </p>
+            ) : (
+              <div className="lib-grid" data-testid="my-presets">
+                {mine.map((p) => {
+                  const f = p.filter ? filterOps(p.filter.id) : null;
+                  return (
+                    <div key={p.id} className="lib-mine">
+                      <PresetTile
+                        label={p.name}
+                        title={`${p.name} — applies the saved adjustments to the selected clip`}
+                        testId="user-preset"
+                        preview={<GradedLook ops={adjustOps(p.adjust, p.grade, { grayscale: (f?.grayscale ?? 0) * (p.filter?.intensity ?? 0), sepia: (f?.sepia ?? 0) * (p.filter?.intensity ?? 0) })} src={src} />}
+                        onApply={() => {
+                          if (!ids.length) {
+                            showFlash('Select a video, image or text clip first');
+                            return;
+                          }
+                          updateClips(ids, presetPatch(p));
+                        }}
+                      />
+                      <button className="lib-mine__del" title={`Delete ${p.name}`} aria-label={`Delete preset ${p.name}`} onClick={() => removePreset(p.id)}>
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
         <p className="lib__hint">Fine-tune every value in the inspector › Adjust.</p>
       </div>
       {flash}

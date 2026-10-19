@@ -1,11 +1,13 @@
 /**
  * Pure read-only helpers over a Project (no React, no DOM). Safe to call from anywhere.
  */
-import { defaultCanvasBackground, defaultChroma, defaultMask } from './defaults';
+import { defaultAdjust, defaultCanvasBackground, defaultChroma, defaultGrade, defaultMask } from './defaults';
 import type { SpeedCurve } from './speedCurve';
 import { clipEnd } from './time';
 import type {
+  Adjust,
   AudioClip,
+  ColorGrade,
   AudioProps,
   Clip,
   Id,
@@ -180,8 +182,14 @@ function migrateAudio(c: Clip): Clip {
   return audio === c.audio ? c : ({ ...c, audio } as Clip);
 }
 
-/** tab-video: uniform scale X / Y, mask, chroma key, canvas background (see migrateVideoTabFields). */
-const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields];
+/** tab-adjust: new Adjust sliders and the colour grade (see migrateVisualClip). */
+const migrateGrade = (c: Clip): Clip => (c.type === 'audio' ? c : migrateVisualClip(c));
+
+/**
+ * Every clip migration, in the order the features were added: v1 checkboxes, tab-speed,
+ * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade).
+ */
+const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade];
 
 const FILL_CHANNELS: readonly string[] = ['left', 'right'];
 
@@ -232,4 +240,27 @@ export function migrateVideoTabFields(c: Clip): Clip {
     }
   }
   return out;
+}
+
+const ADJUST_KEYS = Object.keys(defaultAdjust()) as (keyof Adjust)[];
+const GRADE_KEYS = Object.keys(defaultGrade()) as (keyof ColorGrade)[];
+
+/** Fills missing visual-clip fields (blend/adjust checkboxes, new Adjust sliders, the colour grade). */
+export function migrateVisualClip(c: VisualClip): VisualClip {
+  const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled' | 'grade'>>;
+  const adjustOk = !!v.adjust && ADJUST_KEYS.every((k) => typeof v.adjust[k] === 'number');
+  const gradeOk = !!v.grade && GRADE_KEYS.every((k) => v.grade![k] && typeof v.grade![k] === 'object') && !!v.grade.hsl.bands;
+  if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean' && adjustOk && gradeOk) return c;
+  const grade = defaultGrade();
+  if (v.grade) {
+    for (const k of GRADE_KEYS) if (v.grade[k] && typeof v.grade[k] === 'object') Object.assign(grade[k], v.grade[k]);
+    grade.hsl.bands = { ...defaultGrade().hsl.bands, ...(v.grade.hsl?.bands ?? {}) };
+  }
+  return {
+    ...c,
+    blendEnabled: v.blendEnabled ?? true,
+    adjustEnabled: v.adjustEnabled ?? true,
+    adjust: { ...defaultAdjust(), ...(v.adjust ?? {}) },
+    grade,
+  } as VisualClip;
 }

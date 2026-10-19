@@ -7,6 +7,16 @@ import { secToUs } from './time';
 import {
   SCHEMA_VERSION,
   type Adjust,
+  type AdjustMask,
+  type ColorGrade,
+  type CurvePoint,
+  type CurvesSettings,
+  type HslBand,
+  type HslColor,
+  type HslSettings,
+  type LutSettings,
+  type WheelsSettings,
+  type WheelValue,
   type AspectRatio,
   type AudioClip,
   type AudioProps,
@@ -79,17 +89,77 @@ const mediaVisualDefaults = () => ({ mask: defaultMask(), chroma: defaultChroma(
 export const defaultCrop = (): Crop => ({ left: 0, top: 0, right: 0, bottom: 0 });
 
 export const defaultAdjust = (): Adjust => ({
-  brightness: 0,
-  contrast: 0,
-  saturation: 0,
-  exposure: 0,
   temperature: 0,
   tint: 0,
+  saturation: 0,
+  exposure: 0,
+  brightness: 0,
+  contrast: 0,
   highlights: 0,
   shadows: 0,
+  whites: 0,
+  blacks: 0,
+  brilliance: 0,
+  sharpen: 0,
+  clarity: 0,
+  grain: 0,
   fade: 0,
   vignette: 0,
-  sharpen: 0,
+});
+
+export const HSL_COLORS: HslColor[] = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'magenta'];
+
+export const defaultLut = (): LutSettings => ({ enabled: true, lutId: null, name: '', intensity: 1, protectSkin: false });
+
+export const defaultHslBand = (): HslBand => ({ hue: 0, saturation: 0, lightness: 0 });
+
+export const defaultHsl = (): HslSettings => ({
+  enabled: true,
+  bands: Object.fromEntries(HSL_COLORS.map((c) => [c, defaultHslBand()])) as Record<HslColor, HslBand>,
+});
+
+/** The identity curve: two end points on the diagonal. */
+export const identityCurve = (): CurvePoint[] => [
+  { x: 0, y: 0 },
+  { x: 1, y: 1 },
+];
+
+export const defaultCurves = (): CurvesSettings => ({
+  enabled: true,
+  master: identityCurve(),
+  red: identityCurve(),
+  green: identityCurve(),
+  blue: identityCurve(),
+});
+
+export const defaultWheel = (): WheelValue => ({ x: 0, y: 0, luma: 0 });
+
+export const defaultWheels = (): WheelsSettings => ({
+  enabled: true,
+  lift: defaultWheel(),
+  gamma: defaultWheel(),
+  gain: defaultWheel(),
+  offset: defaultWheel(),
+});
+
+export const defaultAdjustMask = (): AdjustMask => ({
+  shape: 'none',
+  x: 0,
+  y: 0,
+  width: 0.5,
+  height: 0.5,
+  rotation: 0,
+  feather: 20,
+  roundness: 0,
+  invert: false,
+});
+
+export const defaultGrade = (): ColorGrade => ({
+  lut: defaultLut(),
+  hsl: defaultHsl(),
+  curves: defaultCurves(),
+  wheels: defaultWheels(),
+  mask: defaultAdjustMask(),
 });
 
 export const defaultAudio = (): AudioProps => ({
@@ -131,6 +201,7 @@ const visualDefaults = () => ({
   filter: null,
   adjust: defaultAdjust(),
   adjustEnabled: true,
+  grade: defaultGrade(),
 });
 
 export function createProject(opts: { name?: string; aspect?: AspectRatio } = {}): Project {

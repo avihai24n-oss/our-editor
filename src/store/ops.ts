@@ -650,7 +650,10 @@ export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
       continue;
     }
     if (!(key in c)) continue; // field not on this clip type
-    if ((MERGE_KEYS as readonly string[]).includes(key)) {
+    if (key === 'grade') {
+      // each section is replaced as a whole; clone so clips never share nested objects
+      Object.assign(c.grade as object, JSON.parse(JSON.stringify(v)) as object);
+    } else if ((MERGE_KEYS as readonly string[]).includes(key)) {
       Object.assign(c[key] as object, v);
     } else if (key === 'text' && c.type === 'text') {
       const tp = v as NonNullable<ClipPatch['text']>;

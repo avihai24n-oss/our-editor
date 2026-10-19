@@ -4,6 +4,9 @@
  */
 import type {
   Adjust,
+  AdjustMaskShape,
+  HslColor,
+  WheelId,
   AnimationType,
   AspectRatio,
   BlendMode,
@@ -95,8 +98,10 @@ export const FILTERS: FilterDef[] = [
 
 export const filterDef = (id: FilterId): FilterDef | undefined => FILTERS.find((f) => f.id === id);
 
-/** Slider ranges for Adjust > Basic, in UI order and grouping. */
-export const ADJUST_RANGES: { key: keyof Adjust; label: string; group: 'Color' | 'Lightness' | 'Effects'; min: number; max: number }[] = [
+export type AdjustGroup = 'Color' | 'Lightness' | 'Effects';
+
+/** Slider ranges for Adjust › Basic › Adjust, in CapCut's UI order and grouping. */
+export const ADJUST_RANGES: { key: keyof Adjust; label: string; group: AdjustGroup; min: number; max: number; hint?: string }[] = [
   { key: 'temperature', label: 'Temp', group: 'Color', min: -50, max: 50 },
   { key: 'tint', label: 'Tint', group: 'Color', min: -50, max: 50 },
   { key: 'saturation', label: 'Saturation', group: 'Color', min: -50, max: 50 },
@@ -105,9 +110,42 @@ export const ADJUST_RANGES: { key: keyof Adjust; label: string; group: 'Color' |
   { key: 'contrast', label: 'Contrast', group: 'Lightness', min: -50, max: 50 },
   { key: 'highlights', label: 'Highlights', group: 'Lightness', min: -50, max: 50 },
   { key: 'shadows', label: 'Shadows', group: 'Lightness', min: -50, max: 50 },
+  { key: 'whites', label: 'Whites', group: 'Lightness', min: -50, max: 50 },
+  { key: 'blacks', label: 'Blacks', group: 'Lightness', min: -50, max: 50 },
+  { key: 'brilliance', label: 'Brilliance', group: 'Lightness', min: -50, max: 50 },
   { key: 'sharpen', label: 'Sharpen', group: 'Effects', min: 0, max: 100 },
+  { key: 'clarity', label: 'Clarity', group: 'Effects', min: 0, max: 100 },
+  { key: 'grain', label: 'Particles', group: 'Effects', min: 0, max: 100, hint: 'Film grain' },
   { key: 'fade', label: 'Fade', group: 'Effects', min: 0, max: 100 },
   { key: 'vignette', label: 'Vignette', group: 'Effects', min: 0, max: 100 },
+];
+
+/** HSL colour ranges: centre hue (degrees) and swatch, in CapCut's order. */
+export const HSL_RANGES: { id: HslColor; label: string; hue: number; swatch: string }[] = [
+  { id: 'red', label: 'Red', hue: 0, swatch: '#ff3b30' },
+  { id: 'orange', label: 'Orange', hue: 30, swatch: '#ff9500' },
+  { id: 'yellow', label: 'Yellow', hue: 60, swatch: '#ffd60a' },
+  { id: 'green', label: 'Green', hue: 120, swatch: '#34c759' },
+  { id: 'cyan', label: 'Cyan', hue: 180, swatch: '#32d7e6' },
+  { id: 'blue', label: 'Blue', hue: 240, swatch: '#2f6bff' },
+  { id: 'purple', label: 'Purple', hue: 270, swatch: '#9b5cff' },
+  { id: 'magenta', label: 'Magenta', hue: 300, swatch: '#ff3bd4' },
+];
+
+export const WHEELS: { id: WheelId; label: string; hint: string }[] = [
+  { id: 'lift', label: 'Lift', hint: 'Shadows' },
+  { id: 'gamma', label: 'Gamma', hint: 'Midtones' },
+  { id: 'gain', label: 'Gain', hint: 'Highlights' },
+  { id: 'offset', label: 'Offset', hint: 'All tones' },
+];
+
+/** Adjust › Mask shapes (the mask that limits the grade). */
+export const ADJUST_MASK_SHAPES: { id: AdjustMaskShape; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'linear', label: 'Linear' },
+  { id: 'mirror', label: 'Mirror' },
+  { id: 'circle', label: 'Circle' },
+  { id: 'rectangle', label: 'Rectangle' },
 ];
 
 /** System fonts only in v1 (no network). */

@@ -275,19 +275,124 @@ export interface FilterRef {
   intensity: number;
 }
 
-/** Adjust > Basic. All 0 = neutral. Ranges in ADJUST_RANGES (./catalog). */
+/**
+ * Adjust › Basic › Adjust. All 0 = neutral. Ranges in ADJUST_RANGES (./catalog).
+ * whites / blacks / brilliance / clarity / grain were added after v1 (migrateProject fills 0).
+ */
 export interface Adjust {
-  brightness: number; // -50..50
-  contrast: number; // -50..50
-  saturation: number; // -50..50
-  exposure: number; // -50..50
+  // Color
   temperature: number; // -50..50 (blue ↔ yellow)
   tint: number; // -50..50 (green ↔ magenta)
+  saturation: number; // -50..50 (-50 = grey)
+  // Lightness
+  exposure: number; // -50..50 (±1.5 EV, linear light)
+  brightness: number; // -50..50 (mid-tone gamma)
+  contrast: number; // -50..50
   highlights: number; // -50..50
   shadows: number; // -50..50
+  whites: number; // -50..50
+  blacks: number; // -50..50
+  brilliance: number; // -50..50
+  // Effects
+  sharpen: number; // 0..100
+  clarity: number; // 0..100
+  /** CapCut "Particles" (film grain). */
+  grain: number; // 0..100
   fade: number; // 0..100
   vignette: number; // 0..100
-  sharpen: number; // 0..100
+}
+
+// ---------------------------------------------------------------- colour grade (Adjust tab)
+
+/** Adjust › Basic › LUT. The .cube file lives in the browser-wide LUT library (IndexedDB). */
+export interface LutSettings {
+  /** Section checkbox. */
+  enabled: boolean;
+  /** Id in the LUT library; null = "None". */
+  lutId: Id | null;
+  /** File name shown when the LUT is missing from this browser. */
+  name: string;
+  /** 0..1 (UI 0..100). */
+  intensity: number;
+  /** Keeps skin hues closer to the original (non-AI hue/saturation key). */
+  protectSkin: boolean;
+}
+
+export type HslColor = 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue' | 'purple' | 'magenta';
+
+/** One HSL colour range. Each -100..100, 0 = neutral. */
+export interface HslBand {
+  hue: number;
+  saturation: number;
+  lightness: number;
+}
+
+export interface HslSettings {
+  enabled: boolean;
+  bands: Record<HslColor, HslBand>;
+}
+
+/** Curve control point, both axes 0..1 (input → output). Sorted by x; first x = 0, last x = 1. */
+export interface CurvePoint {
+  x: number;
+  y: number;
+}
+
+export type CurveChannel = 'master' | 'red' | 'green' | 'blue';
+
+export interface CurvesSettings {
+  enabled: boolean;
+  /** Master = CapCut's white "Luma"/RGB curve, applied before the per-channel curves. */
+  master: CurvePoint[];
+  red: CurvePoint[];
+  green: CurvePoint[];
+  blue: CurvePoint[];
+}
+
+/** A colour wheel: puck position in the unit disc (x right, y up) + its luminance slider -100..100. */
+export interface WheelValue {
+  x: number;
+  y: number;
+  luma: number;
+}
+
+export type WheelId = 'lift' | 'gamma' | 'gain' | 'offset';
+
+export interface WheelsSettings {
+  enabled: boolean;
+  lift: WheelValue;
+  gamma: WheelValue;
+  gain: WheelValue;
+  offset: WheelValue;
+}
+
+export type AdjustMaskShape = 'none' | 'linear' | 'mirror' | 'circle' | 'rectangle';
+
+/** Adjust › Mask: limits the whole colour adjustment to a shape. Clip-local units. */
+export interface AdjustMask {
+  shape: AdjustMaskShape;
+  /** Centre offset as fractions of the clip box (0,0 = centre; ±0.5 = edge). */
+  x: number;
+  y: number;
+  /** Size as fractions of the clip box width / height (circle, rectangle, mirror band). */
+  width: number;
+  height: number;
+  /** Degrees, clockwise. */
+  rotation: number;
+  /** 0..100 (soft edge). */
+  feather: number;
+  /** Rectangle corner roundness 0..100. */
+  roundness: number;
+  invert: boolean;
+}
+
+/** Everything in the Adjust tab besides Basic › Adjust (`adjust`) and the Filter look. */
+export interface ColorGrade {
+  lut: LutSettings;
+  hsl: HslSettings;
+  curves: CurvesSettings;
+  wheels: WheelsSettings;
+  mask: AdjustMask;
 }
 
 export type TextAlign = 'left' | 'center' | 'right';
@@ -342,6 +447,8 @@ export interface VisualFields {
   adjust: Adjust;
   /** Adjust section checkbox. false = the Adjust sliders are ignored (values kept; filter still applies). */
   adjustEnabled: boolean;
+  /** Adjust tab: LUT, HSL, Curves, Color wheel, Mask. */
+  grade: ColorGrade;
 }
 
 /** Fields shared by clips that read a time range of a media asset. */
@@ -426,6 +533,8 @@ export interface ClipPatch {
   mask?: Partial<ClipMask>;
   chroma?: Partial<ChromaKey>;
   canvas?: Partial<CanvasBackground>;
+  /** Merged one level deep: each given section (lut, hsl, curves, wheels, mask) replaces the old one. */
+  grade?: Partial<ColorGrade>;
   audio?: Partial<AudioProps>;
   text?: Partial<Omit<TextStyle, 'stroke' | 'background' | 'shadow'>> & {
     stroke?: Partial<TextStyle['stroke']>;

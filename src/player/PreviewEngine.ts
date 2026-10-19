@@ -13,6 +13,7 @@
  * can flush it.
  */
 import { getFrameState, type MediaDrawOp } from '../engine/frameState';
+import { createColorGrader, onLutsChange, type ColorGrader } from '../engine/color';
 import { createLayerProvider, renderFrame, type DrawnBox } from '../engine/render';
 import { registerCache } from '../media/memory';
 import { onAssetUrlsChange } from '../media/registry';
@@ -40,6 +41,8 @@ export class PreviewEngine {
   private audio = new AudioEngine();
   private clock = new PlaybackClock(perfNow);
   private layers = createLayerProvider();
+  /** Colour pass (WebGL2, CPU fallback). Created on the first render; undefined = not yet tried. */
+  private grader: ColorGrader | null | undefined = undefined;
   private raf = 0;
   private pendingRender = 0;
   private unsub: (() => void)[] = [];
@@ -61,6 +64,7 @@ export class PreviewEngine {
     active = this;
     this.unsub.push(useEditor.subscribe((s, prev) => this.onStore(s, prev)));
     this.unsub.push(onAssetUrlsChange(() => this.invalidate()));
+    this.unsub.push(onLutsChange(() => this.invalidate()));
     if (typeof document !== 'undefined') {
       const onVis = () => this.onVisibility(document.visibilityState === 'hidden');
       document.addEventListener('visibilitychange', onVis);
@@ -89,6 +93,13 @@ export class PreviewEngine {
     cancelAnimationFrame(this.pendingRender);
     this.pool.dispose();
     this.audio.dispose();
+    this.grader?.dispose();
+    this.grader = null;
+  }
+
+  /** Which colour pass the player uses (debug readout, e2e). */
+  get colorPass(): 'webgl2' | 'cpu' | 'none' {
+    return this.grader ? this.grader.kind : 'none';
   }
 
   /** CSS size of the canvas box; the backing store follows (× devicePixelRatio, capped at project size). */
@@ -268,7 +279,8 @@ export class PreviewEngine {
       this.pool.idle(keep);
     }
 
-    const boxes = renderFrame(ctx, fs, { scale: this.scale, sources: this.pool, layers: this.layers });
+    if (this.grader === undefined) this.grader = createColorGrader();
+    const boxes = renderFrame(ctx, fs, { scale: this.scale, sources: this.pool, layers: this.layers, grader: this.grader });
     this.opts.onBoxes?.(boxes);
   }
 }

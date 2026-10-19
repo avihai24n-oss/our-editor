@@ -4,8 +4,16 @@
  *
  * It never recomputes timing / animation / transition math: everything comes from the ops.
  * It only knows how to turn an op into pixels: transform, blend, opacity, wipe clip rect,
- * CSS colour filter + blur, tone passes (temperature/tint/fade/vignette) and text.
+ * the colour pass, blur and text.
+ *
+ * Colour: with `opts.grader` (WebGL2, or the CPU fallback) every non-neutral clip goes through
+ * the shared colour pipeline (engine/color): media are graded in source space (cropped, at the
+ * size they are drawn) and then drawn with their transform; text is drawn on the scratch layer
+ * and the layer is graded. Without a grader (unit tests) the legacy approximation is used:
+ * CSS filter + tone passes.
  */
+import { gradeParams, type GradeParams } from '../color/params';
+import { requestLut } from '../color/lutLibrary';
 import type { DrawOp, FrameState, MediaDrawOp, TextDrawOp } from '../frameState';
 import { chromaKeyPixels, chromaParams } from './chroma';
 import { cssFilter, tonePasses, type TonePass } from './color';
@@ -215,6 +223,35 @@ function clipToRect(ctx: Ctx2D, r: NonNullable<VisualOp['clipRect']>, tw: number
   ctx.clip();
 }
 
+/** Grain seed for frame time t: one value per 1/30 s, identical in preview and export. */
+export const grainSeed = (t: number): number => Math.max(0, Math.floor((t / 1_000_000) * 30));
+
+const MAX_GRADE_PX = 4096;
+
+const NO_CROP = { left: 0, top: 0, right: 0, bottom: 0 };
+
+/** Grades the visible part of a media source at the size it is drawn. Null = could not grade. */
+function gradeMedia(op: MediaDrawOp, src: SourceImage, box: LocalBox, k: number, params: GradeParams, opts: RenderOptions): { image: CanvasImageSource; w: number; h: number } | null {
+  const l = clamp01(op.crop.left);
+  const t = clamp01(op.crop.top);
+  const cw = Math.max(1e-4, 1 - l - clamp01(op.crop.right));
+  const ch = Math.max(1e-4, 1 - t - clamp01(op.crop.bottom));
+  const ax = axisScale(op.transform); // uniform scale or separate width / height (Video › Basic)
+  const w = Math.max(1, Math.min(MAX_GRADE_PX, Math.ceil(Math.min(src.width * cw, box.w * Math.abs(ax.x) * k))));
+  const h = Math.max(1, Math.min(MAX_GRADE_PX, Math.ceil(Math.min(src.height * ch, box.h * Math.abs(ax.y) * k))));
+  const image = opts.grader!.grade({
+    source: src.image,
+    sourceWidth: src.width,
+    sourceHeight: src.height,
+    crop: { x: l, y: t, w: cw, h: ch },
+    outWidth: w,
+    outHeight: h,
+    aspect: box.w / box.h,
+    params,
+  });
+  return image ? { image, w, h } : null;
+}
+
 /**
  * Draws `fs` onto `ctx`, whose canvas is `fs.width * scale` × `fs.height * scale` pixels.
  * Returns the box of every visual op in draw order (project px), for hit testing.
@@ -261,11 +298,19 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     if (isBackground && src === 'missing') continue;
     if (op.clipRect && (op.clipRect.w <= 0 || op.clipRect.h <= 0)) continue;
 
-    const filter = cssFilter(op.color, op.blur * k);
-    const passes = src === 'missing' ? [] : tonePasses(op.color);
+    // ---- colour: the shared pipeline when a grader is available, else the CSS approximation.
+    // Order per clip: grade (source space) → chroma key → transform / animation → mask → blend.
+    const params = opts.grader && src !== 'missing' ? gradeParams(op.color, grainSeed(fs.t), opts.lutReady ?? requestLut) : null;
+    let graded: { image: CanvasImageSource; w: number; h: number } | null = null;
+    if (params && op.kind === 'media' && src && src !== 'missing') graded = gradeMedia(op, src, local, k, params, opts);
+    const gpuText = !!params && op.kind === 'text' && !!opts.layers;
+    const legacy = !graded && !gpuText;
+    const filter = legacy ? cssFilter(op.color, op.blur * k) : op.blur * k > 0.05 ? `blur(${Math.round(op.blur * k * 1000) / 1000}px)` : 'none';
+    const passes = legacy && src !== 'missing' ? tonePasses(op.color) : [];
+    // the clip's own mask (Video › Mask); the Adjust mask only limits the grade (inside params)
     const mask = op.kind === 'media' && op.mask && src !== 'missing' ? maskGeometry(op.mask, local) : null;
     const linearBurn = op.blendMode === 'linear-burn';
-    const layer = passes.length || mask || linearBurn ? opts.layers?.get(tw, th) ?? null : null;
+    const layer = passes.length || mask || linearBurn || gpuText ? opts.layers?.get(tw, th) ?? null : null;
     const target = layer ?? ctx;
     const ax = axisScale(op.transform);
 
@@ -282,6 +327,7 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     applyOpTransform(target, op, W, H, k);
     if (op.kind === 'media') {
       if (src === 'missing') drawMissing(target, local);
+      else if (graded) drawMedia(target, { ...op, crop: NO_CROP }, { image: graded.image, width: graded.w, height: graded.h }, local, { x: k * Math.abs(ax.x), y: k * Math.abs(ax.y) });
       else if (src) drawMedia(target, op, src, local, { x: k * Math.abs(ax.x), y: k * Math.abs(ax.y) });
     } else if (textLayout) {
       drawText(target, op, textLayout, k * op.transform.scale);
@@ -290,16 +336,32 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     if (layer && mask) applyMask(target, mask, k * Math.sqrt(Math.abs(ax.x * ax.y)));
     target.restore();
 
+    // text through the colour pass: grade the whole layer (vignette / mask relative to the canvas)
+    let layerImage: CanvasImageSource | null = layer ? (layer.canvas as CanvasImageSource) : null;
+    if (layer && gpuText && params) {
+      const g = opts.grader!.grade({
+        source: layer.canvas as CanvasImageSource,
+        sourceWidth: tw,
+        sourceHeight: th,
+        crop: { x: 0, y: 0, w: 1, h: 1 },
+        outWidth: tw,
+        outHeight: th,
+        aspect: tw / th,
+        params,
+      });
+      if (g) layerImage = g;
+    }
+
     // ---- composite the layer
     if (layer && linearBurn) {
-      compositeLinearBurn(ctx, layer, opts.scratch?.get(tw, th) ?? inverseScratch(Math.round(tw), Math.round(th)), alpha, op.clipRect, tw, th);
+      compositeLinearBurn(ctx, layerImage ?? (layer.canvas as CanvasImageSource), layer.canvas.width, layer.canvas.height, opts.scratch?.get(tw, th) ?? inverseScratch(Math.round(tw), Math.round(th)), alpha, op.clipRect, tw, th);
     } else if (layer) {
       ctx.save();
       resetCtx(ctx);
       if (op.clipRect) clipToRect(ctx, op.clipRect, tw, th);
       ctx.globalAlpha = alpha;
       ctx.globalCompositeOperation = op.composite;
-      ctx.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+      ctx.drawImage(layerImage ?? (layer.canvas as CanvasImageSource), 0, 0, tw, th);
       ctx.restore();
     }
   }
@@ -325,9 +387,7 @@ function inverseScratch(w: number, h: number): Ctx2D | null {
  * invert dst · add the inverted source (lighter, × opacity) · invert again
  * = 1 − ((1 − dst) + α(1 − src)) = dst − α(1 − src), clamped at 0.
  */
-function compositeLinearBurn(ctx: Ctx2D, layer: Ctx2D, inv: Ctx2D | null, alpha: number, rect: VisualOp['clipRect'], tw: number, th: number): void {
-  const w = layer.canvas.width;
-  const h = layer.canvas.height;
+function compositeLinearBurn(ctx: Ctx2D, source: CanvasImageSource, w: number, h: number, inv: Ctx2D | null, alpha: number, rect: VisualOp['clipRect'], tw: number, th: number): void {
   if (!inv) {
     // no second scratch canvas: multiply is the closest single-pass look
     ctx.save();
@@ -335,7 +395,7 @@ function compositeLinearBurn(ctx: Ctx2D, layer: Ctx2D, inv: Ctx2D | null, alpha:
     if (rect) clipToRect(ctx, rect, tw, th);
     ctx.globalAlpha = alpha;
     ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+    ctx.drawImage(source, 0, 0);
     ctx.restore();
     return;
   }
@@ -343,12 +403,12 @@ function compositeLinearBurn(ctx: Ctx2D, layer: Ctx2D, inv: Ctx2D | null, alpha:
   inv.save();
   resetCtx(inv);
   inv.globalCompositeOperation = 'copy';
-  inv.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+  inv.drawImage(source, 0, 0);
   inv.globalCompositeOperation = 'difference';
   inv.fillStyle = '#ffffff';
   inv.fillRect(0, 0, w, h);
   inv.globalCompositeOperation = 'destination-in';
-  inv.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+  inv.drawImage(source, 0, 0);
   inv.restore();
 
   ctx.save();

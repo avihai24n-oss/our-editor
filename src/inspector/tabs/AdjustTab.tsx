@@ -1,113 +1,133 @@
 /**
- * Adjust › Basic: Filter (look + intensity) and Adjust (Color / Lightness / Effects sliders),
- * footer "Apply to all" (same values to every clip on tracks of this kind) and "Reset".
+ * Inspector › Adjust (CapCut): sub-tabs Basic | HSL | Curves | Color wheel | Mask, footer
+ * "Apply to all" (every adjustment to every clip on tracks of this kind) and "Save as preset"
+ * (Library › Adjustment › My presets). Every control is undoable (one step per gesture) and
+ * every section has its own reset. The AI rows (Auto adjust, Color match, Color correction)
+ * show CapCut's disabled "coming soon" state.
  */
-import { ADJUST_RANGES, FILTERS } from '../../model/catalog';
-import { defaultAdjust } from '../../model/defaults';
-import type { Adjust, FilterId, VisualClip } from '../../model/types';
+import { useState } from 'react';
+import type { VisualClip } from '../../model/types';
+import { nextPresetName, useAdjustPresets } from '../../store/adjustPresets';
 import { useEditor } from '../../store';
-import { FieldRow, GroupLabel, SegmentedTabs, Section, SliderRow, fromPct, toPct } from '../controls';
+import { usePref } from '../../panels/prefs';
+import { SegmentedTabs } from '../controls';
 import { applyAllTargets } from '../inspectorLogic';
+import { BasicPanel } from './adjust/BasicPanel';
+import { CurvesPanel } from './adjust/CurvesPanel';
+import { HslPanel } from './adjust/HslPanel';
+import { MaskPanel } from './adjust/MaskPanel';
+import { WheelsPanel } from './adjust/WheelsPanel';
+import './adjust/adjust.css';
 
-const TRACKS: Partial<Record<keyof Adjust, string>> = {
-  temperature: 'linear-gradient(90deg, #3b4cff, #7a7a8a 50%, #ffe100)',
-  tint: 'linear-gradient(90deg, #1fa52a, #7a7a8a 50%, #f01fff)',
-  saturation: 'linear-gradient(90deg, #3a3a3a, #7a5a5a 50%, #ff2a2a)',
-};
+export type AdjustSub = 'basic' | 'hsl' | 'curves' | 'wheel' | 'mask';
 
-const GROUPS = ['Color', 'Lightness', 'Effects'] as const;
+const SUBS: { id: AdjustSub; label: string }[] = [
+  { id: 'basic', label: 'Basic' },
+  { id: 'hsl', label: 'HSL' },
+  { id: 'curves', label: 'Curves' },
+  { id: 'wheel', label: 'Color wheel' },
+  { id: 'mask', label: 'Mask' },
+];
 
 export function AdjustTab({ clip }: { clip: VisualClip }) {
-  const updateClip = useEditor((s) => s.updateClip);
+  const [sub, setSub] = usePref<AdjustSub>('insp.adjust.sub', 'basic');
   const updateClips = useEditor((s) => s.updateClips);
-  const adj = clip.adjust;
-  const neutral = Object.values(adj).every((v) => v === 0);
+  const addPreset = useAdjustPresets((s) => s.add);
+  const presets = useAdjustPresets((s) => s.presets);
+  const [naming, setNaming] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const showFlash = (msg: string) => {
+    setFlash(msg);
+    window.setTimeout(() => setFlash((m) => (m === msg ? null : m)), 2200);
+  };
 
   const applyAll = () => {
     const ids = applyAllTargets(useEditor.getState().project, clip.id);
-    if (ids.length) updateClips(ids, { adjust: { ...adj }, adjustEnabled: clip.adjustEnabled !== false, filter: clip.filter ? { ...clip.filter } : null });
+    if (!ids.length) return;
+    updateClips(ids, {
+      adjust: { ...clip.adjust },
+      adjustEnabled: clip.adjustEnabled !== false,
+      filter: clip.filter ? { ...clip.filter } : null,
+      grade: clip.grade,
+    });
+    showFlash(`Applied to ${ids.length} clip${ids.length === 1 ? '' : 's'}`);
   };
+
+  const savePreset = () => {
+    if (naming === null) return;
+    const p = addPreset(naming, clip);
+    setNaming(null);
+    showFlash(`Saved “${p.name}” to Adjustment › My presets`);
+  };
+
+  const current = SUBS.some((s) => s.id === sub) ? sub : 'basic';
 
   return (
     <>
-      <SegmentedTabs
-        items={[
-          { id: 'basic', label: 'Basic' },
-          { id: 'hsl', label: 'HSL', disabled: true },
-          { id: 'curves', label: 'Curves', disabled: true },
-        ]}
-        value="basic"
-        onChange={() => undefined}
-      />
-      <Section
-        id="filter"
-        title="Filter"
-        checked={!!clip.filter}
-        onCheck={(on) => updateClip(clip.id, { filter: on ? { id: FILTERS[0]!.id, intensity: 1 } : null })}
-        resetDisabled={!clip.filter}
-        onReset={() => updateClip(clip.id, { filter: null })}
-      >
-        <FieldRow label="Name">
-          <select
-            aria-label="Filter"
-            value={clip.filter?.id ?? ''}
-            onChange={(e) => {
-              const id = e.target.value as FilterId | '';
-              updateClip(clip.id, { filter: id ? { id, intensity: clip.filter?.intensity ?? 1 } : null });
+      <SegmentedTabs items={SUBS} value={current} onChange={setSub} label="Adjust" />
+      <div className="iadj" data-testid={`adjust-sub-${current}`}>
+        {current === 'basic' && <BasicPanel clip={clip} />}
+        {current === 'hsl' && <HslPanel clip={clip} />}
+        {current === 'curves' && <CurvesPanel clip={clip} />}
+        {current === 'wheel' && <WheelsPanel clip={clip} />}
+        {current === 'mask' && <MaskPanel clip={clip} />}
+      </div>
+      <div className="iadj-dock">
+        {naming !== null && (
+          <form
+            className="ipreset"
+            onSubmit={(e) => {
+              e.preventDefault();
+              savePreset();
             }}
           >
-            <option value="">None</option>
-            {FILTERS.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-        </FieldRow>
-        <SliderRow
-          label="Intensity"
-          value={toPct(clip.filter?.intensity ?? 1)}
-          min={0}
-          max={100}
-          disabled={!clip.filter}
-          onChange={(v) => clip.filter && updateClip(clip.id, { filter: { id: clip.filter.id, intensity: fromPct(v) } })}
-          testId="filter-intensity"
-        />
-      </Section>
-      <Section
-        id="adjust"
-        title="Adjust"
-        keyframe
-        checked={clip.adjustEnabled !== false}
-        onCheck={(on) => updateClip(clip.id, { adjustEnabled: on })}
-        resetDisabled={neutral} onReset={() => updateClip(clip.id, { adjust: defaultAdjust() })}>
-        {GROUPS.map((g) => (
-          <div key={g} className="igroup-block">
-            <GroupLabel>{g}</GroupLabel>
-            {ADJUST_RANGES.filter((r) => r.group === g).map((r) => (
-              <SliderRow
-                key={r.key}
-                label={r.label}
-                value={adj[r.key]}
-                min={r.min}
-                max={r.max}
-                fillFrom={r.min < 0 ? 0 : undefined}
-                trackBackground={TRACKS[r.key]}
-                onChange={(v) => updateClip(clip.id, { adjust: { [r.key]: Math.round(v) } })}
-                testId={`adjust-${r.key}`}
-              />
-            ))}
+            <input
+              autoFocus
+              aria-label="Preset name"
+              data-testid="preset-name"
+              value={naming}
+              maxLength={40}
+              onChange={(e) => setNaming(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  setNaming(null);
+                }
+              }}
+            />
+            <button type="button" className="btn" onClick={() => setNaming(null)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn--primary" data-testid="preset-save">
+              Save
+            </button>
+          </form>
+        )}
+        {flash && (
+          <div className="iadj-flash" role="status">
+            {flash}
           </div>
-        ))}
-      </Section>
-      <div className="ifoot">
-        <span className="ifoot__spacer" />
-        <button className="btn" onClick={applyAll} title="Apply these values to every clip on this kind of track">
-          Apply to all
-        </button>
-        <button className="btn btn--primary" disabled title="Save as preset — coming soon">
-          Save as preset
-        </button>
+        )}
+        <div className="ifoot">
+          <span className="ifoot__spacer" />
+          <button
+            className="btn"
+            onClick={applyAll}
+            title="Apply every adjustment of this clip to all clips on this kind of track"
+            data-testid="adjust-apply-all"
+          >
+            Apply to all
+          </button>
+          <button
+            className="btn btn--primary"
+            onClick={() => setNaming(nextPresetName(presets))}
+            title="Save these adjustments as a preset (Library › Adjustment › My presets)"
+            data-testid="adjust-save-preset"
+          >
+            Save as preset
+          </button>
+        </div>
       </div>
     </>
   );

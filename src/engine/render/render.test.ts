@@ -230,7 +230,7 @@ describe('renderFrame', () => {
     expect(layer.log).toContain('globalCompositeOperation=source-atop');
     expect(layer.log).toContain('fillStyle=#ff9628');
     expect(layer.log.some((l) => l.startsWith('drawImage'))).toBe(true);
-    expect(main.log.some((l) => l.startsWith('drawImage(0,0)'))).toBe(true);
+    expect(main.log.some((l) => l.startsWith('drawImage(0,0'))).toBe(true);
   });
 
   it('draws fill ops and text', () => {
