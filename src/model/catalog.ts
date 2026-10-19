@@ -8,6 +8,7 @@ import type {
   AspectRatio,
   BlendMode,
   FilterId,
+  MaskShape,
   TransitionType,
 } from './types';
 
@@ -59,6 +60,8 @@ export const BLEND_MODES: { id: BlendMode; label: string; composite: GlobalCompo
   { id: 'lighten', label: 'Lighten', composite: 'lighten' },
   { id: 'hard-light', label: 'Hard light', composite: 'hard-light' },
   { id: 'soft-light', label: 'Soft light', composite: 'soft-light' },
+  // Canvas 2D has no linear burn: the compositor builds it from difference + lighter passes.
+  { id: 'linear-burn', label: 'Linear burn', composite: 'source-over' },
   { id: 'color-burn', label: 'Color burn', composite: 'color-burn' },
   { id: 'color-dodge', label: 'Color dodge', composite: 'color-dodge' },
 ];
@@ -132,3 +135,20 @@ export const LIMITS = {
   zoomDefault: 60,
   undoCap: 200,
 } as const;
+
+/** Video › Mask shape tiles, in CapCut's order. */
+export const MASK_SHAPES: { id: MaskShape; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'linear', label: 'Linear' },
+  { id: 'mirror', label: 'Mirror' },
+  { id: 'circle', label: 'Circle' },
+  { id: 'rectangle', label: 'Rectangle' },
+  { id: 'heart', label: 'Heart' },
+  { id: 'star', label: 'Star' },
+];
+
+/** Video › Basic › Canvas › Blur: the four levels as a gaussian blur radius in project px. */
+export const CANVAS_BLUR_PX = [12, 30, 60, 100] as const;
+
+/** Video › Basic › Canvas › Color: CapCut-like swatches. */
+export const CANVAS_COLORS = ['#000000', '#ffffff', '#7f7f7f', '#e94b3c', '#f39c33', '#f4d03f', '#58d68d', '#1fc4d6', '#3b7ddd', '#9b59b6', '#f1948a', '#1c2833'];

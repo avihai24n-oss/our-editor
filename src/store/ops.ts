@@ -632,7 +632,7 @@ export function duplicateClips(p: Project, ids: readonly Id[], ctx: EditCtx): Id
 
 // ---------------------------------------------------------------- props / speed
 
-const MERGE_KEYS = ['transform', 'crop', 'adjust', 'audio'] as const;
+const MERGE_KEYS = ['transform', 'crop', 'adjust', 'audio', 'mask', 'chroma', 'canvas'] as const;
 
 export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
   const f = findClip(p, clipId);
@@ -666,6 +666,24 @@ export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
   }
   if (c.type !== 'audio' && patch.transform?.scale !== undefined) {
     c.transform.scale = clamp(c.transform.scale, LIMITS.scaleMin, LIMITS.scaleMax);
+  }
+  if (c.type !== 'audio' && patch.transform) {
+    if (patch.transform.scaleX !== undefined) c.transform.scaleX = clamp(c.transform.scaleX, LIMITS.scaleMin, LIMITS.scaleMax);
+    if (patch.transform.scaleY !== undefined) c.transform.scaleY = clamp(c.transform.scaleY, LIMITS.scaleMin, LIMITS.scaleMax);
+  }
+  if ((c.type === 'video' || c.type === 'image') && patch.mask) {
+    const m = c.mask;
+    m.feather = clamp(m.feather, 0, 100);
+    m.roundCorners = clamp(m.roundCorners, 0, 100);
+    m.width = clamp(m.width, 0.01, 20);
+    m.height = clamp(m.height, 0.01, 20);
+  }
+  if ((c.type === 'video' || c.type === 'image') && patch.chroma) {
+    c.chroma.intensity = clamp(c.chroma.intensity, 0, 100);
+    c.chroma.shadow = clamp(c.chroma.shadow, 0, 100);
+  }
+  if ((c.type === 'video' || c.type === 'image') && patch.canvas?.blur !== undefined) {
+    c.canvas.blur = clamp(Math.round(c.canvas.blur), 1, 4);
   }
   if ((c.type === 'video' || c.type === 'audio') && patch.audio?.volumeDb !== undefined) {
     c.audio.volumeDb = clamp(c.audio.volumeDb, LIMITS.volumeDbMin, LIMITS.volumeDbMax);

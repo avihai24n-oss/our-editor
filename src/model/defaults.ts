@@ -10,6 +10,9 @@ import {
   type AspectRatio,
   type AudioClip,
   type AudioProps,
+  type CanvasBackground,
+  type ChromaKey,
+  type ClipMask,
   type ClipAnimation,
   type AnimationType,
   type Crop,
@@ -49,7 +52,29 @@ export const defaultTransform = (): Transform => ({
   opacity: 1,
   flipH: false,
   flipV: false,
+  uniformScale: true,
+  scaleX: 1,
+  scaleY: 1,
 });
+
+/** No mask; the size/position used when a shape is first picked come from maskForShape(). */
+export const defaultMask = (): ClipMask => ({
+  shape: 'none',
+  x: 0,
+  y: 0,
+  rotation: 0,
+  width: 0.5,
+  height: 0.5,
+  feather: 0,
+  roundCorners: 0,
+  invert: false,
+});
+
+export const defaultChroma = (): ChromaKey => ({ enabled: false, color: '#00ff00', intensity: 50, shadow: 0 });
+
+export const defaultCanvasBackground = (): CanvasBackground => ({ type: 'none', color: '#000000', blur: 2, assetId: null });
+
+const mediaVisualDefaults = () => ({ mask: defaultMask(), chroma: defaultChroma(), canvas: defaultCanvasBackground() });
 
 export const defaultCrop = (): Crop => ({ left: 0, top: 0, right: 0, bottom: 0 });
 
@@ -148,11 +173,11 @@ export function createAsset(fields: Omit<MediaAsset, 'id' | 'blobKey'> & { id?: 
 export function createClipFromAsset(asset: MediaAsset, trackId: Id, start: Us): VideoClip | ImageClip | AudioClip {
   const base = { id: newId('clp'), trackId, name: asset.name, start, disabled: false };
   if (asset.kind === 'image') {
-    return { ...base, type: 'image', duration: DEFAULT_IMAGE_DURATION, assetId: asset.id, ...visualDefaults() };
+    return { ...base, type: 'image', duration: DEFAULT_IMAGE_DURATION, assetId: asset.id, ...visualDefaults(), ...mediaVisualDefaults() };
   }
   const timed = { assetId: asset.id, inPoint: 0, speed: 1, speedCurve: null, preservePitch: true, duration: Math.max(1, asset.duration) };
   if (asset.kind === 'audio') return { ...base, ...timed, type: 'audio', audio: defaultAudio() };
-  return { ...base, ...timed, type: 'video', audio: defaultAudio(), ...visualDefaults() };
+  return { ...base, ...timed, type: 'video', audio: defaultAudio(), ...visualDefaults(), ...mediaVisualDefaults() };
 }
 
 export function createTextClip(trackId: Id, start: Us, content = 'Default text', duration: Us = DEFAULT_TEXT_DURATION): TextClip {

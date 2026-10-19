@@ -3,7 +3,7 @@
  * to hear at timeline time t. The Player and the Exporter both render from it, so preview and
  * export always match. No DOM, no React. See ./README.md.
  */
-import { BLEND_MODES, filterDef } from '../model/catalog';
+import { BLEND_MODES, CANVAS_BLUR_PX, filterDef } from '../model/catalog';
 import { defaultAdjust } from '../model/defaults';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
 import { clamp, clipContains, clipEnd, sourceSpan, sourceTimeAt, speedAtTime } from '../model/time';
@@ -11,7 +11,10 @@ import type {
   Adjust,
   AnimationType,
   AudioProps,
+  BlendMode,
+  ChromaKey,
   Clip,
+  ClipMask,
   Crop,
   Id,
   MediaAsset,
@@ -30,8 +33,11 @@ import type {
 export interface ResolvedTransform {
   x: number;
   y: number;
-  /** Multiplies the fitted size. Negative not used — see flipH/flipV. */
+  /** Multiplies the fitted size. Negative not used — see flipH/flipV. Geometric mean of scaleX/scaleY. */
   scale: number;
+  /** Per-axis scale (= scale on both when Uniform scale is on). Use these to draw. */
+  scaleX: number;
+  scaleY: number;
   rotation: number; // degrees
   opacity: number; // 0..1, includes animation + transition alpha
   flipH: boolean;
@@ -52,6 +58,8 @@ interface DrawOpBase {
   transform: ResolvedTransform;
   /** canvas globalCompositeOperation */
   composite: GlobalCompositeOperation;
+  /** The Blend mode this op came from ('linear-burn' has no canvas composite; the compositor builds it). */
+  blendMode: BlendMode;
   color: ColorOps;
   /** Gaussian blur in project px (animations / blur transition). 0 = none. */
   blur: number;
@@ -78,6 +86,15 @@ export interface MediaDrawOp extends DrawOpBase {
   fitHeight: number;
   /** Source crop as fractions. Draw sub-rect of the source and shrink the fitted box accordingly. */
   crop: Crop;
+  /** Video › Mask (null = none). */
+  mask: ClipMask | null;
+  /** Video › Remove BG › Chroma key (null = off). */
+  chroma: ChromaKey | null;
+  /**
+   * 'background' = Video › Basic › Canvas fill drawn behind a main-track clip (blurred copy of the
+   * clip or a chosen image, cover-fitted). Not hit-testable. Absent = the clip itself.
+   */
+  role?: 'background';
 }
 
 export interface TextDrawOp extends DrawOpBase {
@@ -310,10 +327,14 @@ function buildVisualOp(
   const a = anim ? animationEffect(anim.type, anim.phase, anim.progress, W, H) : NO_EFFECT;
   const x = extra ?? { ...NO_EFFECT, clipRect: null };
   const tf = clip.transform;
+  const ax = baseScaleXY(tf);
+  const mul = a.scaleMul * x.scaleMul;
   const transform: ResolvedTransform = {
     x: tf.x + a.dx + x.dx,
     y: tf.y + a.dy + x.dy,
-    scale: tf.scale * a.scaleMul * x.scaleMul,
+    scale: Math.sqrt(ax.x * ax.y) * mul,
+    scaleX: ax.x * mul,
+    scaleY: ax.y * mul,
     rotation: tf.rotation + a.rotation + x.rotation,
     opacity: clamp((clip.blendEnabled === false ? 1 : tf.opacity) * a.alphaMul * x.alphaMul, 0, 1),
     flipH: tf.flipH,
@@ -325,6 +346,7 @@ function buildVisualOp(
     layer,
     transform,
     composite: compositeOf(clip),
+    blendMode: clip.blendEnabled === false ? ('normal' as const) : clip.blend,
     color: colorOps(clip),
     blur: a.blur + x.blur,
     clipRect: x.clipRect,
@@ -347,6 +369,74 @@ function buildVisualOp(
     fitWidth: fit.width,
     fitHeight: fit.height,
     crop: clip.crop,
+    mask: clip.mask && clip.mask.shape !== 'none' ? clip.mask : null,
+    chroma: clip.chroma && clip.chroma.enabled ? clip.chroma : null,
+  };
+}
+
+/** Axis scales of a transform before animations (Uniform scale on → scale on both axes). */
+export function baseScaleXY(tf: VisualClip['transform']): { x: number; y: number } {
+  if (tf.uniformScale === false) return { x: tf.scaleX ?? tf.scale, y: tf.scaleY ?? tf.scale };
+  return { x: tf.scale, y: tf.scale };
+}
+
+/** Cover-fit size of a w×h picture in a W×H canvas (fills it, overflow cropped). */
+export function coverSize(w: number | undefined, h: number | undefined, W: number, H: number): { width: number; height: number } {
+  const sw = w || W;
+  const sh = h || H;
+  const k = Math.max(W / sw, H / sh);
+  return { width: sw * k, height: sh * k };
+}
+
+/** Blur backgrounds are drawn this much larger so the blur's soft border stays off-canvas. */
+export const CANVAS_BLUR_OVERSCAN = 1.15;
+
+/**
+ * Video › Basic › Canvas: the op drawn behind a main-track clip, or null. Transition alpha and wipe
+ * rect follow the clip so a Mix fades the incoming background with its clip.
+ */
+export function canvasBackgroundOp(
+  project: Project,
+  track: Track,
+  layer: number,
+  clip: VisualClip,
+  t: Us,
+  extra: (Effect & { clipRect: DrawOpBase['clipRect'] }) | null,
+): MediaDrawOp | FillDrawOp | null {
+  if (track.kind !== 'main' || (clip.type !== 'video' && clip.type !== 'image') || !clip.canvas) return null;
+  const bg = clip.canvas;
+  const { width: W, height: H } = project.settings;
+  const alpha = clamp(extra ? extra.alphaMul : 1, 0, 1);
+  if (bg.type === 'color') return { kind: 'fill', trackId: track.id, layer, color: bg.color, opacity: alpha };
+  if (bg.type !== 'blur' && bg.type !== 'image') return null;
+  const assetId = bg.type === 'blur' ? clip.assetId : bg.assetId;
+  const asset = assetId ? project.assets[assetId] : undefined;
+  if (!assetId || !asset || asset.missing) return null;
+  const cover = coverSize(asset.width, asset.height, W, H);
+  const over = bg.type === 'blur' ? CANVAS_BLUR_OVERSCAN : 1;
+  const level = Math.min(4, Math.max(1, Math.round(bg.blur))) - 1;
+  return {
+    kind: 'media',
+    role: 'background',
+    clipId: clip.id,
+    trackId: track.id,
+    layer,
+    mediaType: bg.type === 'blur' ? clip.type : 'image',
+    assetId,
+    sourceTime: bg.type === 'blur' ? clampSource(clip, project, t) : 0,
+    fitWidth: cover.width * over,
+    fitHeight: cover.height * over,
+    crop: { left: 0, top: 0, right: 0, bottom: 0 },
+    transform: { x: 0, y: 0, scale: 1, scaleX: 1, scaleY: 1, rotation: 0, opacity: alpha, flipH: false, flipV: false },
+    composite: 'source-over',
+    blendMode: 'normal',
+    color: { ...defaultAdjust(), grayscale: 0, sepia: 0 },
+    blur: bg.type === 'blur' ? CANVAS_BLUR_PX[level]! : 0,
+    clipRect: extra ? extra.clipRect : null,
+    mask: null,
+    chroma: null,
+    animation: null,
+    transition: null,
   };
 }
 
@@ -367,6 +457,11 @@ export function getFrameState(project: Project, t: Us): FrameState {
 
   project.tracks.forEach((track, layer) => {
     // ---- pictures
+    const pushClip = (clip: VisualClip, extra: Parameters<typeof buildVisualOp>[5], info: DrawOpBase['transition']) => {
+      const bg = canvasBackgroundOp(project, track, layer, clip, t, extra);
+      if (bg) ops.push(bg);
+      ops.push(buildVisualOp(project, track, layer, clip, t, extra, info));
+    };
     if (track.kind !== 'audio' && !track.hidden) {
       const active = track.transitions
         .map((tr) => ({ tr, w: transitionWindow(track, tr) }))
@@ -377,12 +472,12 @@ export function getFrameState(project: Project, t: Us): FrameState {
         const p = (t - active.w.start) / active.tr.duration;
         const fx = transitionEffect(active.tr.type, p, W, H);
         const info = (role: 'from' | 'to') => ({ id: active.tr.id, type: active.tr.type, role, progress: p });
-        if (from && from.type !== 'audio' && !from.disabled && fx.from.visible) ops.push(buildVisualOp(project, track, layer, from, t, fx.from, info('from')));
-        if (to && to.type !== 'audio' && !to.disabled && fx.to.visible) ops.push(buildVisualOp(project, track, layer, to, t, fx.to, info('to')));
+        if (from && from.type !== 'audio' && !from.disabled && fx.from.visible) pushClip(from, fx.from, info('from'));
+        if (to && to.type !== 'audio' && !to.disabled && fx.to.visible) pushClip(to, fx.to, info('to'));
         if (fx.fill && fx.fill.opacity > 0) ops.push({ kind: 'fill', trackId: track.id, layer, color: fx.fill.color, opacity: fx.fill.opacity });
       } else {
         const clip = track.clips.find((c) => clipContains(c, t));
-        if (clip && clip.type !== 'audio' && !clip.disabled) ops.push(buildVisualOp(project, track, layer, clip, t, null, null));
+        if (clip && clip.type !== 'audio' && !clip.disabled) pushClip(clip, null, null);
       }
     }
 
