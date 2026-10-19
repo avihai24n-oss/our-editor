@@ -14,6 +14,7 @@ import { ExportCanceled, exportMp4, probeCodecs, type EncodeResult } from './exp
 import { ElementFrameSource, exportWebm, pickRecorderMime } from './exportWebm';
 import { ExportFrameSource } from './frameSource';
 import { createDecoder, renderMix } from './offlineMix';
+import { exportFault } from './watchdog';
 import { AUDIO_BITRATE, outputSize, videoBitrate, type ExportSettings } from './settings';
 
 export type ExportPhase = 'preparing' | 'audio' | 'video' | 'finishing';
@@ -84,6 +85,7 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   const lutReady = (id: string) => !!getLoadedLut(id);
   const source = useMp4 ? new ExportFrameSource(project, loadBlob) : new ElementFrameSource(project);
   const AUDIO_SHARE = 0.03;
+  const fault = exportFault();
   try {
     const enc = {
       width,
@@ -94,7 +96,11 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
       audioBitrate: AUDIO_BITRATE,
       audio,
       signal: o.signal,
-      render: async (ctx: Parameters<typeof renderFrame>[0], t: number) => {
+      // a stalled decoder / encoder fails the export with a message (watchdog.ts)
+      stallMs: fault?.stallMs,
+      stallDetail: () => (source instanceof ExportFrameSource ? source.waiting : null),
+      render: async (ctx: Parameters<typeof renderFrame>[0], t: number, frameIndex: number) => {
+        if (fault?.hangAtFrame === frameIndex) await new Promise<never>(() => undefined); // dev fault injection
         const fs = getFrameState(project, t);
         await source.prepare(fs);
         renderFrame(ctx, fs, { scale, sources: source, layers, grader, lutReady });

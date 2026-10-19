@@ -11,6 +11,7 @@ import { frameLookupSec, type FrameState, type MediaDrawOp } from '../engine/fra
 import type { FrameSources, SourceImage } from '../engine/render';
 import { intendedMatrix, webCodecsMatrix, type Matrix } from '../media/colorMatrix';
 import type { Id, Project } from '../model/types';
+import { DECODE_STALL_MS, ExportStalled, withTimeout } from './watchdog';
 
 /** Minimal frame shape we need from Mediabunny's WrappedCanvas. */
 export interface TimedFrame {
@@ -24,7 +25,16 @@ export type OpenFrames = (startSec: number) => AsyncGenerator<TimedFrame, void, 
 export const MAX_FORWARD_DECODE_SEC = 2.5;
 const EPS = 1e-6;
 
-/** Walks an ordered frame stream; returns the frame covering each requested time. Pure logic, testable. */
+class DecodeStall extends Error {}
+
+/**
+ * Walks an ordered frame stream; returns the frame covering each requested time. Pure logic, testable.
+ *
+ * Stalls: a decoder read that does not answer within `stallMs` is abandoned (never awaited again —
+ * awaiting `return()` on a generator stuck in an await would hang too) and the stream is reopened
+ * at the wanted time, once per reader. A second stall throws ExportStalled, so the export fails
+ * with a message instead of waiting forever.
+ */
 export class SequentialReader {
   private iter: AsyncGenerator<TimedFrame, void, unknown> | null = null;
   private cur: TimedFrame | null = null;
@@ -33,17 +43,31 @@ export class SequentialReader {
   private lastT = -Infinity;
   /** Number of decoder (re)starts — for tests and diagnostics. */
   restarts = 0;
+  /** Stalled reads recovered by reopening the decoder. */
+  recoveries = 0;
 
-  constructor(private open: OpenFrames) {}
+  constructor(
+    private open: OpenFrames,
+    private stallMs: number = DECODE_STALL_MS,
+    private maxRecoveries = 1,
+  ) {}
 
   private async pull(): Promise<TimedFrame | null> {
     if (!this.iter || this.done) return null;
-    const r = await this.iter.next();
+    const r = await withTimeout(this.iter.next(), this.stallMs, () => new DecodeStall());
     if (r.done) {
       this.done = true;
       return null;
     }
     return r.value;
+  }
+
+  private abandon(): void {
+    const old = this.iter;
+    this.iter = null;
+    this.cur = this.next = null;
+    // fire and forget: if the stuck read ever settles, the generator cleans up (closes its decoder)
+    void old?.return(undefined).catch(() => undefined);
   }
 
   private async restart(t: number): Promise<void> {
@@ -56,6 +80,22 @@ export class SequentialReader {
   }
 
   async frameAt(t: number): Promise<TimedFrame | null> {
+    for (;;) {
+      try {
+        return await this.step(t);
+      } catch (e) {
+        if (!(e instanceof DecodeStall)) throw e;
+        this.abandon();
+        if (this.recoveries >= this.maxRecoveries) {
+          throw new ExportStalled(`the video decoder stopped delivering frames at ${t.toFixed(3)} s of the source, also after a restart`);
+        }
+        this.recoveries++;
+        this.lastT = -Infinity; // reopen at t
+      }
+    }
+  }
+
+  private async step(t: number): Promise<TimedFrame | null> {
     const backwards = t < this.lastT - EPS;
     this.lastT = t;
     const farAhead = this.next !== null && t - this.next.timestamp > MAX_FORWARD_DECODE_SEC;
@@ -68,9 +108,11 @@ export class SequentialReader {
   }
 
   async close(): Promise<void> {
-    await this.iter?.return(undefined);
+    const it = this.iter;
     this.iter = null;
     this.cur = this.next = null;
+    // bounded: a stuck generator must not block the export's cleanup
+    if (it) await withTimeout(it.return(undefined), 1000, () => new DecodeStall()).catch(() => undefined);
   }
 }
 
@@ -84,6 +126,8 @@ export class ExportFrameSource implements FrameSources {
   private readers = new Map<Id, SequentialReader>();
   private images = new Map<Id, Promise<ImageBitmap | null>>();
   private ready = new Map<Id, SourceImage | 'missing'>();
+  /** What prepare() is waiting for right now (named in a stall error). */
+  waiting: string | null = null;
 
   constructor(private project: Project, private loadBlob: (assetId: Id) => Promise<Blob | null>) {}
 
@@ -110,16 +154,21 @@ export class ExportFrameSource implements FrameSources {
         this.ready.set(op.clipId, 'missing');
         continue;
       }
-      const f = await reader.frameAt(frameLookupSec(op.sourceTime));
+      const sec = frameLookupSec(op.sourceTime);
+      this.waiting = `decoding "${asset.name}" at ${sec.toFixed(3)} s`;
+      const f = await reader.frameAt(sec);
+      this.waiting = null;
       if (f) this.ready.set(op.clipId, { image: f.canvas, width: f.canvas.width, height: f.canvas.height });
     }
   }
 
   async dispose(): Promise<void> {
+    // inputs first: disposing an Input stops its decoders, which also frees a stuck read
+    const bounded = <T,>(p: Promise<T>) => withTimeout(p, 1000, () => new Error('timeout')).catch(() => null);
+    for (const p of this.decoders.values()) (await bounded(p))?.dispose();
+    this.decoders.clear();
     for (const r of this.readers.values()) await r.close().catch(() => undefined);
     this.readers.clear();
-    for (const p of this.decoders.values()) (await p.catch(() => null))?.dispose();
-    this.decoders.clear();
     for (const p of this.images.values()) (await p.catch(() => null))?.close();
     this.images.clear();
     this.ready.clear();

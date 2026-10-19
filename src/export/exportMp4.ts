@@ -19,6 +19,7 @@ import {
 import type { Ctx2D } from '../engine/render';
 import type { Us } from '../model/types';
 import { frameCount } from './settings';
+import { createWatchdog } from './watchdog';
 
 export interface EncodeOptions {
   width: number;
@@ -32,6 +33,10 @@ export interface EncodeOptions {
   audio: AudioBuffer | null;
   onProgress?: (p: { frame: number; frames: number; fraction: number }) => void;
   signal?: AbortSignal;
+  /** No progress for this long fails the export with ExportStalled (default EXPORT_STALL_MS). */
+  stallMs?: number;
+  /** What the frame source is waiting for, named in the stall error. */
+  stallDetail?: () => string | null;
 }
 
 export interface EncodeResult {
@@ -90,21 +95,28 @@ export async function exportMp4(o: EncodeOptions, codecs?: { video: VideoCodec |
 
   const abort = () => void output.cancel().catch(() => undefined);
   o.signal?.addEventListener('abort', abort, { once: true });
+  // every await below can block forever if WebCodecs stops answering: guard each step
+  const dog = createWatchdog(o.stallMs, o.stallDetail);
   try {
-    await output.start();
-    if (audioSource && o.audio) await audioSource.add(o.audio);
+    await dog.guard(output.start(), 'the start');
+    if (audioSource && o.audio) await dog.guard(audioSource.add(o.audio), 'the audio track');
     const frames = frameCount(o.durationUs, o.fps);
     for (let f = 0; f < frames; f++) {
       if (o.signal?.aborted) throw new ExportCanceled();
       const t = Math.round((f * 1e6) / o.fps); // integer µs, never accumulated
-      await o.render(ctx, t, f);
-      await videoSource.add(t / 1e6, 1 / o.fps); // backpressure
+      await dog.guard(
+        (async () => {
+          await o.render(ctx, t, f);
+          await videoSource.add(t / 1e6, 1 / o.fps); // backpressure
+        })(),
+        `video frame ${f + 1} / ${frames}`,
+      );
       o.onProgress?.({ frame: f + 1, frames, fraction: (f + 1) / frames });
     }
     videoSource.close();
     audioSource?.close();
     if (o.signal?.aborted) throw new ExportCanceled();
-    await output.finalize();
+    await dog.guard(output.finalize(), 'the final step (muxing)');
     const buf = output.target.buffer;
     if (!buf) throw new Error('The encoder produced no data.');
     return { blob: new Blob([buf], { type: 'video/mp4' }), mimeType: await output.getMimeType(), ext: 'mp4' };

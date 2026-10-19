@@ -531,6 +531,41 @@ test.describe('export audit', () => {
     void p;
   });
 
+  test('pictures: the colour-matrix fix and the WebGL grade agree — graded smptebars, preview = export', async () => {
+    // integration check: qa-export's YUV-matrix correction feeds tab-adjust's colour pass in both
+    // paths (preview: corrected element frame → grader; export: re-tagged decode → grader)
+    await resetProject(page, '16:9');
+    await build(
+      page,
+      `(st, idOf) => {
+        const a = st().addClip(idOf('${AM.colorHd601}'), { at: 0 });
+        st().trimEnd(a, 0.5e6);
+        const b = st().addClip(idOf('${AM.colorSdUntagged}'), { at: 0.5e6 });
+        st().trimEnd(b, 1e6);
+        for (const id of [a, b]) {
+          st().updateClip(id, { adjust: { saturation: 20, contrast: 15, temperature: 12, highlights: -10 } });
+          const g = st().project.tracks[0].clips.find((c) => c.id === id).grade;
+          st().updateClip(id, { grade: { wheels: { ...g.wheels, gain: { ...g.wheels.gain, y: 0.1 } } } });
+        }
+      }`,
+    );
+    const pass = await page.evaluate(() => (window as any).__oeColor?.());
+    const { file } = await doExport(page, { resolution: '720p', fps: 30 });
+    const bars: [string, number][] = [['white', 0.07], ['yellow', 0.21], ['cyan', 0.36], ['green', 0.5], ['magenta', 0.64], ['red', 0.79], ['blue', 0.93]];
+    for (const [frame, label] of [[6, 'HD 601-matrix'], [21, 'SD untagged']] as const) {
+      const exp = videoFrame(file, frame, 320, 180);
+      const prv = imageRgb(await previewPng(page, Math.round((frame * 1e6) / 30), `graded-${frame}`), 320, 180);
+      const rows = bars.map(([name, x]) => {
+        const e = meanRgb(exp, x - 0.015, 0.27, x + 0.015, 0.33).map(Math.round);
+        const v = meanRgb(prv, x - 0.015, 0.27, x + 0.015, 0.33).map(Math.round);
+        return { bar: name, export: e, preview: v, diff: Math.max(...e.map((c, i) => Math.abs(c - v[i]!))) };
+      });
+      record(`graded colour ${label}`, { pass, rows });
+      for (const r of rows) expect.soft(r.diff, `${label} ${r.bar}: graded preview vs graded export`).toBeLessThanOrEqual(5);
+    }
+    expect(pass, 'the preview uses the WebGL colour pass').toBe('webgl2');
+  });
+
   // ============================================================ sound
 
   const REF_DB = -15.05; // amplitude 0.25 sine, stereo

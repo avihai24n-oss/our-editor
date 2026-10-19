@@ -11,6 +11,7 @@ import { getAssetUrl } from '../media/registry';
 import type { Id, Project, Us } from '../model/types';
 import { ExportCanceled, type EncodeOptions, type EncodeResult } from './exportMp4';
 import { frameCount } from './settings';
+import { createWatchdog, withTimeout } from './watchdog';
 
 export function pickRecorderMime(): string | null {
   if (typeof MediaRecorder === 'undefined') return null;
@@ -48,7 +49,8 @@ export async function exportWebm(o: EncodeOptions): Promise<EncodeResult> {
   const stopped = new Promise<void>((r) => (rec.onstop = () => r()));
   const frames = frameCount(o.durationUs, o.fps);
 
-  await o.render(ctx, 0, 0);
+  const dog = createWatchdog(o.stallMs, o.stallDetail);
+  await dog.guard(Promise.resolve(o.render(ctx, 0, 0)), `video frame 1 / ${frames}`);
   rec.start(250);
   player?.start();
   const t0 = performance.now();
@@ -61,7 +63,7 @@ export async function exportWebm(o: EncodeOptions): Promise<EncodeResult> {
           const elapsedUs: Us = (performance.now() - t0) * 1000;
           if (elapsedUs >= o.durationUs) return resolve();
           const f = Math.min(frames - 1, Math.floor((elapsedUs * o.fps) / 1e6));
-          await o.render(ctx, Math.round((f * 1e6) / o.fps), f);
+          await dog.guard(Promise.resolve(o.render(ctx, Math.round((f * 1e6) / o.fps), f)), `video frame ${f + 1} / ${frames}`);
           o.onProgress?.({ frame: f + 1, frames, fraction: (f + 1) / frames });
           setTimeout(tick, 1000 / o.fps / 2); // not rAF: rAF stalls in hidden tabs
         } catch (e) {
@@ -79,7 +81,7 @@ export async function exportWebm(o: EncodeOptions): Promise<EncodeResult> {
     } catch {
       /* not started */
     }
-    await stopped;
+    await withTimeout(stopped, 5000, () => new Error('MediaRecorder did not stop')).catch((e) => (failed ??= e));
     stream.getTracks().forEach((t) => t.stop());
     await ac?.close().catch(() => undefined);
   }
