@@ -244,6 +244,7 @@ describe('chroma key', () => {
     expect(chromaAlpha(p, 255, 0, 255)).toBe(1); // magenta
     expect(chromaAlpha(p, 128, 128, 128)).toBe(1); // grey
     expect(chromaAlpha(chromaParams({ color: '#00ff00', intensity: 0, shadow: 0 }), 30, 220, 40)).toBe(1);
+    expect(chromaAlpha(chromaParams({ color: "#00ff00", intensity: 0, shadow: 50 }), 0, 255, 0)).toBe(1); // Intensity 0 removes nothing
     const soft = chromaParams({ color: '#00ff00', intensity: 30, shadow: 100 });
     const a = chromaAlpha(soft, 60, 200, 60);
     expect(a).toBeGreaterThan(0);

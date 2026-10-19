@@ -42,6 +42,7 @@ export function chromaParams(k: Pick<ChromaKey, 'color' | 'intensity' | 'shadow'
 
 /** Alpha multiplier 0..1 for one pixel. */
 export function chromaAlpha(p: ChromaParams, r: number, g: number, b: number): number {
+  if (p.threshold <= 0) return 1; // Intensity 0 removes nothing
   const d = Math.hypot(cbOf(r, g, b) - p.cb, crOf(r, g, b) - p.cr);
   if (d <= p.threshold) return 0;
   return Math.min(1, (d - p.threshold) / p.softness);

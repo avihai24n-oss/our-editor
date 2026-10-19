@@ -62,9 +62,16 @@ real-time WebM export.
   a drag, the keys or playback.
 
 **Inspector (right)**
-- **Video › Basic:**
-  - Scale, position, rotate (with a dial), the six align buttons and mirror.
-  - Blend mode and opacity, with an on/off checkbox.
+- **Video** (video and image clips), sub-tabs like CapCut:
+  - **Basic:** Transform (scale with **Uniform scale** on/off → separate width / height, position,
+    rotate with a dial, the six align buttons, mirror); Blend (11 modes incl. Linear burn, opacity,
+    on/off); **Canvas** for main-track clips (Color / Blur 1–4 / Image behind the clip, Apply to
+    all). CapCut's AI sections (Stabilize, Enhance quality, Reduce image noise, Optical flow, AI
+    remove, AI expand, Retouch) are shown switched off as "Coming soon".
+  - **Remove BG:** Chroma key (colour + eyedropper, Intensity, Shadow). Auto / Custom removal are AI
+    and shown as "Coming soon".
+  - **Mask:** None, Linear, Mirror, Circle, Rectangle, Heart, Star with position, rotate, size,
+    feather, round corners and invert, plus on-canvas handles (move, size, rotate, feather).
 - **Audio:** Volume (dB), fade in and fade out.
 - **Speed › Standard:** 0.1×–100×, editable duration, and "Change audio pitch".
 - **Animation:** In / Out (9 each) with a duration.
