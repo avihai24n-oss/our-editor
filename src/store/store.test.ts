@@ -402,8 +402,9 @@ describe('props', () => {
     st().setAnimation(ids[0]!, 'in', 'fade', S(30));
     st().setAnimation(ids[0]!, 'out', 'zoom-in', S(1));
     const c = clip(ids[0]!) as VideoClip;
-    expect(c.animationIn).toEqual({ type: 'fade', duration: S(10) });
-    expect(c.animationOut?.duration).toBe(0);
+    // In + Out never exceed the clip: the slot edited last wins, the other one shrinks
+    expect(c.animationIn).toEqual({ type: 'fade', duration: S(9) });
+    expect(c.animationOut).toEqual({ type: 'zoom-in', duration: S(1) });
     st().select([ids[0]!]);
     st().mirrorSelected();
     st().rotateSelected();

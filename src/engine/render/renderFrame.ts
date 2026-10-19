@@ -12,9 +12,10 @@
  * and the layer is graded. Without a grader (unit tests) the legacy approximation is used:
  * CSS filter + tone passes.
  */
+import { noise, type MaskShape } from '../animations';
 import { gradeParams, type GradeParams } from '../color/params';
 import { requestLut } from '../color/lutLibrary';
-import type { DrawOp, FrameState, MediaDrawOp, TextDrawOp } from '../frameState';
+import type { AnimFx, DrawOp, FrameState, MediaDrawOp, TextDrawOp } from '../frameState';
 import { chromaKeyPixels, chromaParams } from './chroma';
 import { cssFilter, tonePasses, type TonePass } from './color';
 import { applyMask, maskGeometry } from './mask';
@@ -69,13 +70,119 @@ export function projectBox(op: VisualOp, local: LocalBox, W: number, H: number):
   };
 }
 
-function applyOpTransform(ctx: Ctx2D, op: VisualOp, W: number, H: number, scale: number): void {
+function applyOpTransform(ctx: Ctx2D, op: VisualOp, W: number, H: number, scale: number, box: LocalBox): void {
   const tf = op.transform;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.translate(W / 2 + tf.x, H / 2 + tf.y);
   if (tf.rotation) ctx.rotate((tf.rotation * Math.PI) / 180);
   const ax = axisScale(tf);
   ctx.scale(ax.x * (tf.flipH ? -1 : 1), ax.y * (tf.flipV ? -1 : 1));
+  const fx = op.fx;
+  if (fx && (fx.sx !== 1 || fx.sy !== 1 || fx.skewX || fx.skewY)) {
+    // animation: non-uniform scale + skew around a pivot of the clip box (3D-style flips, jelly…)
+    const px = box.ox + fx.pivotX * box.w;
+    const py = box.oy + fx.pivotY * box.h;
+    const rad = Math.PI / 180;
+    ctx.translate(px, py);
+    ctx.transform(fx.sx, Math.tan(clampSkew(fx.skewY) * rad) * fx.sx, Math.tan(clampSkew(fx.skewX) * rad) * fx.sy, fx.sy, 0, 0);
+    ctx.translate(-px, -py);
+  }
+}
+
+const clampSkew = (deg: number) => Math.max(-80, Math.min(80, deg));
+
+/** Clips to the animation mask (box fractions; groups intersect, shapes within a group unite). */
+function clipToMasks(ctx: Ctx2D, masks: MaskShape[][], box: LocalBox): void {
+  const x0 = box.ox - box.w / 2;
+  const y0 = box.oy - box.h / 2;
+  const X = (u: number) => x0 + u * box.w;
+  const Y = (v: number) => y0 + v * box.h;
+  for (const group of masks) {
+    ctx.beginPath();
+    for (const m of group) {
+      if (m.kind === 'rect') {
+        if (m.w > 0 && m.h > 0) ctx.rect(X(m.x), Y(m.y), m.w * box.w, m.h * box.h);
+      } else if (m.kind === 'circle') {
+        const r = Math.max(0, m.r) * Math.hypot(box.w, box.h);
+        ctx.moveTo(X(m.cx) + r, Y(m.cy));
+        ctx.arc(X(m.cx), Y(m.cy), r, 0, Math.PI * 2);
+      } else if (m.pts.length >= 3) {
+        ctx.moveTo(X(m.pts[0]![0]), Y(m.pts[0]![1]));
+        for (const [u, v] of m.pts.slice(1)) ctx.lineTo(X(u), Y(v));
+        ctx.closePath();
+      }
+    }
+    ctx.clip();
+  }
+}
+
+/** Animation additions to the CSS filter (brightness / hue / glow). `k` = target px per project px. */
+export function fxFilter(fx: AnimFx | null | undefined, k: number): string {
+  if (!fx) return '';
+  const parts: string[] = [];
+  if (Math.abs(fx.brightness - 1) > 1e-3) parts.push(`brightness(${Math.round(fx.brightness * 1000) / 1000})`);
+  const hue = ((fx.hue % 360) + 360) % 360;
+  if (hue > 1e-3) parts.push(`hue-rotate(${Math.round(hue * 10) / 10}deg)`);
+  if (fx.glow > 1e-3) parts.push(`drop-shadow(0 0 ${Math.round(40 * fx.glow * k * 10) / 10}px rgba(255,255,255,${Math.round(fx.glow * 900) / 1000}))`);
+  return parts.join(' ');
+}
+
+const needsGlitch = (fx: AnimFx | null | undefined): fx is AnimFx => !!fx && (fx.rgbSplit > 0.5 || fx.slices > 0.5);
+
+/** Scratch canvases for the glitch passes (channel split needs two). */
+const glitchA = createLayerProvider();
+const glitchB = createLayerProvider();
+const glitchC = createLayerProvider();
+
+/**
+ * Draws `src` (a full-target layer holding one clip) onto ctx with the glitch effects:
+ * RGB split (red left, blue right, recombined additively) then horizontal slice offsets.
+ * Deterministic in fx.seed, so preview and export match.
+ */
+function drawGlitched(ctx: Ctx2D, src: CanvasImageSource, fx: AnimFx, tw: number, th: number, k: number): void {
+  let image: CanvasImageSource = src;
+  const d = fx.rgbSplit * k;
+  if (d > 0.5) {
+    const acc = glitchA.get(tw, th);
+    const ch = glitchB.get(tw, th);
+    if (acc && ch) {
+      resetCtx(acc);
+      acc.clearRect(0, 0, tw, th);
+      const channels: [string, number][] = [
+        ['#ff0000', -d],
+        ['#00ff00', 0],
+        ['#0000ff', d],
+      ];
+      for (const [color, off] of channels) {
+        resetCtx(ch);
+        ch.clearRect(0, 0, tw, th);
+        ch.drawImage(src, off, 0);
+        ch.globalCompositeOperation = 'multiply';
+        ch.fillStyle = color;
+        ch.fillRect(0, 0, tw, th);
+        ch.globalCompositeOperation = 'destination-in';
+        ch.drawImage(src, off, 0);
+        acc.globalCompositeOperation = 'lighter';
+        acc.drawImage(ch.canvas as CanvasImageSource, 0, 0);
+      }
+      resetCtx(acc);
+      image = acc.canvas as CanvasImageSource;
+    }
+  }
+  const amp = fx.slices * k;
+  if (amp > 0.5) {
+    const n = 12;
+    const bh = th / n;
+    for (let i = 0; i < n; i++) {
+      const r = noise(fx.seed, i);
+      const off = Math.abs(r) > 0.35 ? r * amp : 0;
+      const y = Math.floor(i * bh);
+      const h = Math.ceil((i + 1) * bh) - y;
+      ctx.drawImage(image, 0, y, tw, h, off, y, tw, h);
+    }
+  } else {
+    ctx.drawImage(image, 0, 0);
+  }
 }
 
 /** Chroma key works on a copy no bigger than this (px per side). */
@@ -141,9 +248,26 @@ export function layoutTextOp(ctx: Ctx2D, op: TextDrawOp, W: number): TextLayout 
   return layoutText(op.style, op.lines, (t) => ctx.measureText(t).width, W * TEXT_WRAP_FRACTION);
 }
 
+/** Typewriter: keeps the full layout (lines stay put) and cuts the text after `reveal` of its characters. */
+export function revealLayout(L: TextLayout, reveal: number, measure: (t: string) => number): TextLayout {
+  if (reveal >= 1) return L;
+  const total = L.lines.reduce((n, l) => n + [...l.text].length, 0);
+  let left = Math.floor(Math.max(0, reveal) * total + 1e-9);
+  const lines = L.lines.map((l) => {
+    const chars = [...l.text];
+    const take = Math.max(0, Math.min(chars.length, left));
+    left -= take;
+    if (take === chars.length) return l;
+    const text = chars.slice(0, take).join('');
+    return { ...l, text, width: text ? measure(text) : 0 };
+  });
+  return { ...L, lines };
+}
+
 /** Draws a laid-out text block in local coordinates (block centred on 0,0). */
-function drawText(ctx: Ctx2D, op: TextDrawOp, L: TextLayout, shadowScale: number): void {
+function drawText(ctx: Ctx2D, op: TextDrawOp, Lfull: TextLayout, shadowScale: number): void {
   const s = op.style;
+  let L = Lfull;
   if (s.background.enabled && s.background.opacity > 0) {
     ctx.save();
     ctx.globalAlpha *= Math.min(1, Math.max(0, s.background.opacity));
@@ -157,6 +281,7 @@ function drawText(ctx: Ctx2D, op: TextDrawOp, L: TextLayout, shadowScale: number
   }
   ctx.font = fontString(s);
   setLetterSpacing(ctx, s.letterSpacing || 0);
+  if (op.fx && op.fx.reveal < 1) L = revealLayout(Lfull, op.fx.reveal, (t) => ctx.measureText(t).width);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   const shadowOn = s.shadow.enabled;
@@ -305,12 +430,16 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     if (params && op.kind === 'media' && src && src !== 'missing') graded = gradeMedia(op, src, local, k, params, opts);
     const gpuText = !!params && op.kind === 'text' && !!opts.layers;
     const legacy = !graded && !gpuText;
-    const filter = legacy ? cssFilter(op.color, op.blur * k) : op.blur * k > 0.05 ? `blur(${Math.round(op.blur * k * 1000) / 1000}px)` : 'none';
+    const baseFilter = legacy ? cssFilter(op.color, op.blur * k) : op.blur * k > 0.05 ? `blur(${Math.round(op.blur * k * 1000) / 1000}px)` : 'none';
+    // animation light (brightness / hue / glow) on top of the graded pixels
+    const extraFilter = fxFilter(op.fx, k);
+    const filter = extraFilter ? (baseFilter === 'none' ? extraFilter : `${baseFilter} ${extraFilter}`) : baseFilter;
     const passes = legacy && src !== 'missing' ? tonePasses(op.color) : [];
     // the clip's own mask (Video › Mask); the Adjust mask only limits the grade (inside params)
     const mask = op.kind === 'media' && op.mask && src !== 'missing' ? maskGeometry(op.mask, local) : null;
     const linearBurn = op.blendMode === 'linear-burn';
-    const layer = passes.length || mask || linearBurn || gpuText ? opts.layers?.get(tw, th) ?? null : null;
+    const glitch = needsGlitch(op.fx) ? op.fx : null;
+    const layer = passes.length || mask || linearBurn || gpuText || glitch ? opts.layers?.get(tw, th) ?? null : null;
     const target = layer ?? ctx;
     const ax = axisScale(op.transform);
 
@@ -324,7 +453,8 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
       target.globalCompositeOperation = op.composite;
     }
     target.filter = filter;
-    applyOpTransform(target, op, W, H, k);
+    applyOpTransform(target, op, W, H, k, local);
+    if (op.fx && op.fx.masks.length) clipToMasks(target, op.fx.masks, local);
     if (op.kind === 'media') {
       if (src === 'missing') drawMissing(target, local);
       else if (graded) drawMedia(target, { ...op, crop: NO_CROP }, { image: graded.image, width: graded.w, height: graded.h }, local, { x: k * Math.abs(ax.x), y: k * Math.abs(ax.y) });
@@ -354,14 +484,26 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
 
     // ---- composite the layer
     if (layer && linearBurn) {
-      compositeLinearBurn(ctx, layerImage ?? (layer.canvas as CanvasImageSource), layer.canvas.width, layer.canvas.height, opts.scratch?.get(tw, th) ?? inverseScratch(Math.round(tw), Math.round(th)), alpha, op.clipRect, tw, th);
+      let burnSource = layerImage ?? (layer.canvas as CanvasImageSource);
+      if (glitch) {
+        // glitch first (on its own layer), then linear-burn the result
+        const g = glitchC.get(tw, th);
+        if (g) {
+          resetCtx(g);
+          g.clearRect(0, 0, tw, th);
+          drawGlitched(g, burnSource, glitch, tw, th, k);
+          burnSource = g.canvas as CanvasImageSource;
+        }
+      }
+      compositeLinearBurn(ctx, burnSource, layer.canvas.width, layer.canvas.height, opts.scratch?.get(tw, th) ?? inverseScratch(Math.round(tw), Math.round(th)), alpha, op.clipRect, tw, th);
     } else if (layer) {
       ctx.save();
       resetCtx(ctx);
       if (op.clipRect) clipToRect(ctx, op.clipRect, tw, th);
       ctx.globalAlpha = alpha;
       ctx.globalCompositeOperation = op.composite;
-      ctx.drawImage(layerImage ?? (layer.canvas as CanvasImageSource), 0, 0, tw, th);
+      if (glitch) drawGlitched(ctx, layerImage ?? (layer.canvas as CanvasImageSource), glitch, tw, th, k);
+      else ctx.drawImage(layerImage ?? (layer.canvas as CanvasImageSource), 0, 0, tw, th);
       ctx.restore();
     }
   }

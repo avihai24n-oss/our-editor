@@ -430,6 +430,10 @@
   right: 0;
   clip-path: polygon(0 0, 100% 100%, 0 100%);
 }
+.tl-clip__ramp--combo {
+  left: 0;
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+}
 .tl-clip__fade {
   position: absolute;
   top: 0;

@@ -198,6 +198,8 @@ const visualDefaults = () => ({
   blendEnabled: true,
   animationIn: null,
   animationOut: null,
+  animationCombo: null,
+  animationLoop: null,
   filter: null,
   adjust: defaultAdjust(),
   adjustEnabled: true,

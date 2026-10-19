@@ -182,14 +182,22 @@ function migrateAudio(c: Clip): Clip {
   return audio === c.audio ? c : ({ ...c, audio } as Clip);
 }
 
+/** tab-animation: Combo / text Loop slots. */
+function migrateAnimationSlots(c: Clip): Clip {
+  if (c.type === 'audio') return c;
+  const v = c as VisualClip & Partial<Pick<VisualClip, 'animationCombo' | 'animationLoop'>>;
+  if (v.animationCombo !== undefined && v.animationLoop !== undefined) return c;
+  return { ...c, animationCombo: v.animationCombo ?? null, animationLoop: v.animationLoop ?? null } as Clip;
+}
+
 /** tab-adjust: new Adjust sliders and the colour grade (see migrateVisualClip). */
 const migrateGrade = (c: Clip): Clip => (c.type === 'audio' ? c : migrateVisualClip(c));
 
 /**
  * Every clip migration, in the order the features were added: v1 checkboxes, tab-speed,
- * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade).
+ * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade), tab-animation.
  */
-const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade];
+const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade, migrateAnimationSlots];
 
 const FILL_CHANNELS: readonly string[] = ['left', 'right'];
 

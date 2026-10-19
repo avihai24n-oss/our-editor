@@ -241,21 +241,25 @@ export interface AudioProps {
   voiceFilter: VoiceFilter | null;
 }
 
-export type AnimationType =
-  | 'fade'
-  | 'zoom-in'
-  | 'zoom-out'
-  | 'slide-left'
-  | 'slide-right'
-  | 'slide-up'
-  | 'slide-down'
-  | 'rotate'
-  | 'blur';
+/**
+ * Animation id from the catalogue in src/engine/animations.ts (ids are unique per phase:
+ * the In "fade" is Fade In, the Out "fade" is Fade Out). The v1 ids ('fade', 'zoom-in',
+ * 'zoom-out', 'slide-left/right/up/down', 'rotate', 'blur') are all still in the catalogue.
+ * An unknown id renders as no animation.
+ */
+export type AnimationType = string;
 
 export interface ClipAnimation {
   type: AnimationType;
+  /**
+   * In / Out / Combo: length of the animation window, µs (In at the clip start, Out at the end,
+   * Combo from the clip start). Loop: length of ONE cycle, µs (the loop repeats over the clip).
+   */
   duration: Us;
 }
+
+/** Animation slots of a visual clip (CapCut: video/image In · Out · Combo, text In · Out · Loop). */
+export type AnimationSlot = 'in' | 'out' | 'combo' | 'loop';
 
 export type FilterId =
   | 'mono'
@@ -443,6 +447,10 @@ export interface VisualFields {
   blendEnabled: boolean;
   animationIn: ClipAnimation | null;
   animationOut: ClipAnimation | null;
+  /** Combo (video/image): one in-and-back motion from the clip start. Exclusive with In/Out. */
+  animationCombo: ClipAnimation | null;
+  /** Loop (text): repeats every `duration` µs for the whole clip; combines with In/Out. */
+  animationLoop: ClipAnimation | null;
   filter: FilterRef | null;
   adjust: Adjust;
   /** Adjust section checkbox. false = the Adjust sliders are ignored (values kept; filter still applies). */
@@ -528,6 +536,8 @@ export interface ClipPatch {
   adjustEnabled?: boolean;
   animationIn?: ClipAnimation | null;
   animationOut?: ClipAnimation | null;
+  animationCombo?: ClipAnimation | null;
+  animationLoop?: ClipAnimation | null;
   filter?: FilterRef | null;
   adjust?: Partial<Adjust>;
   mask?: Partial<ClipMask>;

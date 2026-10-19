@@ -7,8 +7,10 @@ import { BLEND_MODES, CANVAS_BLUR_PX, filterDef } from '../model/catalog';
 import { defaultAdjust, defaultGrade } from '../model/defaults';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
 import { clamp, clipContains, clipEnd, sourceSpan, sourceTimeAt, speedAtTime } from '../model/time';
+import { animationFrame, composeFrames, type AnimFrame, type MaskShape } from './animations';
 import type {
   Adjust,
+  AnimationSlot,
   AnimationType,
   AudioProps,
   BlendMode,
@@ -68,8 +70,13 @@ interface DrawOpBase {
   blur: number;
   /** Visible rectangle in NORMALISED canvas coords (0..1). null = whole canvas. Used by wipes. */
   clipRect: { x: number; y: number; w: number; h: number } | null;
-  /** Debug/info: which animation is acting and its linear progress 0..1. */
-  animation: { phase: 'in' | 'out'; type: AnimationType; progress: number } | null;
+  /** Debug/info: the main animation acting (In > Out > Combo > Loop) and its linear progress 0..1. */
+  animation: ActiveAnimation | null;
+  /**
+   * Animation effects beyond the plain transform (non-uniform scale / skew, masks, light,
+   * glitch, text reveal). null / absent = none. Built by `resolveAnimation`.
+   */
+  fx?: AnimFx | null;
   /** Debug/info: transition acting on this op and its linear progress 0..1 across the window. */
   transition: { id: Id; type: TransitionType; role: 'from' | 'to'; progress: number } | null;
 }
@@ -185,34 +192,122 @@ export interface Effect {
 }
 const NO_EFFECT: Effect = { dx: 0, dy: 0, scaleMul: 1, rotation: 0, alphaMul: 1, blur: 0 };
 
+/** One animation acting on a clip at t. */
+export interface ActiveAnimation {
+  phase: AnimationSlot;
+  type: AnimationType;
+  /** Linear 0..1 through the window (Loop: phase within the current cycle). */
+  progress: number;
+}
+
+/** Animation effects the renderer applies on top of the transform. Pixel values in project px. */
+export interface AnimFx {
+  /** Non-uniform scale and skew (degrees) around the pivot (fractions of the clip box, 0 = centre). */
+  sx: number;
+  sy: number;
+  skewX: number;
+  skewY: number;
+  pivotX: number;
+  pivotY: number;
+  /** CSS brightness multiplier. */
+  brightness: number;
+  /** Hue rotation, degrees. */
+  hue: number;
+  /** White glow 0..1. */
+  glow: number;
+  /** Channel split offset, project px. */
+  rgbSplit: number;
+  /** Max slice offset, project px. */
+  slices: number;
+  seed: number;
+  /** Visible region: each group is a union of shapes; groups intersect. Box fractions. */
+  masks: MaskShape[][];
+  /** Text: fraction of characters drawn. */
+  reveal: number;
+}
+
 /**
- * In/Out animation effect. `progress` is linear 0..1 through the animation window.
- * In: starts displaced, ends at rest. Out: starts at rest, ends displaced (continuing in the
- * named direction, e.g. Slide Left exits to the left).
+ * In/Out effect of one catalogue animation as a plain transform delta (kept for callers of the
+ * v1 API; the renderer uses `resolveAnimation`, which also carries skew / masks / glitch).
  */
 export function animationEffect(type: AnimationType, phase: 'in' | 'out', progress: number, W: number, H: number): Effect {
-  // amount of displacement remaining: 1 = fully displaced, 0 = at rest
-  const k = phase === 'in' ? 1 - easeOutCubic(progress) : easeInOutCubic(progress);
-  switch (type) {
-    case 'fade':
-      return { ...NO_EFFECT, alphaMul: 1 - k };
-    case 'zoom-in':
-      return { ...NO_EFFECT, scaleMul: phase === 'in' ? 1 - 0.5 * k : 1 + 0.5 * k, alphaMul: 1 - k };
-    case 'zoom-out':
-      return { ...NO_EFFECT, scaleMul: phase === 'in' ? 1 + 0.5 * k : 1 - 0.5 * k, alphaMul: 1 - k };
-    case 'slide-left':
-      return { ...NO_EFFECT, dx: phase === 'in' ? W * k : -W * k };
-    case 'slide-right':
-      return { ...NO_EFFECT, dx: phase === 'in' ? -W * k : W * k };
-    case 'slide-up':
-      return { ...NO_EFFECT, dy: phase === 'in' ? H * k : -H * k };
-    case 'slide-down':
-      return { ...NO_EFFECT, dy: phase === 'in' ? -H * k : H * k };
-    case 'rotate':
-      return { ...NO_EFFECT, rotation: (phase === 'in' ? -180 : 180) * k, scaleMul: 1 - 0.5 * k, alphaMul: 1 - k };
-    case 'blur':
-      return { ...NO_EFFECT, blur: 40 * k, alphaMul: 1 - 0.5 * k };
+  const f = animationFrame(phase, type, progress);
+  return { dx: f.dx * W, dy: f.dy * H, scaleMul: f.scale, rotation: f.rotation, alphaMul: f.alpha, blur: f.blur * (Math.min(W, H) / 1080) };
+}
+
+/** Every animation acting on the clip at t (In, Out, Combo, Loop), In first. */
+export function activeAnimations(clip: VisualClip, t: Us): ActiveAnimation[] {
+  const local = t - clip.start;
+  const out: ActiveAnimation[] = [];
+  if (local < 0 || local >= clip.duration) return out;
+  const a = clip.animationIn;
+  if (a && a.duration > 0 && local < a.duration) out.push({ phase: 'in', type: a.type, progress: local / a.duration });
+  const b = clip.animationOut;
+  if (b && b.duration > 0) {
+    const from = clip.duration - b.duration;
+    if (local >= from) out.push({ phase: 'out', type: b.type, progress: (local - from) / b.duration });
   }
+  const c = clip.animationCombo;
+  if (c && c.duration > 0 && local < c.duration) out.push({ phase: 'combo', type: c.type, progress: local / c.duration });
+  const l = clip.animationLoop;
+  if (l && l.duration > 0) out.push({ phase: 'loop', type: l.type, progress: (local % l.duration) / l.duration });
+  return out;
+}
+
+/** Animation acting on the clip at t (In wins if both overlap; then Out, Combo, Loop). */
+export function activeAnimation(clip: VisualClip, t: Us): ActiveAnimation | null {
+  return activeAnimations(clip, t)[0] ?? null;
+}
+
+/**
+ * Everything the clip's animations do at t: a transform delta (folded into the op transform)
+ * plus the extra effects (`fx`, null when there are none). Pure.
+ */
+export function resolveAnimation(clip: VisualClip, t: Us, W: number, H: number): { effect: Effect; fx: AnimFx | null; active: ActiveAnimation[] } {
+  const active = activeAnimations(clip, t);
+  if (!active.length) return { effect: NO_EFFECT, fx: null, active };
+  return { ...framesToOp(active.map((a) => animationFrame(a.phase, a.type, a.progress)), W, H), active };
+}
+
+/** Composes catalogue frames into a transform delta + fx (shared with the tile thumbnails). */
+export function framesToOp(frames: AnimFrame[], W: number, H: number): { effect: Effect; fx: AnimFx | null } {
+  const { frame: f, masks } = composeFrames(frames);
+  const u = Math.min(W, H) / 1080;
+  const effect: Effect = { dx: f.dx * W, dy: f.dy * H, scaleMul: f.scale, rotation: f.rotation, alphaMul: f.alpha, blur: Math.max(0, f.blur) * u };
+  const fx: AnimFx = {
+    sx: f.sx,
+    sy: f.sy,
+    skewX: f.skewX,
+    skewY: f.skewY,
+    pivotX: f.pivotX,
+    pivotY: f.pivotY,
+    brightness: Math.max(0, f.brightness),
+    hue: f.hue,
+    glow: clamp(f.glow, 0, 1),
+    rgbSplit: Math.max(0, f.rgbSplit) * u,
+    slices: Math.max(0, f.slices) * u,
+    seed: f.seed,
+    masks,
+    reveal: clamp(f.reveal, 0, 1),
+  };
+  return { effect, fx: isNeutralFx(fx) ? null : fx };
+}
+
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+export function isNeutralFx(fx: AnimFx): boolean {
+  return (
+    near(fx.sx, 1) &&
+    near(fx.sy, 1) &&
+    near(fx.skewX, 0) &&
+    near(fx.skewY, 0) &&
+    near(fx.brightness, 1) &&
+    near(((fx.hue % 360) + 360) % 360, 0) &&
+    fx.glow < 1e-6 &&
+    fx.rgbSplit < 1e-3 &&
+    fx.slices < 1e-3 &&
+    fx.masks.length === 0 &&
+    near(fx.reveal, 1)
+  );
 }
 
 export interface TransitionEffect {
@@ -287,19 +382,6 @@ export function colorOps(clip: VisualClip): ColorOps {
 const compositeOf = (clip: VisualClip): GlobalCompositeOperation =>
   clip.blendEnabled === false ? 'source-over' : (BLEND_MODES.find((b) => b.id === clip.blend)?.composite ?? 'source-over');
 
-/** Animation acting on the clip at t (In wins if both overlap). */
-export function activeAnimation(clip: VisualClip, t: Us): { phase: 'in' | 'out'; type: AnimationType; progress: number } | null {
-  const local = t - clip.start;
-  const a = clip.animationIn;
-  if (a && a.duration > 0 && local >= 0 && local < a.duration) return { phase: 'in', type: a.type, progress: local / a.duration };
-  const b = clip.animationOut;
-  if (b && b.duration > 0) {
-    const from = clip.duration - b.duration;
-    if (local >= from && local < clip.duration) return { phase: 'out', type: b.type, progress: (local - from) / b.duration };
-  }
-  return null;
-}
-
 /** Transition window [cut − d/2, cut + d/2). */
 export function transitionWindow(track: Track, tr: Transition): { start: Us; end: Us; cut: Us } | null {
   const from = track.clips.find((c) => c.id === tr.fromClipId);
@@ -326,8 +408,9 @@ function buildVisualOp(
   transitionInfo: DrawOpBase['transition'],
 ): MediaDrawOp | TextDrawOp {
   const { width: W, height: H } = project.settings;
-  const anim = clipContains(clip, t) ? activeAnimation(clip, t) : null;
-  const a = anim ? animationEffect(anim.type, anim.phase, anim.progress, W, H) : NO_EFFECT;
+  const resolved = clipContains(clip, t) ? resolveAnimation(clip, t, W, H) : null;
+  const a = resolved?.effect ?? NO_EFFECT;
+  const anim = resolved?.active[0] ?? null;
   const x = extra ?? { ...NO_EFFECT, clipRect: null };
   const tf = clip.transform;
   const ax = baseScaleXY(tf);
@@ -354,6 +437,7 @@ function buildVisualOp(
     blur: a.blur + x.blur,
     clipRect: x.clipRect,
     animation: anim,
+    fx: resolved?.fx ?? null,
     transition: transitionInfo,
   };
   if (clip.type === 'text') {

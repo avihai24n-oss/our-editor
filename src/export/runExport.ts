@@ -7,7 +7,7 @@ import { measureSpan } from '../audio/measure';
 import { createColorGrader, ensureLuts, getLoadedLut } from '../engine/color';
 import { getFrameState } from '../engine/frameState';
 import { createLayerProvider, renderFrame } from '../engine/render';
-import { projectDuration } from '../model/time';
+import { projectDuration, sourceSpan } from '../model/time';
 import type { Id, Project } from '../model/types';
 import { getBlob } from '../store/persistence';
 import { ExportCanceled, exportMp4, probeCodecs, type EncodeResult } from './exportMp4';
@@ -63,7 +63,8 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   // ---- audio
   report({ phase: 'audio', fraction: 0.01, frame: 0, frames: 0 });
   const audio = await renderMix(project, durationUs, createDecoder(loadBlob), o.signal, {
-    loudness: (c) => measureSpan(c.assetId, c.inSec, c.durationSec * c.speed, loadBlob),
+    // the same span as the preview (AudioOp.spanLength = sourceSpan: curve-aware)
+    loudness: (c) => measureSpan(c.assetId, c.inSec, sourceSpan({ duration: c.durationUs, speed: c.speed, speedCurve: c.speedCurve }) / 1e6, loadBlob),
   });
   if (o.signal?.aborted) throw new ExportCanceled();
 

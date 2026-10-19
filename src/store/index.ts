@@ -15,7 +15,7 @@ import type { SpeedCurve } from '../model/speedCurve';
 import { create } from 'zustand';
 import { importFiles as importMediaFiles, relinkMedia } from '../media/import';
 import { aspectSize, LIMITS } from '../model/catalog';
-import { createProject, makeAnimation } from '../model/defaults';
+import { createProject } from '../model/defaults';
 import { findClip, findTransition, mainTrack, migrateProject } from '../model/project';
 import {
   clamp,
@@ -29,6 +29,7 @@ import {
   usToFrame,
 } from '../model/time';
 import type {
+  AnimationSlot,
   AnimationType,
   AspectRatio,
   Clip,
@@ -171,8 +172,14 @@ export interface EditorState {
    * when it is already extracted — restores it. One undo step.
    */
   toggleExtractAudio: (clipIds: Id[]) => { extracted: Id[]; restored: number };
-  /** Convenience: set or clear the In/Out animation (duration defaults to 0.5 s). */
-  setAnimation: (clipId: Id, phase: 'in' | 'out', type: AnimationType | null, duration?: Us) => void;
+  /**
+   * Set or clear an animation slot (CapCut rules, see ops.setClipAnimation): In/Out default 0.5 s
+   * and never exceed the clip together; Combo (default = whole clip) replaces In/Out; Loop
+   * (text, duration = one cycle) combines with them. One undo step.
+   */
+  setAnimation: (clipId: Id, phase: AnimationSlot, type: AnimationType | null, duration?: Us) => void;
+  /** Change only the duration of an applied animation slot (the other In/Out slot shrinks if needed). */
+  setAnimationDuration: (clipId: Id, phase: AnimationSlot, duration: Us) => void;
 
   // ---- transitions
   addTransition: (fromClipId: Id, type: TransitionType, duration?: Us) => Id | null;
@@ -618,9 +625,10 @@ export const useEditor = create<EditorState>()((set, get) => ({
       return out;
     }),
   setAnimation: (clipId, phase, type, duration) => {
-    edit(set, get, (d) =>
-      ops.updateClip(d, clipId, phase === 'in' ? { animationIn: type ? makeAnimation(type, duration) : null } : { animationOut: type ? makeAnimation(type, duration) : null }),
-    );
+    edit(set, get, (d) => ops.setClipAnimation(d, clipId, phase, type, duration));
+  },
+  setAnimationDuration: (clipId, phase, duration) => {
+    edit(set, get, (d) => ops.setClipAnimation(d, clipId, phase, undefined, duration));
   },
 
   // ---- transitions

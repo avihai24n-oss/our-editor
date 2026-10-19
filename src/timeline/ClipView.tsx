@@ -55,6 +55,9 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
   const anim = clip.type !== 'audio' ? clip : null;
   const inW = anim?.animationIn ? Math.min(width, usToPx(anim.animationIn.duration, zoom)) : 0;
   const outW = anim?.animationOut ? Math.min(width, usToPx(anim.animationOut.duration, zoom)) : 0;
+  const comboW = anim?.animationCombo ? Math.min(width, usToPx(anim.animationCombo.duration, zoom)) : 0;
+  const looping = !!anim?.animationLoop;
+  const animSlots = anim ? [anim.animationIn && 'in', anim.animationOut && 'out', anim.animationCombo && 'combo', anim.animationLoop && 'loop'].filter(Boolean) : [];
   const fadeInW = clip.type === 'audio' || clip.type === 'video' ? usToPx(clip.audio.fadeIn, zoom) : 0;
   const fadeOutW = clip.type === 'audio' || clip.type === 'video' ? usToPx(clip.audio.fadeOut, zoom) : 0;
 
@@ -67,6 +70,7 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
       data-clip-name={clip.name}
       data-clip-type={clip.type}
       data-selected={selected ? 'true' : 'false'}
+      data-animations={animSlots.join(',')}
       onPointerDown={(e) => onPointerDown(e, clip, 'body')}
       title={`${clip.name}${clip.disabled ? ' (disabled)' : ''}`}
     >
@@ -84,6 +88,7 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
 
       {inW > 0 && <div className="tl-clip__ramp tl-clip__ramp--in" style={{ width: inW }} />}
       {outW > 0 && <div className="tl-clip__ramp tl-clip__ramp--out" style={{ width: outW }} />}
+      {comboW > 0 && <div className="tl-clip__ramp tl-clip__ramp--combo" style={{ width: comboW }} />}
       {fadeInW > 0 && clip.type === 'audio' && <div className="tl-clip__fade tl-clip__fade--in" style={{ width: fadeInW }} />}
       {fadeOutW > 0 && clip.type === 'audio' && <div className="tl-clip__fade tl-clip__fade--out" style={{ width: fadeOutW }} />}
 
@@ -91,6 +96,11 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
         <div className="tl-clip__label">
           {clip.type === 'video' && clip.audio.muted && <Icon name="volume-mute" size={11} />}
           {badge && <span className="tl-clip__badge" data-testid="clip-speed-badge">{badge}</span>}
+          {looping && (
+            <span className="tl-clip__badge tl-clip__badge--loop" title="Loop animation">
+              ∞
+            </span>
+          )}
           {clip.type !== 'text' && <span className="tl-clip__name">{clip.name}</span>}
         </div>
       )}

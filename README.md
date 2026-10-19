@@ -88,7 +88,13 @@ real-time WebM export.
   point at the playhead or by double-click, Reset, resulting duration). Curves drive the preview,
   the export frames and the exported audio (pitch kept unless "Change audio pitch" is on), split
   and trim. Smooth slow-mo (AI) is shown disabled, like CapCut without it.
-- **Animation:** In / Out (9 each) with a duration.
+- **Animation:** CapCut's In / Out / Combo (video, image) and In / Out / Loop (text): 53 In,
+  53 Out, 18 Combo and 15 text Loop animations (fade, zoom, slides, rotate, flips, swing, shake,
+  jelly, bounce, drop, fly, stretch, blur, flash, glow, RGB split, slices, jitter, wipes, circle,
+  iris, mid-split, blinds, 3D flips/door/cube, typewriter…). Search, category chips, ☆ favourites,
+  live canvas thumbnails on hover, a one-shot player preview on click, and a Duration (Loop: Speed)
+  slider. In + Out never exceed the clip; Combo replaces In/Out. One catalogue,
+  `src/engine/animations.ts`, drives the player, the export and the thumbnails.
 - **Adjust** (CapCut's five sub-tabs, all on a WebGL2 colour pass shared by player and export,
   with a CPU fallback):
   - **Basic:** Auto adjust / Color match / Color correction shown disabled (AI, coming soon);
