@@ -60,8 +60,14 @@ export function NumberBox(props: NumberBoxProps) {
           value={shown}
           disabled={props.disabled}
           onFocus={(e) => {
-            setDraft(value.toFixed(digits));
-            requestAnimationFrame(() => e.target.select());
+            const initial = value.toFixed(digits);
+            setDraft(initial);
+            const el = e.target;
+            // select-all on focus, unless typing already started (a late frame would otherwise
+            // select the first typed characters and the next keys would replace them)
+            requestAnimationFrame(() => {
+              if (document.activeElement === el && el.value === initial) el.select();
+            });
           }}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}

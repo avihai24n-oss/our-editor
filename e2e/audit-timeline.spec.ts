@@ -404,6 +404,10 @@ test('shortcuts: every bound key has its real effect (A / B tool modes excluded)
   expect((await sel(page)).sort()).toEqual([v, tone].sort());
   await key(page, 'BracketRight');
   expect((await sel(page)).sort()).toEqual([l, tone].sort());
+  // (main's tool modes: [ / ] also arm the side-select tool; A goes back to Select)
+  expect(await ev(page, () => (window as any).__oeUi.getState().tool)).toBe('selectRight');
+  await key(page, 'KeyA');
+  expect(await ev(page, () => (window as any).__oeUi.getState().tool)).toBe('select');
 
   // ⌘A, Backspace, Delete
   await key(page, `${MOD}+KeyA`);
@@ -483,7 +487,7 @@ test('shortcuts: every bound key has its real effect (A / B tool modes excluded)
   await key(page, `${MOD}+KeyR`);
   await expect(page.getByTestId('inspector').getByRole('tab', { name: 'Speed', exact: true })).toHaveAttribute('aria-selected', 'true');
   await key(page, 'Shift+KeyB');
-  await expect(page.getByTestId('speed-curve-soon')).toBeVisible();
+  await expect(page.getByTestId('speed-curve')).toBeVisible(); // tab-speed: Speed › Curve is built now
   expect(await ev(page, () => (window as any).__noReload)).toBe(true);
 
   // ⌘C / ⌘V, ⌘X / ⌘V, ⌘D

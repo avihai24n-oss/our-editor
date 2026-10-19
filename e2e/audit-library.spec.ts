@@ -691,11 +691,16 @@ test('Filters tab: every filter changes the pixels; None restores; needs a selec
   await clickPreset(page, 'filter-preset', 'B&W');
   await expect(page.locator('.lib-flash')).toContainText('Select a video, image or text clip first');
   expect((await clips(page))[0]!.filter).toBeNull();
-  // with a clip selected, the tiles preview the look on that clip's own picture
+  // with a clip selected, the tiles preview the look on that clip's own picture; with nothing
+  // selected, on a built-in sample scene (tab-adjust: tiles are graded data: JPEGs, gradePreview.tsx)
+  const tileSrc = () => page.locator('[data-testid="filter-preset"] .look img').first().getAttribute('src');
+  const sample = await tileSrc();
   await select(page, [c.id]);
-  await expect.poll(() => page.locator('[data-testid="filter-preset"] .look img').first().getAttribute('src')).toMatch(/^blob:/);
+  await expect.poll(tileSrc).toMatch(/^(blob:|data:image\/)/);
+  await expect.poll(tileSrc).not.toBe(sample);
+  const own = await tileSrc();
   await select(page, []);
-  await expect(page.locator('[data-testid="filter-preset"] .look img')).toHaveCount(0);
+  await expect.poll(tileSrc).not.toBe(own);
   const base = await settledSig(page);
   const labels = await presetLabels(page, 'filter-preset');
   expect(labels).toEqual(['B&W', 'Noir', 'Warm', 'Cool', 'Vivid', 'Sepia', 'Vintage', 'Retro', 'Matte', 'Cinematic']);

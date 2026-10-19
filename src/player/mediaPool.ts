@@ -16,7 +16,7 @@
 import { frameLookupSec, type MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
 import { colorTagsFor, correctCanvas, correctionMatrix, elementMatrix, intendedMatrix, type Matrix } from '../media/colorMatrix';
-import { getAssetUrl } from '../media/registry';
+import { getAssetBlob, getAssetUrl } from '../media/registry';
 import { findClip } from '../model/project';
 import { clipContains } from '../model/time';
 import { MEMORY_LIMITS } from '../media/memory';
@@ -363,7 +363,8 @@ export class MediaPool implements FrameSources {
     el.playsInline = true;
     el.preload = 'auto';
     const e: VideoEntry = { kind: 'video', el, url, lastUsed: performance.now(), lastSeekAt: -Infinity, pendingSeek: null, hasFrame: false, fix: null, want: null, scratch: null };
-    void colorTagsFor(assetId, () => fetch(url).then((r) => r.blob())).then((tags) => {
+    // the registered Blob itself (no copy); fetch(blob URL) only when the registry has none
+    void colorTagsFor(assetId, async () => getAssetBlob(assetId) ?? (await fetch(url)).blob()).then((tags) => {
       const fix = tags ? correctionMatrix(elementMatrix(tags), intendedMatrix(tags)) : null;
       if (fix && this.videos.get(clipId) === e) {
         e.fix = fix;
