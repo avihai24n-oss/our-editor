@@ -81,11 +81,13 @@ function cleanup() {
 // ---------------------------------------------------------------- page side
 
 async function resetProject(page: Page, aspect: string = '9:16') {
-  await page.evaluate((aspect) => {
+  // A fresh project that keeps the imported assets. (Not newProject() + addAssets(): since the
+  // library audit, an asset that leaves the document and every undo snapshot has its blob and URL
+  // freed at once, so re-adding the same asset objects would point at deleted media.)
+  await page.evaluate(async (aspect) => {
+    const { createProject } = await import('/src/model/defaults.ts' as any);
     const s = (window as any).__oe.getState();
-    const assets = Object.values(s.project.assets);
-    s.newProject({ aspect });
-    s.addAssets(assets);
+    s.setProject({ ...createProject({ aspect }), assets: s.project.assets });
     s.setMagnet(true);
   }, aspect);
 }
