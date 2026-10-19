@@ -179,6 +179,8 @@ export function addClipFromAsset(p: Project, assetId: Id, opts: AddClipOpts, ctx
   } else if (opts.kind === 'overlay') {
     placeOnTrack(p, clip, freeTrack(p, 'overlay', at, clip.duration), at);
   } else {
+    // a locked main track takes no new clips (the caller tells the user why)
+    if (mainTrack(p).locked) return null;
     insertOnMain(p, clip, at, ctx);
   }
   return clip.id;
@@ -389,6 +391,23 @@ export function deleteClips(p: Project, ids: readonly Id[]): number {
     track.transitions = track.transitions.filter((t) => !set.has(t.fromClipId) && !set.has(t.toClipId));
   }
   removeEmptyTracks(p);
+  return n;
+}
+
+/**
+ * Removes every clip that uses `assetId` (the asset is leaving the bin), on locked tracks too: a
+ * clip must never outlive its media. Their transitions go with them. Returns how many.
+ */
+export function removeAssetClips(p: Project, assetId: Id): number {
+  let n = 0;
+  for (const track of p.tracks) {
+    const gone = new Set(track.clips.filter((c) => c.type !== 'text' && c.assetId === assetId).map((c) => c.id));
+    if (!gone.size) continue;
+    track.clips = track.clips.filter((c) => !gone.has(c.id));
+    track.transitions = track.transitions.filter((t) => !gone.has(t.fromClipId) && !gone.has(t.toClipId));
+    n += gone.size;
+  }
+  if (n) removeEmptyTracks(p);
   return n;
 }
 

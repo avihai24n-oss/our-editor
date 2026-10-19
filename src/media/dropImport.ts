@@ -10,15 +10,17 @@
 import type { Id } from '../model/types';
 import { useEditor } from '../store';
 import { emitAppEvent, requestAssetHighlight, showToast } from '../ui/appEvents';
-import { partitionFiles, skippedMessage } from './dropFiles';
+import { importSummary, partitionFiles, skippedMessage } from './dropFiles';
 
 export async function importDroppedFiles(files: readonly File[]): Promise<Id[]> {
   const { accepted, skipped } = partitionFiles(files);
   let assetIds: Id[] = [];
   let errors: string[] = [];
+  let reused: Id[] = [];
+  let relinked: Id[] = [];
   if (accepted.length) {
     try {
-      ({ assetIds, errors } = await useEditor.getState().importFiles(accepted));
+      ({ assetIds, errors, reused, relinked } = await useEditor.getState().importFiles(accepted));
     } catch (e) {
       errors = [e instanceof Error ? e.message : 'Import failed'];
     }
@@ -28,7 +30,10 @@ export async function importDroppedFiles(files: readonly File[]): Promise<Id[]> 
     errors,
   );
   if (msg) showToast(msg);
-  else if (assetIds.length) showToast(`Imported ${assetIds.length} file${assetIds.length > 1 ? 's' : ''}`);
+  else {
+    const info = importSummary({ assetIds, reused, relinked }, (id) => useEditor.getState().project.assets[id]?.name);
+    if (info) showToast(info);
+  }
   return assetIds;
 }
 

@@ -333,3 +333,25 @@ that reflects real Chrome.
 | `npm run build` | passes |
 | `e2e/memory.spec.ts` | pass. It imports 5 files onto the timeline and idles 75 s. The JS heap is 9.01 → 9.02 MB, browser RSS 929 → 905 MB (samples 928 → 905, never rising), and **0 IndexedDB writes and 0 rAF calls** while idle. Live: 1 preview video, 0 voices, 0 grabbers. Hidden: 0 elements and no rAF. Visible again: 1 video. A second test checks that after playback every off-screen decoder is released while paused. |
 | `e2e/smoke.spec.ts`, `flows.spec.ts`, `shortcuts.spec.ts` | pass (run one at a time, `--workers=1`) |
+
+## Library functional audit — 2026-10-19
+
+Every Library control was audited against its real effect: the store, IndexedDB, the timeline DOM,
+player-canvas pixels read with `getImageData`, and the state after a reload. The full table is in
+**[AUDIT-library.md](AUDIT-library.md)**. `e2e/audit-library.spec.ts` has 14 tests; 4 of them fail
+on the previous code. Fixed:
+
+- delete + ⌘Z left orphan clips and destroyed the media (removing an asset is now one undo step,
+  and media is freed only when no history step can reach it);
+- clips on locked tracks survived the deletion of their asset;
+- "+" added clips to a locked main track;
+- the same file imported twice made duplicate tiles;
+- "Media lost" could not be relinked;
+- Delete on a focused tile deleted the timeline selection;
+- orphan blobs are swept at boot.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean / passes |
+| `npm test` | 358 / 358 pass (24 files; new `src/store/assetLifecycle.test.ts`) |
+| e2e, one spec at a time, workers = 1 | smoke 1, flows 1, file-drop 2, shortcuts 2, timeline-stability 7, memory 2, audit-library 14: all pass |
