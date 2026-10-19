@@ -50,4 +50,6 @@ export interface RenderOptions {
   scale: number;
   sources: FrameSources;
   layers?: LayerProvider;
+  /** Second scratch canvas (linear burn). Defaults to a module-level one. */
+  scratch?: LayerProvider;
 }

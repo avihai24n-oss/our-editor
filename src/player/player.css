@@ -149,3 +149,62 @@
   border-radius: 2px;
   flex: none;
 }
+
+/* ---- Video › Mask on-canvas handles */
+.player__mask {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.player__mask-line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 0;
+  border-top: 1px dashed #ffd400;
+  transform: translate(-50%, 0);
+}
+.player__mask-shape {
+  position: absolute;
+  overflow: visible;
+  fill: none;
+  stroke: #ffd400;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.player__mask-handle {
+  position: absolute;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  pointer-events: auto;
+  background: #ffd400;
+  border: 1px solid #000;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+.player__mask-move {
+  top: 0;
+  border-radius: 50%;
+  cursor: move;
+}
+.player__mask-size {
+  cursor: nwse-resize;
+}
+.player__mask-rotate {
+  border-radius: 50%;
+  background: #fff;
+  cursor: grab;
+}
+.player__mask-feather {
+  width: 0;
+  height: 0;
+  margin: -4px 0 0 -6px;
+  background: none;
+  border: 6px solid transparent;
+  border-top: 9px solid #ffd400;
+  box-shadow: none;
+  cursor: ns-resize;
+}

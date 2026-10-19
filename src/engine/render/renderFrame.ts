@@ -292,7 +292,7 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
 
     // ---- composite the layer
     if (layer && linearBurn) {
-      compositeLinearBurn(ctx, layer, alpha, op.clipRect, tw, th);
+      compositeLinearBurn(ctx, layer, opts.scratch?.get(tw, th) ?? inverseScratch(Math.round(tw), Math.round(th)), alpha, op.clipRect, tw, th);
     } else if (layer) {
       ctx.save();
       resetCtx(ctx);
@@ -325,11 +325,20 @@ function inverseScratch(w: number, h: number): Ctx2D | null {
  * invert dst · add the inverted source (lighter, × opacity) · invert again
  * = 1 − ((1 − dst) + α(1 − src)) = dst − α(1 − src), clamped at 0.
  */
-function compositeLinearBurn(ctx: Ctx2D, layer: Ctx2D, alpha: number, rect: VisualOp['clipRect'], tw: number, th: number): void {
+function compositeLinearBurn(ctx: Ctx2D, layer: Ctx2D, inv: Ctx2D | null, alpha: number, rect: VisualOp['clipRect'], tw: number, th: number): void {
   const w = layer.canvas.width;
   const h = layer.canvas.height;
-  const inv = inverseScratch(w, h);
-  if (!inv) return;
+  if (!inv) {
+    // no second scratch canvas: multiply is the closest single-pass look
+    ctx.save();
+    resetCtx(ctx);
+    if (rect) clipToRect(ctx, rect, tw, th);
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+    ctx.restore();
+    return;
+  }
   // inverted source with the source's own coverage
   inv.save();
   resetCtx(inv);

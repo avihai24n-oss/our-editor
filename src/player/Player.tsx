@@ -16,6 +16,7 @@ import { useEditor } from '../store';
 import { withShortcut } from '../timeline/shortcutDefs';
 import { onAppEvent } from '../ui/appEvents';
 import { Icon } from '../ui/Icon';
+import { MaskOverlay } from './MaskOverlay';
 import { PreviewEngine } from './PreviewEngine';
 import './player.css';
 
@@ -275,6 +276,7 @@ export function Player() {
                 </div>
               </div>
             )}
+            {selBox && k > 0 && <MaskOverlay box={selBox} k={k} toProject={toProject} />}
           </div>
         </div>
       </div>
