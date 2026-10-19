@@ -14,7 +14,8 @@ import {
 } from '../model/defaults';
 import { adjacentNext, audioLinked, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
 import { clamp, clipContains, clipEnd, frameUs, sourceSpan } from '../model/time';
-import type { Clip, ClipPatch, Id, Project, Track, TrackKind, TransitionType, Us } from '../model/types';
+import type { AnimationSlot, Clip, ClipAnimation, ClipPatch, Id, Project, Track, TrackKind, TransitionType, Us } from '../model/types';
+import { ANIM_LIMITS } from '../engine/animations';
 
 export interface EditCtx {
   magnet: boolean;
@@ -49,6 +50,8 @@ export function normalize(p: Project, ctx: EditCtx): void {
           const room = c.duration - (c.animationIn?.duration ?? 0);
           c.animationOut.duration = clamp(Math.round(c.animationOut.duration), 0, room);
         }
+        if (c.animationCombo) c.animationCombo.duration = clamp(Math.round(c.animationCombo.duration), 0, c.duration);
+        if (c.animationLoop) c.animationLoop.duration = clamp(Math.round(c.animationLoop.duration), ANIM_LIMITS.loopMinUs, ANIM_LIMITS.loopMaxUs);
       }
       if (c.type === 'video' || c.type === 'audio') {
         c.audio.fadeIn = clamp(Math.round(c.audio.fadeIn), 0, c.duration);
@@ -368,6 +371,7 @@ export function splitClip(p: Project, clipId: Id, t: Us): Id | null {
   if (a.type !== 'audio' && b.type !== 'audio') {
     a.animationOut = null;
     b.animationIn = null;
+    b.animationCombo = null; // the combo plays from the clip start: it stays on the left part
   }
   if ((a.type === 'video' || a.type === 'audio') && (b.type === 'video' || b.type === 'audio')) {
     a.audio.fadeOut = 0;
@@ -447,6 +451,11 @@ export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
       (c as Record<string, unknown>)[key] = v;
       continue;
     }
+    if (key === 'animationIn' || key === 'animationOut' || key === 'animationCombo' || key === 'animationLoop') {
+      // set even on clips saved before the field existed
+      if (c.type !== 'audio') (c as Record<string, unknown>)[key] = v === null ? null : { ...(v as object) };
+      continue;
+    }
     if (key === 'blendEnabled' || key === 'adjustEnabled') {
       if (c.type !== 'audio') (c as Record<string, unknown>)[key] = !!v;
       continue;
@@ -474,6 +483,53 @@ export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
   }
   return true;
 }
+
+/**
+ * Sets an animation slot the CapCut way. `type`: an id to apply, null to remove, undefined to
+ * keep the current one (duration-only change).
+ * - In / Out: default 0.5 s (or the slot's current duration), at least 0.1 s, at most the clip.
+ *   In + Out never exceed the clip: the slot being edited wins and the OTHER one shrinks.
+ *   Applying In or Out removes a Combo.
+ * - Combo: default = the whole clip, at most the clip. Applying it removes In and Out.
+ * - Loop (text): duration = one cycle, 0.1–5 s, default 1 s. Combines with In / Out.
+ */
+export function setClipAnimation(p: Project, clipId: Id, slot: AnimationSlot, type: string | null | undefined, duration?: Us): boolean {
+  const f = findClip(p, clipId);
+  if (!f || f.track.locked || f.clip.type === 'audio') return false;
+  const c = f.clip;
+  const key = SLOT_KEY[slot];
+  const cur = (c[key] ?? null) as ClipAnimation | null;
+  if (type === null) {
+    c[key] = null;
+    return true;
+  }
+  const id = type ?? cur?.type;
+  if (!id) return false;
+  const total = c.duration;
+  const lo = Math.min(ANIM_LIMITS.minUs, total);
+  if (slot === 'loop') {
+    const d = clamp(Math.round(duration ?? cur?.duration ?? ANIM_LIMITS.defaultLoopUs), ANIM_LIMITS.loopMinUs, ANIM_LIMITS.loopMaxUs);
+    c.animationLoop = { type: id, duration: d };
+    return true;
+  }
+  if (slot === 'combo') {
+    const d = clamp(Math.round(duration ?? cur?.duration ?? total), lo, total);
+    c.animationCombo = { type: id, duration: d };
+    c.animationIn = null;
+    c.animationOut = null;
+    return true;
+  }
+  const d = clamp(Math.round(duration ?? cur?.duration ?? ANIM_LIMITS.defaultInOutUs), lo, total);
+  c[key] = { type: id, duration: d };
+  c.animationCombo = null;
+  const otherKey = slot === 'in' ? 'animationOut' : 'animationIn';
+  const other = c[otherKey];
+  if (other && other.duration > total - d) c[otherKey] = { ...other, duration: Math.max(0, total - d) };
+  if (c[otherKey] && c[otherKey]!.duration <= 0) c[otherKey] = null;
+  return true;
+}
+
+const SLOT_KEY = { in: 'animationIn', out: 'animationOut', combo: 'animationCombo', loop: 'animationLoop' } as const;
 
 /** Changes speed; the source span stays the same, the timeline duration changes. */
 export function setSpeed(p: Project, clipId: Id, speed: number): boolean {

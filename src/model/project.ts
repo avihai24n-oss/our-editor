@@ -126,10 +126,17 @@ export function migrateProject(p: Project): Project {
     let tChanged = false;
     const clips = t.clips.map((c) => {
       if (c.type === 'audio') return c;
-      const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
-      if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean') return c;
+      const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled' | 'animationCombo' | 'animationLoop'>>;
+      if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean' && v.animationCombo !== undefined && v.animationLoop !== undefined) return c;
       tChanged = true;
-      return { ...c, blendEnabled: v.blendEnabled ?? true, adjustEnabled: v.adjustEnabled ?? true } as Clip;
+      return {
+        ...c,
+        blendEnabled: v.blendEnabled ?? true,
+        adjustEnabled: v.adjustEnabled ?? true,
+        // Animation tab v2 (Combo / text Loop slots)
+        animationCombo: v.animationCombo ?? null,
+        animationLoop: v.animationLoop ?? null,
+      } as Clip;
     });
     if (!tChanged) return t;
     changed = true;

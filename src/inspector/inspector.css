@@ -492,75 +492,142 @@
   font-size: 22px;
   color: var(--text-dim);
 }
-.anim__box {
-  width: 44%;
-  height: 44%;
-  border-radius: 4px;
-  background: linear-gradient(135deg, #2a7f85, #22d3ee);
+/* Animation tab v2: canvas thumbnails drawn by the compositor (see tabs/animThumb.ts) */
+.anim {
+  position: relative;
 }
-.anim:hover .anim__box,
-.anim.is-active .anim__box {
-  animation: 1.4s ease-in-out infinite;
+.anim__hit {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: center;
 }
-.anim:hover .anim--in.anim--fade,
-.anim.is-active .anim--in.anim--fade { animation-name: an-fade-in; }
-.anim:hover .anim--out.anim--fade,
-.anim.is-active .anim--out.anim--fade { animation-name: an-fade-out; }
-.anim:hover .anim--in.anim--zoom-in,
-.anim.is-active .anim--in.anim--zoom-in { animation-name: an-zoom-in-in; }
-.anim:hover .anim--out.anim--zoom-in,
-.anim.is-active .anim--out.anim--zoom-in { animation-name: an-zoom-in-out; }
-.anim:hover .anim--in.anim--zoom-out,
-.anim.is-active .anim--in.anim--zoom-out { animation-name: an-zoom-out-in; }
-.anim:hover .anim--out.anim--zoom-out,
-.anim.is-active .anim--out.anim--zoom-out { animation-name: an-zoom-out-out; }
-.anim:hover .anim--in.anim--slide-left,
-.anim.is-active .anim--in.anim--slide-left { animation-name: an-from-right; }
-.anim:hover .anim--out.anim--slide-left,
-.anim.is-active .anim--out.anim--slide-left { animation-name: an-to-left; }
-.anim:hover .anim--in.anim--slide-right,
-.anim.is-active .anim--in.anim--slide-right { animation-name: an-from-left; }
-.anim:hover .anim--out.anim--slide-right,
-.anim.is-active .anim--out.anim--slide-right { animation-name: an-to-right; }
-.anim:hover .anim--in.anim--slide-up,
-.anim.is-active .anim--in.anim--slide-up { animation-name: an-from-bottom; }
-.anim:hover .anim--out.anim--slide-up,
-.anim.is-active .anim--out.anim--slide-up { animation-name: an-to-top; }
-.anim:hover .anim--in.anim--slide-down,
-.anim.is-active .anim--in.anim--slide-down { animation-name: an-from-top; }
-.anim:hover .anim--out.anim--slide-down,
-.anim.is-active .anim--out.anim--slide-down { animation-name: an-to-bottom; }
-.anim:hover .anim--in.anim--rotate,
-.anim.is-active .anim--in.anim--rotate { animation-name: an-rotate-in; }
-.anim:hover .anim--out.anim--rotate,
-.anim.is-active .anim--out.anim--rotate { animation-name: an-rotate-out; }
-.anim:hover .anim--in.anim--blur,
-.anim.is-active .anim--in.anim--blur { animation-name: an-blur-in; }
-.anim:hover .anim--out.anim--blur,
-.anim.is-active .anim--out.anim--blur { animation-name: an-blur-out; }
-
-@keyframes an-fade-in { 0% { opacity: 0; } 60%, 100% { opacity: 1; } }
-@keyframes an-fade-out { 0%, 30% { opacity: 1; } 90%, 100% { opacity: 0; } }
-@keyframes an-zoom-in-in { 0% { transform: scale(0.2); opacity: 0; } 60%, 100% { transform: scale(1); opacity: 1; } }
-@keyframes an-zoom-in-out { 0%, 30% { transform: scale(1); opacity: 1; } 90%, 100% { transform: scale(1.8); opacity: 0; } }
-@keyframes an-zoom-out-in { 0% { transform: scale(1.8); opacity: 0; } 60%, 100% { transform: scale(1); opacity: 1; } }
-@keyframes an-zoom-out-out { 0%, 30% { transform: scale(1); opacity: 1; } 90%, 100% { transform: scale(0.2); opacity: 0; } }
-@keyframes an-from-right { 0% { transform: translateX(160%); } 60%, 100% { transform: translateX(0); } }
-@keyframes an-from-left { 0% { transform: translateX(-160%); } 60%, 100% { transform: translateX(0); } }
-@keyframes an-from-bottom { 0% { transform: translateY(160%); } 60%, 100% { transform: translateY(0); } }
-@keyframes an-from-top { 0% { transform: translateY(-160%); } 60%, 100% { transform: translateY(0); } }
-@keyframes an-to-left { 0%, 30% { transform: translateX(0); } 90%, 100% { transform: translateX(-160%); } }
-@keyframes an-to-right { 0%, 30% { transform: translateX(0); } 90%, 100% { transform: translateX(160%); } }
-@keyframes an-to-top { 0%, 30% { transform: translateY(0); } 90%, 100% { transform: translateY(-160%); } }
-@keyframes an-to-bottom { 0%, 30% { transform: translateY(0); } 90%, 100% { transform: translateY(160%); } }
-@keyframes an-rotate-in { 0% { transform: rotate(-180deg) scale(0.3); opacity: 0; } 60%, 100% { transform: none; opacity: 1; } }
-@keyframes an-rotate-out { 0%, 30% { transform: none; opacity: 1; } 90%, 100% { transform: rotate(180deg) scale(0.3); opacity: 0; } }
-@keyframes an-blur-in { 0% { filter: blur(8px); opacity: 0; } 60%, 100% { filter: blur(0); opacity: 1; } }
-@keyframes an-blur-out { 0%, 30% { filter: blur(0); opacity: 1; } 90%, 100% { filter: blur(8px); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .anim .anim__box {
-    animation: none !important;
-  }
+.anim:hover .anim__stage {
+  border-color: var(--border-strong);
+}
+.anim.is-active .anim__stage {
+  border-color: var(--accent);
+}
+.anim__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.anim__check {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.anim__fav {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.anim:hover .anim__fav,
+.anim__fav:focus-visible,
+.anim__fav.is-on {
+  opacity: 1;
+}
+.anim__fav.is-on {
+  color: #ffd36b;
+}
+.anim-search {
+  margin-bottom: 8px;
+}
+.anim-search input {
+  flex: 1;
+  width: auto;
+}
+.anim-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  scrollbar-width: thin;
+}
+.anim-chip {
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 12px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.anim-chip:hover {
+  color: var(--text);
+}
+.anim-chip.is-active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.anim-chip--fav {
+  padding: 4px 10px;
+}
+.anim-empty {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  padding: 12px 0;
+  text-align: center;
+}
+.anim-applied {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.anim-applied__name {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.anim-applied__name strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+.anim-hint {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  margin-left: auto;
+}
+.seg__dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 5px;
+  vertical-align: middle;
 }
 
 /* transition previews reuse the library classes; make them animate on hover/active here too */

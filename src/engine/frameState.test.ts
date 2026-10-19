@@ -97,7 +97,7 @@ describe('getFrameState', () => {
     expect(op.transform.opacity).toBe(0);
     op = getFrameState(st().project, S(0.5)).ops[0] as MediaDrawOp;
     expect(op.animation?.progress).toBe(0.5);
-    expect(op.transform.opacity).toBeGreaterThan(0.5);
+    expect(op.transform.opacity).toBeCloseTo(0.5); // Fade is linear (CapCut)
     op = getFrameState(st().project, S(2)).ops[0] as MediaDrawOp;
     expect(op.animation).toBeNull();
     expect(op.transform.opacity).toBe(1);

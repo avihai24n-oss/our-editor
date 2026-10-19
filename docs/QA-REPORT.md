@@ -16,6 +16,81 @@ Player + Render + Export.
 
 Run: `cd e2e && E2E_PORT=5391 npx playwright test`. Screenshots of every step are in `e2e/screens/`.
 
+## Animation tab (CapCut parity) — 2026-10-19
+
+**What CapCut has (research):** sub-tabs `In | Out | Combo` for video/image and `In | Out | Loop`
+for text. A search box ("People are searching …"), category chips (★ favourites, Trending, Basic,
+Light, Glitch, Mask, 3D, Vibration…), and a grid whose first tile is **None**. Tiles carry ☆
+favourite and ⤓ download overlays and a Pro diamond. Hovering a tile plays its preview, a click
+applies it and plays it in the player, and the applied tile gets a cyan outline. A **Duration**
+slider appears under the grid. Applied animations show as ramps on the clip. Combo runs over the
+clip and replaces In/Out. Loop runs for the text's whole duration, and older versions show a
+"Fast ↔ Slow" speed slider. Sources: `docs/capcut-screens/06-animation-in-library.png`,
+`docs/research/01-ui-ux.md` §2.2/§4.5,
+autoae.online/blog/how-to-do-text-animation-in-capcut-pc and capcutguide.com/capcut-text-animation.
+CapCut does not publish exact defaults. Ours are 0.5 s for In/Out (minimum 0.1 s), the whole clip
+for Combo, and 1 s per Loop cycle (0.1–5 s).
+
+**What we built**
+- **One catalogue,** `src/engine/animations.ts`: **53 In, 53 Out, 18 Combo and 15 text Loop**
+  animations. Each one is a pure function of progress that returns an `AnimFrame`
+  (offset, scale, sx/sy, skew + pivot, rotation, alpha, blur, brightness, hue, glow, RGB split,
+  slices, masks, text reveal), with named easings.
+  - In and Out are written once. Out is the time-reverse of In, mirrored, so "Slide Left" enters
+    from the right and exits to the left.
+  - The v1 ids are kept, so old projects still play.
+- **Rendering:** `getFrameState` folds the frames into the op transform plus `op.fx`.
+  `renderFrame` applies skew/scale around the pivot, the masks (clip-box fractions), the light
+  filters, the glitch passes on a scratch layer, and the typewriter reveal.
+  - The player, the export and the tile thumbnails all draw through this one path.
+- **UI:**
+  - Live canvas thumbnails, animated on hover.
+  - Clicking a tile applies it as one undo step and plays its window once in the player.
+  - ☆ favourites persist in localStorage (`our-editor:ui:animation-favorites`).
+  - Search across categories, None, a check badge on the applied tile and a dot on the sub-tab.
+  - A Duration slider (Speed for Loop).
+  - Timeline: In/Out ramps, a Combo ramp, a ∞ badge for Loop and `data-animations` on the clip.
+- **Model:**
+  - New `animationCombo` and `animationLoop` fields (default `null`); `migrateProject` fills them
+    on old projects.
+  - `AnimationType` is now a string id.
+  - The store has `setAnimation(clip, 'in'|'out'|'combo'|'loop', id|null, dur?)` and
+    `setAnimationDuration`.
+- **CapCut rules:** In + Out never exceed the clip, and the slot you edited last wins (the other
+  one shrinks). Combo removes In/Out and the reverse. On a split the Combo stays on the left part
+  and the Loop is kept on both parts.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **947 / 947 pass**. New: `src/engine/animations.test.ts`, 573 tests, every animation checked for its rest state at the right end (In p=1, Out p=0, Combo/Loop both ends), no NaN/∞ on [−0.01, 1.01] or NaN input, actually moves, continuity at 4000 steps (glitches: bounded envelope instead); `src/engine/animationState.test.ts` (clamping, Combo/Loop, undo, split, migration, frame state, renderer: pivot matrix, mask rect, brightness/glow filter, 12 glitch slices, typewriter); `src/inspector/AnimationTab.test.tsx` (sub-tabs per clip type, chips, apply + preview + None + undo, slider clamping, Combo, search, favourites persisted, text Loop) |
+| `npm run build` | passes |
+| `e2e/tab-animation.spec.ts` | pass, details below |
+| other e2e specs (smoke, flows, shortcuts, file-drop, memory, timeline-stability) | all pass, run one at a time through the browser lock |
+
+**e2e evidence** (two white 1080×1920 images on black: A = Fade In 1 s + Slide Left out 1 s,
+B = Wipe Right in 1 s). Values are luma at 7 columns across the middle row, normalised 0 = black
+frame, 1 = white frame:
+
+| time | expected | preview canvas | exported MP4 (720p, ffmpeg frame n = t·30) |
+|---|---|---|---|
+| 0.2 s fade 20 % | 0.20 everywhere | 0.202 × 7 | 0.202 × 7 |
+| 2.8 s slide-left out 80 % | white until 0.488 W | 1 1 1 0 0 0 0 | 1 1 1 0 0 0 0 |
+| 3.5 s wipe-right in 50 % | white until 0.875 W | 1 1 1 1 1 1 0 | 1 1 1 1 1 1 0 |
+
+The spec also checks:
+- Hovering a tile changes its thumbnail.
+- A click previews the animation once, and playback stops on its own.
+- The animations survive a reload.
+- The timeline indicator is shown.
+- There are no console errors.
+
+**Limits**
+- No ⤓ download button: every animation is built in.
+- "3D" is a 2D skew/scale approximation.
+- Loop and Combo are whole-clip effects, not per-character effects.
+- The preview-once has a wall-clock safety stop because headless Chromium's audio clock can stall.
+
 ## Keyboard shortcuts (CapCut parity) — 2026-10-18
 
 Every binding from `docs/research/01-ui-ux.md` §6 that a browser allows now lives in ONE table,

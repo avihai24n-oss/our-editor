@@ -67,7 +67,13 @@ real-time WebM export.
   - Blend mode and opacity, with an on/off checkbox.
 - **Audio:** Volume (dB), fade in and fade out.
 - **Speed › Standard:** 0.1×–100×, editable duration, and "Change audio pitch".
-- **Animation:** In / Out (9 each) with a duration.
+- **Animation:** CapCut's In / Out / Combo (video, image) and In / Out / Loop (text): 53 In,
+  53 Out, 18 Combo and 15 text Loop animations (fade, zoom, slides, rotate, flips, swing, shake,
+  jelly, bounce, drop, fly, stretch, blur, flash, glow, RGB split, slices, jitter, wipes, circle,
+  iris, mid-split, blinds, 3D flips/door/cube, typewriter…). Search, category chips, ☆ favourites,
+  live canvas thumbnails on hover, a one-shot player preview on click, and a Duration (Loop: Speed)
+  slider. In + Out never exceed the clip; Combo replaces In/Out. One catalogue,
+  `src/engine/animations.ts`, drives the player, the export and the thumbnails.
 - **Adjust:** a Filter with intensity, and 11 sliders with an on/off checkbox. Apply to all.
 - **Text:** content, font, size, colour, B/I/U, alignment, spacing, and stroke / background / shadow.
 - **Transition:** type, duration, Apply to all and Remove.

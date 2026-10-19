@@ -4,6 +4,8 @@ export interface SegItem<T extends string> {
   label: string;
   disabled?: boolean;
   title?: string;
+  /** Small cyan dot after the label (e.g. "an animation is applied in this slot"). */
+  dot?: boolean;
 }
 
 export function SegmentedTabs<T extends string>(props: { items: SegItem<T>[]; value: T; onChange: (id: T) => void; label?: string }) {
@@ -20,6 +22,7 @@ export function SegmentedTabs<T extends string>(props: { items: SegItem<T>[]; va
           onClick={() => props.onChange(it.id)}
         >
           {it.label}
+          {it.dot && <span className="seg__dot" aria-label="applied" />}
         </button>
       ))}
     </div>
