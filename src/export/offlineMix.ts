@@ -4,10 +4,13 @@
  * silent; hidden tracks still sound. One AudioBufferSourceNode per clip → GainNode
  * (volume dB × linear fades) → destination of an OfflineAudioContext.
  *
- * Note: in an OfflineAudioContext playbackRate changes pitch; pitch-preserved speed changes
- * need a time-stretcher (v2 backlog). Preview preserves pitch via the media element.
+ * Speed: an OfflineAudioContext playbackRate changes the pitch, but the preview keeps it (media
+ * element `preservesPitch`, CapCut's default). So clips with `preservePitch` are time-stretched
+ * with WSOLA first and played at rate 1; "Change audio pitch" clips keep the playbackRate path.
+ * The finished mix goes through a peak limiter so overlapping loud clips cannot clip.
  */
 import { dbToGain } from '../model/project';
+import { limitPeaks, stretchPreservePitch } from './audioDsp';
 import type { Id, Project } from '../model/types';
 
 export const MIX_SAMPLE_RATE = 48_000;
@@ -20,6 +23,8 @@ export interface MixClip {
   /** Source in-point, seconds. */
   inSec: number;
   speed: number;
+  /** Keep the pitch at speed ≠ 1 (CapCut "Change audio pitch" off). */
+  preservePitch: boolean;
   /** Linear gain from volume dB. */
   volume: number;
   fadeInSec: number;
@@ -47,6 +52,7 @@ export function planMix(project: Project): MixClip[] {
         durationSec: clip.duration / 1e6,
         inSec: clip.inPoint / 1e6,
         speed: clip.speed,
+        preservePitch: clip.preservePitch !== false,
         volume,
         fadeInSec: Math.min(clip.audio.fadeIn, clip.duration) / 1e6,
         fadeOutSec: Math.min(clip.audio.fadeOut, clip.duration) / 1e6,
@@ -90,20 +96,33 @@ export async function renderMix(project: Project, durationUs: number, decode: De
     const buf = await decode(c.assetId);
     if (!buf) continue;
     const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = c.speed;
     const g = ctx.createGain();
     const pts = gainPoints(c);
     g.gain.setValueAtTime(pts[0]![1], pts[0]![0]);
     for (const [t, v] of pts.slice(1)) g.gain.linearRampToValueAtTime(v, t);
     src.connect(g).connect(ctx.destination);
-    const offset = Math.min(c.inSec, Math.max(0, buf.duration - 1e-3));
-    src.start(c.startSec, offset, c.durationSec * c.speed);
+    if (c.speed !== 1 && c.preservePitch) {
+      const sr = buf.sampleRate;
+      const outLen = Math.max(1, Math.round(c.durationSec * sr));
+      const chans = Array.from({ length: buf.numberOfChannels }, (_, i) => buf.getChannelData(i));
+      const stretched = stretchPreservePitch(chans, c.inSec * sr, c.speed, outLen);
+      const sb = ctx.createBuffer(stretched.length, outLen, sr);
+      stretched.forEach((d, i) => sb.copyToChannel(d, i));
+      src.buffer = sb;
+      src.start(c.startSec, 0, c.durationSec);
+    } else {
+      src.buffer = buf;
+      src.playbackRate.value = c.speed;
+      const offset = Math.min(c.inSec, Math.max(0, buf.duration - 1e-3));
+      src.start(c.startSec, offset, c.durationSec * c.speed);
+    }
     src.stop(c.startSec + c.durationSec);
     any = true;
   }
   if (!any) return null;
-  return ctx.startRendering();
+  const mix = await ctx.startRendering();
+  limitPeaks(Array.from({ length: mix.numberOfChannels }, (_, i) => mix.getChannelData(i)), mix.sampleRate);
+  return mix;
 }
 
 /** Decoder with a per-asset cache; `load` returns the asset's file (IndexedDB blob). */

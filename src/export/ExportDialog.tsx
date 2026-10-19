@@ -57,6 +57,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const vBitrate = videoBitrate(size.width, size.height, settings.fps, settings.quality);
   const estimate = useMemo(() => estimateBytes(duration, vBitrate, true), [duration, vBitrate]);
   const running = stage.kind === 'running';
+  // no WebCodecs → runExport records WebM with MediaRecorder; say so before the user exports
+  const webm = typeof VideoEncoder === 'undefined' || typeof OffscreenCanvas === 'undefined';
 
   // cover = a snapshot of the player's current frame
   useEffect(() => {
@@ -194,11 +196,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
               </label>
               <div className="export__row">
                 <span className="export__label">Codec</span>
-                <span className="export__value">H.264</span>
+                <span className="export__value" data-testid="export-codec">{webm ? 'VP9 (fallback)' : 'H.264'}</span>
               </div>
               <div className="export__row">
                 <span className="export__label">Format</span>
-                <span className="export__value">MP4</span>
+                <span className="export__value" data-testid="export-format">{webm ? 'WebM' : 'MP4'}</span>
               </div>
               <label className="export__row">
                 <span className="export__label">Frame rate</span>
@@ -211,7 +213,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                 </select>
               </label>
               <div className="export__hint">
-                {size.width}×{size.height} · {(vBitrate / 1e6).toFixed(1)} Mbps · AAC 192 kbps
+                {size.width}×{size.height} · {(vBitrate / 1e6).toFixed(1)} Mbps · {webm ? 'Opus' : 'AAC'} 192 kbps
               </div>
             </div>
 
