@@ -205,10 +205,14 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
   frame while that clip's `<video>` element loads its first frame.
 
 **Export**
-- Speed changes also change pitch in the export; the preview keeps the pitch. Time-stretch is v2.
+- Fixed in the export audit (2026-10-19, [AUDIT-export.md](AUDIT-export.md)): speed-changed clips now
+  keep their pitch in the export (WSOLA time-stretch, like the preview), loud overlapping clips go
+  through a peak limiter instead of clipping, and the WebM fallback file now has a duration.
 - Highlights, Shadows and Sharpen are CSS-filter approximations. The WebGL colour pass is v2.
-- The WebM fallback (browsers without WebCodecs) records in real time, is not frame-exact, and its
-  file has no duration header.
+- The WebM fallback (browsers without WebCodecs) records in real time and is not frame-exact
+  (61 frames for 60, audio ≈15 ms late).
+- The AAC track runs up to ~28 ms (1344 samples, silent) past the project end: the encoder's last
+  1024-sample frame. The video track is exact.
 
 **Not built**
 - Stickers, Effects, Captions and Templates tabs are placeholders ("Coming soon").

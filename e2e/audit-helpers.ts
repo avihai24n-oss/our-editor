@@ -8,3 +8,4 @@
  */
 export * from './audit/library';
 export * from './audit/render';
+export * from './audit/export';

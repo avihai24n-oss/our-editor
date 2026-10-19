@@ -1,7 +1,8 @@
 /**
  * Fallback for browsers without WebCodecs H.264: MediaRecorder on canvas.captureStream().
- * Real time (paced by the wall clock), VP9/VP8 + Opus WebM. Not frame-exact and the WebM
- * header carries no duration (some players cannot seek) — the dialog says so.
+ * Real time (paced by the wall clock), VP9/VP8 + Opus WebM. Not frame-exact. MediaRecorder writes
+ * no duration and no cues (players could not seek), so the recording is remuxed once through
+ * Mediabunny (packets copied, not re-encoded), which writes both.
  * Pictures come from <video> elements seeked frame by frame (ElementFrameSource).
  */
 import { frameLookupSec, type FrameState, type MediaDrawOp } from '../engine/frameState';
@@ -83,7 +84,28 @@ export async function exportWebm(o: EncodeOptions): Promise<EncodeResult> {
     await ac?.close().catch(() => undefined);
   }
   if (failed) throw o.signal?.aborted ? new ExportCanceled() : failed;
-  return { blob: new Blob(chunks, { type: 'video/webm' }), mimeType, ext: 'webm' };
+  const recorded = new Blob(chunks, { type: 'video/webm' });
+  return { blob: await remuxWebm(recorded), mimeType, ext: 'webm' };
+}
+
+/** Copies a MediaRecorder WebM into a new WebM with a duration and cues. Returns the input on failure. */
+export async function remuxWebm(blob: Blob): Promise<Blob> {
+  try {
+    const { Input, BlobSource, ALL_FORMATS, Output, WebMOutputFormat, BufferTarget, Conversion } = await import('mediabunny');
+    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+    try {
+      const output = new Output({ format: new WebMOutputFormat(), target: new BufferTarget() });
+      const conv = await Conversion.init({ input, output, showWarnings: false });
+      if (!conv.isValid) return blob;
+      await conv.execute();
+      const buf = output.target.buffer;
+      return buf && buf.byteLength > 0 ? new Blob([buf], { type: 'video/webm' }) : blob;
+    } finally {
+      input.dispose();
+    }
+  } catch {
+    return blob;
+  }
 }
 
 /** Frame source for the fallback: one <video> per clip, seeked to each frame's source time. */

@@ -61,7 +61,9 @@ describe('planMix', () => {
     const pa = plan.find((p) => p.clipId === ac)!;
     expect(pa.volume).toBeCloseTo(0.501, 2);
     expect(pa).toMatchObject({ startSec: 2, fadeInSec: 1, fadeOutSec: 2, speed: 1 });
-    expect(plan.find((p) => p.clipId === vc)).toMatchObject({ speed: 2, durationSec: 5, inSec: 0 });
+    expect(plan.find((p) => p.clipId === vc)).toMatchObject({ speed: 2, durationSec: 5, inSec: 0, preservePitch: true });
+    st().updateClip(vc, { preservePitch: false }); // "Change audio pitch" on → playbackRate path
+    expect(planMix(st().project).find((p) => p.clipId === vc)?.preservePitch).toBe(false);
 
     st().updateClip(ac, { audio: { muted: true } });
     expect(planMix(st().project).map((p) => p.clipId)).toEqual([vc]);
