@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DND_ASSET_MIME, DND_MIME } from '../timeline/dnd';
-import { isOsFileDrag, kindOfFile, partitionFiles, skippedMessage } from './dropFiles';
+import { importSummary, isOsFileDrag, kindOfFile, partitionFiles, skippedMessage } from './dropFiles';
 
 const f = (name: string, type = '') => ({ name, type });
 
@@ -52,5 +52,15 @@ describe('skippedMessage', () => {
     expect(skippedMessage(['a.pdf'])).toMatch(/Skipped 1 unsupported file: a\.pdf/);
     expect(skippedMessage(['a.pdf', 'b.txt', 'c.doc', 'd.zip'])).toMatch(/Skipped 4 unsupported files: a\.pdf, b\.txt, c\.doc and 1 more/);
     expect(skippedMessage([], ['Cannot read x.mp4'])).toMatch(/Cannot read x\.mp4/);
+  });
+});
+
+describe('importSummary', () => {
+  it('counts new, reused and relinked files', () => {
+    expect(importSummary({ assetIds: ['a', 'b'], reused: [], relinked: [] })).toBe('Imported 2 files');
+    expect(importSummary({ assetIds: ['a'], reused: ['a'], relinked: [] }, () => 'clip.mp4')).toBe('clip.mp4 is already in the Media pool');
+    expect(importSummary({ assetIds: ['a', 'b', 'c'], reused: ['a', 'b'], relinked: [] })).toBe('Imported 1 file. 2 files are already in the Media pool');
+    expect(importSummary({ assetIds: ['a'], reused: [], relinked: ['a'] })).toBe('Relinked 1 lost file');
+    expect(importSummary({ assetIds: [], reused: [], relinked: [] })).toBeNull();
   });
 });

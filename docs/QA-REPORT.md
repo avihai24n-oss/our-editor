@@ -360,3 +360,25 @@ dropdown, the toolbar icon, the cursors and (through `shortcutDefs.ts`) the keys
 | `e2e/tool-modes.spec.ts` (new) | pass: B → blade cursor on clips and lanes, handles hidden, cut line inside the hovered clip with timecode tip, follows the mouse, snaps to the playhead, click splits (4 clips, one undo step), still armed, a drag in split mode moves nothing, ruler scrubs; A → grab cursor, no line, drag moves a clip again; Esc → Select; ⌘B keeps Select; B works with the zoom slider focused, not in the project-name field; dropdown lists Select A / Split B / Select leftward [ / Select rightward ]; rightward hover line + outlined targets, click selects; `[` selects left of the playhead and arms leftward, click on clip / empty lane re-anchors; Esc / A / menu back to Select |
 | `e2e/shortcuts.spec.ts` | pass (now also checks that `[` / `]` arm the side tools and A leaves them) |
 | `e2e/smoke`, `timeline-stability`, `file-drop`, `flows`, `memory` | all pass, run one spec at a time (one Chromium, workers=1, own Vite on :5467; peak Chromium RSS 1.47 GB) |
+
+## Library functional audit — 2026-10-19
+
+Every Library control was audited against its real effect: the store, IndexedDB, the timeline DOM,
+player-canvas pixels read with `getImageData`, and the state after a reload. The full table is in
+**[AUDIT-library.md](AUDIT-library.md)**. `e2e/audit-library.spec.ts` has 14 tests; 4 of them fail
+on the previous code. Fixed:
+
+- delete + ⌘Z left orphan clips and destroyed the media (removing an asset is now one undo step,
+  and media is freed only when no history step can reach it);
+- clips on locked tracks survived the deletion of their asset;
+- "+" added clips to a locked main track;
+- the same file imported twice made duplicate tiles;
+- "Media lost" could not be relinked;
+- Delete on a focused tile deleted the timeline selection;
+- orphan blobs are swept at boot.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean / passes |
+| `npm test` | 358 / 358 pass (24 files; new `src/store/assetLifecycle.test.ts`) |
+| e2e, one spec at a time, workers = 1 | smoke 1, flows 1, file-drop 2, shortcuts 2, timeline-stability 7, memory 2, audit-library 14: all pass |

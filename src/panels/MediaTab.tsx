@@ -7,7 +7,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { usedAssetIds } from '../model/project';
 import { useEditor } from '../store';
 import { withShortcut } from '../timeline/shortcutDefs';
-import { consumeAssetHighlight, consumeImportRequest, onAppEvent } from '../ui/appEvents';
+import { consumeAssetHighlight, consumeImportRequest, onAppEvent, requestAssetHighlight } from '../ui/appEvents';
+import { importSummary } from '../media/dropFiles';
 import { Icon } from '../ui/Icon';
 import { AssetTile } from './AssetTile';
 import { ComingSoon, GridLabel, LibraryBody, useFlash, type SidebarItem } from './LibraryLayout';
@@ -96,9 +97,14 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
       if (!files.length) return;
       setBusy((n) => n + files.length);
       try {
-        const { assetIds, errors } = await importFiles(files);
-        if (errors.length) showFlash(errors.length === 1 ? errors[0]! : `${errors.length} files could not be imported: ${errors[0]}`, 'error');
-        else if (assetIds.length) showFlash(`Imported ${assetIds.length} file${assetIds.length > 1 ? 's' : ''}`);
+        const r = await importFiles(files);
+        if (r.errors.length) showFlash(r.errors.length === 1 ? r.errors[0]! : `${r.errors.length} files could not be imported: ${r.errors[0]}`, 'error');
+        else {
+          const info = importSummary(r, (id) => useEditor.getState().project.assets[id]?.name);
+          if (info) showFlash(info);
+        }
+        // files that were already here: point at their tiles
+        if (r.reused.length) requestAssetHighlight(r.reused);
       } catch (e) {
         showFlash(e instanceof Error ? e.message : 'Import failed', 'error');
       } finally {

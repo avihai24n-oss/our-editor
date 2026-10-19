@@ -10,11 +10,11 @@
  * - only `project` changes schedule a save; the save itself only touches `saveStatus`, so a save
  *   can never schedule another one.
  */
-import { restoreAssetUrls } from '../media/import';
+import { blobsBeingWritten, restoreAssetUrls } from '../media/import';
 import { MEMORY_LIMITS } from '../media/memory';
 import type { Project } from '../model/types';
 import { useEditor } from './index';
-import { loadLastProject, saveProject } from './persistence';
+import { deleteBlob, listBlobKeys, loadLastProject, referencedBlobKeys, saveProject } from './persistence';
 
 const DEBOUNCE_MS = MEMORY_LIMITS.autosaveDebounceMs;
 const MIN_GAP_MS = MEMORY_LIMITS.autosaveMinGapMs;
@@ -109,9 +109,27 @@ export function bootProject(): Promise<boolean> {
   return booting;
 }
 
+/**
+ * Deletes stored media no saved project and no live asset refers to. A deleted asset keeps its
+ * blob while ⌘Z can still bring it back; once the tab is closed that blob is unreachable, so the
+ * next boot sweeps it. Returns how many blobs were deleted.
+ */
+export async function sweepOrphanBlobs(): Promise<number> {
+  const [keys, saved] = await Promise.all([listBlobKeys(), referencedBlobKeys()]);
+  const live = new Set(Object.values(useEditor.getState().project.assets).map((a) => a.blobKey));
+  let n = 0;
+  for (const k of keys) {
+    if (saved.has(k) || live.has(k) || blobsBeingWritten().has(k)) continue;
+    await deleteBlob(k);
+    n++;
+  }
+  return n;
+}
+
 async function doBoot(): Promise<boolean> {
   try {
     const p = await loadLastProject();
+    void sweepOrphanBlobs().catch((e) => console.warn('Could not sweep unused media', e));
     if (!p) return false;
     useEditor.getState().setProject(p);
     const missing = await restoreAssetUrls(p);

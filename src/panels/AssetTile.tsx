@@ -120,7 +120,16 @@ export const AssetTile = memo(function AssetTile({ asset, added, view, selected,
       data-asset-id={asset.id}
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && !asset.missing) onAdd(asset.id);
+        // handled here, so the window shortcuts do not also run (Enter = the split-caption toast,
+        // Delete = delete the TIMELINE selection)
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (!asset.missing) onAdd(asset.id);
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault();
+          onRemove(asset.id);
+        }
       }}
     >
       <div className="atile__thumb">

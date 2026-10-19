@@ -44,7 +44,11 @@ real-time WebM export.
     "Media lost" state.
   - Search, grid/list view and sort.
   - The hover "+" adds a file at the playhead; tiles can also be dragged to the timeline.
-  - Right-click → Delete.
+  - Right-click → Delete (or Delete / Backspace on a focused tile). Deleting removes the file and
+    its clips as one undo step: ⌘Z brings both back.
+  - Importing a file that is already in the pool does not add it twice. Importing a "Media lost"
+    file again relinks it.
+  - Functional audit of every Library control: [docs/AUDIT-library.md](docs/AUDIT-library.md).
 - **Text:** "Default text" plus 9 styled presets (click or drag).
 - **Transitions:** 11 transitions.
 - **Filters:** 10 looks.

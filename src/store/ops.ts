@@ -466,6 +466,23 @@ export function deleteClips(p: Project, ids: readonly Id[]): number {
   return n;
 }
 
+/**
+ * Removes every clip that uses `assetId` (the asset is leaving the bin), on locked tracks too: a
+ * clip must never outlive its media. Their transitions go with them. Returns how many.
+ */
+export function removeAssetClips(p: Project, assetId: Id): number {
+  let n = 0;
+  for (const track of p.tracks) {
+    const gone = new Set(track.clips.filter((c) => c.type !== 'text' && c.assetId === assetId).map((c) => c.id));
+    if (!gone.size) continue;
+    track.clips = track.clips.filter((c) => !gone.has(c.id));
+    track.transitions = track.transitions.filter((t) => !gone.has(t.fromClipId) && !gone.has(t.toClipId));
+    n += gone.size;
+  }
+  if (n) removeEmptyTracks(p);
+  return n;
+}
+
 /** Delete-left (Q): removes the part of the clip before t. */
 export function deleteLeft(p: Project, clipId: Id, t: Us, ctx: EditCtx): boolean {
   const f = findClip(p, clipId);

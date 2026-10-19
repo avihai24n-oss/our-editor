@@ -84,6 +84,17 @@ export async function hasBlob(key: Id): Promise<boolean> {
   return n > 0;
 }
 
+export async function listBlobKeys(): Promise<Id[]> {
+  const keys = await run<IDBValidKey[]>('blobs', 'readonly', (s) => s.getAllKeys());
+  return keys.map(String);
+}
+
+/** Every blob key referenced by a saved project. */
+export async function referencedBlobKeys(): Promise<Set<Id>> {
+  const all = await run<Project[]>('projects', 'readonly', (s) => s.getAll() as IDBRequest<Project[]>);
+  return new Set(all.flatMap((p) => Object.values(p.assets ?? {}).map((a) => a.blobKey)));
+}
+
 export async function deleteBlob(key: Id): Promise<void> {
   await run('blobs', 'readwrite', (s) => s.delete(key));
 }

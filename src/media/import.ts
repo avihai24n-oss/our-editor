@@ -113,15 +113,42 @@ export async function importFile(file: File): Promise<MediaAsset> {
   if (reused && known) {
     asset.blobKey = known;
   } else {
+    writing.add(asset.blobKey);
     try {
       await putBlob(asset.blobKey, file);
       storedBySignature.set(sig, asset.blobKey);
     } catch (e) {
       console.warn('Could not persist media blob; it will be lost on reload', e);
+    } finally {
+      // still protected until the asset is in the store (the caller adds it right away)
+      queueMicrotask(() => writing.delete(asset.blobKey));
     }
   }
   registerAssetUrl(asset.id, file);
   return asset;
+}
+
+/** Blob keys being written by an import right now (the orphan sweep must not touch them). */
+const writing = new Set<Id>();
+export const blobsBeingWritten = (): ReadonlySet<Id> => writing;
+
+/**
+ * Gives a "Media lost" asset its file back (the user imported the same file again): the file is
+ * stored under the asset's blob key and its URL registered, so every clip using it plays again.
+ */
+export async function relinkMedia(asset: MediaAsset, file: File): Promise<void> {
+  const kind = kindOfFile(file);
+  if (kind !== asset.kind) throw new Error(`Cannot relink ${asset.name}: ${file.name} is not a ${asset.kind} file`);
+  writing.add(asset.blobKey);
+  try {
+    await putBlob(asset.blobKey, file);
+    storedBySignature.set(fileSignature(file), asset.blobKey);
+  } catch (e) {
+    console.warn('Could not persist media blob; it will be lost on reload', e);
+  } finally {
+    writing.delete(asset.blobKey);
+  }
+  registerAssetUrl(asset.id, file);
 }
 
 /** name|size|lastModified → blobKey of a copy already written this session. */

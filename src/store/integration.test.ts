@@ -135,12 +135,17 @@ describe('enable flags', () => {
 });
 
 describe('onAssetRemoved', () => {
-  it('runs hooks when an asset is removed', () => {
+  it('runs hooks once an asset is gone from the document AND the undo history', () => {
     const a = image();
     st().addAssets([a]);
     const seen: string[] = [];
     const off = onAssetRemoved((id) => seen.push(id));
     st().removeAsset(a.id);
+    expect(seen).toEqual([]); // ⌘Z can still bring it back: its media must stay
+    st().undo();
+    st().redo();
+    expect(seen).toEqual([]);
+    st().newProject(); // history gone: now it is unreachable
     off();
     expect(seen).toEqual([a.id]);
   });

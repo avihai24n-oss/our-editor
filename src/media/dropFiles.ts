@@ -53,3 +53,20 @@ export function skippedMessage(skippedNames: readonly string[], failed: readonly
   if (failed.length) parts.push(failed.length === 1 ? failed[0]! : `${failed.length} files could not be read`);
   return parts.length ? `${parts.join('. ')}. Video, audio and image files can be imported.` : null;
 }
+
+/**
+ * Info text after an import that went through (errors are reported separately): how many files are
+ * new, how many were already in the Media pool (not imported twice) and how many lost media got
+ * their file back. Null when nothing happened.
+ */
+export function importSummary(r: { assetIds: readonly string[]; reused: readonly string[]; relinked: readonly string[] }, nameOf: (id: string) => string | undefined = () => undefined): string | null {
+  const fresh = r.assetIds.length - r.reused.length - r.relinked.length;
+  const parts: string[] = [];
+  if (fresh > 0) parts.push(`Imported ${fresh} file${fresh > 1 ? 's' : ''}`);
+  if (r.relinked.length) parts.push(`Relinked ${r.relinked.length} lost file${r.relinked.length > 1 ? 's' : ''}`);
+  if (r.reused.length) {
+    const one = r.reused.length === 1 ? nameOf(r.reused[0]!) : undefined;
+    parts.push(one ? `${one} is already in the Media pool` : `${r.reused.length} files are already in the Media pool`);
+  }
+  return parts.length ? parts.join('. ') : null;
+}

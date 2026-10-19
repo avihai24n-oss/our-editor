@@ -12,7 +12,7 @@
  */
 import { produce } from 'immer';
 import { create } from 'zustand';
-import { importFiles as importMediaFiles } from '../media/import';
+import { importFiles as importMediaFiles, relinkMedia } from '../media/import';
 import { aspectSize, LIMITS } from '../model/catalog';
 import { createProject, makeAnimation } from '../model/defaults';
 import { findClip, findTransition, mainTrack, migrateProject } from '../model/project';
@@ -50,6 +50,15 @@ export interface SaveStatus {
   lastSavedAt: number | null;
   saving: boolean;
   error: string | null;
+}
+
+export interface ImportResult {
+  assetIds: Id[];
+  errors: string[];
+  /** Files that were already in the bin: their existing asset ids. */
+  reused: Id[];
+  /** "Media lost" assets that got their file back. */
+  relinked: Id[];
 }
 
 export interface EditorState {
@@ -90,11 +99,21 @@ export interface EditorState {
   setAspectRatio: (aspect: AspectRatio) => void;
 
   // ---- media
-  /** Adds probed assets to the bin. Not an undo step (assets survive undo). */
+  /**
+   * Adds probed assets to the bin. Not an undo step: the asset is written into the current
+   * document AND every undo/redo snapshot, so undo/redo never makes an imported file disappear.
+   */
   addAssets: (assets: MediaAsset[]) => void;
-  /** Browser: probe + store blobs + addAssets. Resolves with the new asset ids and errors. */
-  importFiles: (files: Iterable<File>) => Promise<{ assetIds: Id[]; errors: string[] }>;
-  /** Removes an asset and every clip that uses it. */
+  /**
+   * Browser: probe + store blobs + addAssets. A file already in the bin (same name and size) is
+   * not imported twice: its existing asset id is returned (`reused`), and a "Media lost" asset is
+   * relinked to the file instead (`relinked`). `assetIds` = one id per imported file, in order.
+   */
+  importFiles: (files: Iterable<File>) => Promise<ImportResult>;
+  /**
+   * Removes an asset and every clip that uses it (locked tracks included) as ONE undo step.
+   * ⌘Z brings both back; the media is only freed once no undo/redo step holds the asset.
+   */
   removeAsset: (assetId: Id) => void;
   setAssetsMissing: (assetIds: Id[]) => void;
 
@@ -284,11 +303,20 @@ const pushPast = (past: Project[], p: Project, magnet: boolean): Project[] => {
   return capHistory([...past, p]);
 };
 
-/** Undo/redo keep the media bin: assets of the current doc are carried into the restored one. */
-const withAssets = (target: Project, current: Project): Project =>
-  produce(target, (d) => {
-    for (const [id, a] of Object.entries(current.assets)) if (!d.assets[id]) d.assets[id] = a;
-  });
+/**
+ * Applies a media-bin change (import, missing flags) to the current document and every undo /
+ * redo snapshot: bin changes are not undo steps, so undo must neither drop an import nor bring
+ * back a "Media lost" flag. Snapshots without a change keep their identity (immer).
+ */
+function patchAllDocs(s: EditorState, recipe: (d: Project) => void): Pick<EditorState, 'project' | 'past' | 'future' | 'txBase'> {
+  const p = (x: Project) => {
+    const y = produce(x, recipe);
+    // keep the magnet-at-snapshot record (redo of "magnet on") across the bin patch
+    if (y !== x && magnetAt.has(x)) magnetAt.set(y, magnetAt.get(x)!);
+    return y;
+  };
+  return { project: p(s.project), past: s.past.map(p), future: s.future.map(p), txBase: s.txBase ? p(s.txBase) : null };
+}
 
 /** Targets for Q/W: selected clips under the playhead, else the main-track clip under it. */
 function qwTargets(s: EditorState): Id[] {
@@ -303,8 +331,9 @@ function qwTargets(s: EditorState): Id[] {
 }
 
 /**
- * Callbacks run when an asset leaves the bin (free cached thumbnails, waveform peaks, URLs).
- * Media caches register themselves here so the store does not import DOM code.
+ * Callbacks run when an asset is no longer reachable: not in the current document and not in any
+ * undo / redo snapshot (so ⌘Z can no longer bring it back). The media layer frees the object URL
+ * and the stored blob there. Media caches register themselves so the store does not import DOM code.
  */
 type AssetRemovedHook = (assetId: Id, asset: MediaAsset | undefined) => void;
 const assetRemovedHooks = new Set<AssetRemovedHook>();
@@ -312,6 +341,25 @@ export function onAssetRemoved(fn: AssetRemovedHook): () => void {
   assetRemovedHooks.add(fn);
   return () => assetRemovedHooks.delete(fn);
 }
+
+type DocState = Pick<EditorState, 'project' | 'past' | 'future' | 'txBase'>;
+
+/** Every asset reachable from the document or the undo / redo history, by id. */
+function collectLiveAssets(s: DocState): Map<Id, MediaAsset> {
+  const out = new Map<Id, MediaAsset>();
+  const seen = new Set<object>();
+  for (const doc of [s.project, s.txBase, ...s.past, ...s.future]) {
+    if (!doc || seen.has(doc.assets)) continue; // snapshots share their asset maps (immer)
+    seen.add(doc.assets);
+    for (const [id, a] of Object.entries(doc.assets)) if (!out.has(id)) out.set(id, a);
+  }
+  return out;
+}
+
+let liveAssetMap = new Map<Id, MediaAsset>();
+
+/** Assets reachable from the document or the history (the blob-sharing check uses it). */
+export const liveAssets = (): ReadonlyMap<Id, MediaAsset> => liveAssetMap;
 
 export const useEditor = create<EditorState>()((set, get) => ({
   project: createProject(),
@@ -353,40 +401,66 @@ export const useEditor = create<EditorState>()((set, get) => ({
     }),
 
   // ---- media
-  addAssets: (assets) =>
-    set((s) => ({
-      project: produce(s.project, (d) => {
+  addAssets: (assets) => {
+    if (!assets.length) return;
+    set((s) =>
+      patchAllDocs(s, (d) => {
         for (const a of assets) d.assets[a.id] = a;
       }),
-    })),
+    );
+  },
   importFiles: async (files) => {
-    const { assets, errors } = await importMediaFiles(files);
-    get().addAssets(assets);
-    return { assetIds: assets.map((a) => a.id), errors };
+    const result: ImportResult = { assetIds: [], errors: [], reused: [], relinked: [] };
+    const bySig = new Map<string, Id>();
+    const sigOf = (name: string, size: number) => `${name}\u0000${size}`;
+    for (const file of files) {
+      const sig = sigOf(file.name, file.size);
+      const known =
+        bySig.get(sig) ?? Object.values(get().project.assets).find((a) => sigOf(a.name, a.size) === sig)?.id;
+      if (known) {
+        const a = get().project.assets[known];
+        if (a?.missing) {
+          try {
+            await relinkMedia(a, file);
+            const still = Object.values(get().project.assets).filter((x) => x.missing && x.id !== known).map((x) => x.id);
+            get().setAssetsMissing(still);
+            result.relinked.push(known);
+          } catch (e) {
+            result.errors.push(e instanceof Error ? e.message : String(e));
+            continue;
+          }
+        } else if (!bySig.has(sig)) result.reused.push(known);
+        bySig.set(sig, known);
+        if (!result.assetIds.includes(known)) result.assetIds.push(known);
+        continue;
+      }
+      const { assets, errors } = await importMediaFiles([file]);
+      result.errors.push(...errors);
+      const a = assets[0];
+      if (!a) continue;
+      get().addAssets([a]);
+      bySig.set(sig, a.id);
+      result.assetIds.push(a.id);
+    }
+    return result;
   },
   removeAsset: (assetId) => {
-    const removed = get().project.assets[assetId];
-    // Removing from the bin is not undoable (matches CapCut), clips using it are removed as an edit.
-    const ids = get()
-      .project.tracks.flatMap((t) => t.clips)
-      .filter((c) => c.type !== 'text' && c.assetId === assetId)
-      .map((c) => c.id);
-    if (ids.length) edit(set, get, (d) => ops.deleteClips(d, ids));
-    set((s) => ({
-      project: produce(s.project, (d) => {
-        delete d.assets[assetId];
-      }),
-      past: s.past.map((p) => (p.assets[assetId] ? produce(p, (d) => void delete d.assets[assetId]) : p)),
-      future: s.future.map((p) => (p.assets[assetId] ? produce(p, (d) => void delete d.assets[assetId]) : p)),
-    }));
-    for (const fn of assetRemovedHooks) fn(assetId, removed);
+    if (!get().project.assets[assetId]) return;
+    edit(set, get, (d) => {
+      ops.removeAssetClips(d, assetId);
+      delete d.assets[assetId];
+    });
   },
   setAssetsMissing: (assetIds) =>
-    set((s) => ({
-      project: produce(s.project, (d) => {
-        for (const a of Object.values(d.assets)) a.missing = assetIds.includes(a.id) || undefined;
+    set((s) =>
+      patchAllDocs(s, (d) => {
+        for (const a of Object.values(d.assets)) {
+          if (assetIds.includes(a.id)) {
+            if (!a.missing) a.missing = true;
+          } else if (a.missing !== undefined) delete a.missing;
+        }
       }),
-    })),
+    ),
 
   // ---- clips
   addClip: (assetId, opts = {}) => {
@@ -670,7 +744,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const prev = past[past.length - 1];
     if (!prev) return;
     magnetAt.set(project, get().magnet);
-    set({ project: withAssets(prev, project), past: past.slice(0, -1), future: [project, ...future], playing: false, magnet: magnetFor(prev, get().magnet) });
+    set({ project: prev, past: past.slice(0, -1), future: [project, ...future], playing: false, magnet: magnetFor(prev, get().magnet) });
     pruneSelection(set, get);
   },
   redo: () => {
@@ -680,7 +754,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const next = future[0];
     if (!next) return;
     const magnet = magnetAt.get(next) === true && mainPacked(next) ? true : magnetFor(next, get().magnet);
-    set({ project: withAssets(next, project), past: pushPast(past, project, get().magnet), future: future.slice(1), playing: false, magnet });
+    set({ project: next, past: pushPast(past, project, get().magnet), future: future.slice(1), playing: false, magnet });
     pruneSelection(set, get);
   },
   beginTx: () => {
@@ -692,17 +766,27 @@ export const useEditor = create<EditorState>()((set, get) => ({
     if (!s.txBase) return;
     if (s.txBase === s.project) set({ txBase: null });
     // a gesture that ended where it started (slider back to its value, trim back to its edge) is no step
-    else if (sameValue({ ...s.txBase, updatedAt: 0 }, { ...s.project, updatedAt: 0 })) set({ project: withAssets(s.txBase, s.project), txBase: null });
+    else if (sameValue({ ...s.txBase, updatedAt: 0 }, { ...s.project, updatedAt: 0 })) set({ project: s.txBase, txBase: null });
     else set({ past: pushPast(s.past, s.txBase, s.magnet), future: [], txBase: null });
   },
   cancelTx: () => {
     const s = get();
     if (!s.txBase) return;
-    set({ project: withAssets(s.txBase, s.project), txBase: null, magnet: magnetFor(s.txBase, s.magnet) });
+    set({ project: s.txBase, txBase: null, magnet: magnetFor(s.txBase, s.magnet) });
     pruneSelection(set, get);
   },
 
   setSaveStatus: (st) => set((s) => ({ saveStatus: { ...s.saveStatus, ...st } })),
 }));
+
+// Fire onAssetRemoved for assets that left the document and the whole history.
+liveAssetMap = collectLiveAssets(useEditor.getState());
+useEditor.subscribe((s, prev) => {
+  if (s.project === prev.project && s.past === prev.past && s.future === prev.future && s.txBase === prev.txBase) return;
+  const next = collectLiveAssets(s);
+  const gone = [...liveAssetMap].filter(([id]) => !next.has(id));
+  liveAssetMap = next;
+  for (const [id, a] of gone) for (const fn of assetRemovedHooks) fn(id, a);
+});
 
 export * from './selectors';
