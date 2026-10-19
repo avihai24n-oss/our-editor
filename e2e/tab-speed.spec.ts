@@ -228,14 +228,19 @@ for (const cs of CASES) {
     expect(Math.abs(out.length - nFrames)).toBeLessThanOrEqual(1);
     const picks = new Set<number>();
     for (let k = 0; k < 16; k++) picks.add(Math.min(out.length - 1, Math.round(((out.length - 1) * k) / 15)));
+    /** [output frame, expected source position in frames, matched source frame] */
     const frameReport: [number, number, number][] = [];
     for (const n of picks) {
       const tUs = Math.round((n * 1e6) / FPS);
-      const want = Math.floor((expectedSource(c, tUs) / 1e6) * FPS + 1e-6);
+      // the decoder shows the last frame whose timestamp ≤ the source time
+      const pos = (expectedSource(c, tUs) / 1e6) * FPS;
+      const want = Math.floor(pos + 1e-3);
+      // within 2 ms of a source-frame boundary the neighbour is acceptable (µs rounding of the
+      // timeline time and of the integral); everywhere else the frame must be exact
+      const nearEdge = Math.abs(pos - Math.round(pos)) < 0.06;
       const got = bestMatch(out[n]!, srcRefs);
-      frameReport.push([n, want, got]);
-      // ±1 source frame: decoder timestamp rounding and, at > 1x, two source frames per output frame
-      expect(Math.abs(got - want), `output frame ${n} (t=${(tUs / 1e6).toFixed(3)}s): source frame ${got}, expected ${want}`).toBeLessThanOrEqual(1);
+      frameReport.push([n, Number(pos.toFixed(3)), got]);
+      expect(Math.abs(got - want), `output frame ${n} (t=${(tUs / 1e6).toFixed(3)}s): source frame ${got}, expected ${want} (pos ${pos.toFixed(3)})`).toBeLessThanOrEqual(nearEdge ? 1 : 0);
     }
 
     // ---- audio pitch: 440 Hz kept unless "Change audio pitch" is on
