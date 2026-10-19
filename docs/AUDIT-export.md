@@ -1,6 +1,6 @@
 # Export audit — does the MP4 match the project?
 
-Date: 2026-10-19. Branch `agent/qa-export`. Spec: `e2e/audit-export.spec.ts` (18 tests, all pass),
+Date: 2026-10-19. Branch `agent/qa-export`. Spec: `e2e/audit-export.spec.ts` (19 tests, all pass),
 helpers: `e2e/audit-helpers.ts`. Browser: Playwright bundled Chromium (headless shell, software
 H.264 encoder → `yuvj420p`), macOS, Apple Silicon.
 
@@ -48,6 +48,7 @@ Run: `cd e2e && E2E_PORT=5180 npx playwright test audit-export.spec.ts` (≈1.2 
 | 16 | Filter (Vintage 80 %) + 7 adjust sliders + text (stroke, bg, shadow, rotation) | = preview | MAD ≤ 1.81, PSNR ≥ 32.3 | pass |
 | 17 | Animations (zoom-in, slide-left out, rotate-in text) + transitions (mix, wipe-left, slide-up) | = preview | 9 times: MAD ≤ 1.72, PSNR ≥ 36.5 | pass |
 | 18 | Ratio letterboxing (16:9, 1:1, 4:5, 3:4) | pillarbox bars black, picture centred | bars luma 0.0; barcode read in the expected box; PSNR ≥ 35.7 | pass |
+| 18b | Saturated colours (75 % smptebars, 6 bars) vs ffmpeg BT.601 reference: 1080p tagged "BT.601 matrix" only, and 640×360 untagged | preview = export = reference | **before: preview red 208,19,1 vs export 190,0,0** (HD clip; ref 191,0,1); SD untagged export cyan 15,188,187 (ref 0,191,190) → after: max error export **3**, preview **2** levels on every bar | **fixed** |
 | **Sound** (reference −15.05 dBFS) |||||
 | 19 | Volume 0 / −6 / +6 / −12 dB | −15.05 / −21.05 / −9.05 / −27.05 | −15.05 / −21.05 / −9.05 / −27.05 (volumedetect −15.0 / −21.0 / −9.1 / −27.1) | pass |
 | 20 | Volume −60 dB | silence | −120 dB (digital zero) | pass |
@@ -62,7 +63,7 @@ Run: `cd e2e && E2E_PORT=5180 npx playwright test audit-export.spec.ts` (≈1.2 
 | 28 | Cancel a 60 s 1080p export after 60 frames | no download, no error, dialog idle | 0 downloads in 3 s, no error, back to the form in 65–68 ms | pass |
 | 29 | Two exports in a row | identical | 60 + 60 frames; frame 40 PSNR 50.9 dB between them | pass |
 | 30 | Export after undo (speed 2× → undo) | original 2 s, 60 frames | 2.000 s, 60 frames, frame 40 PSNR 51.3 vs the first export | pass |
-| 31 | 60 s 1080p project memory | frame-exact, bounded RSS | 1800 frames, 60.000 s, 13.4 s (4.5× real time), 45 MB; browser tree RSS 1447 → **peak 1903 MB (+456 MB)**, JS heap peak 30 MB | pass |
+| 31 | 60 s 1080p project memory | frame-exact, bounded RSS | 1800 frames, 60.000 s, 10–13 s (4.5–6× real time), 45 MB; browser tree RSS peak 1903–2383 MB over 3 runs (export adds +185…+456 MB), JS heap peak 30–40 MB | pass |
 | 32 | WebM fallback (VideoEncoder/AudioEncoder removed) | WebM with a duration, dialog says WebM | **before: no duration (`N/A`), dialog said "MP4"** → after: 1.996 s duration, VP9 + Opus 720×1280, dialog "WebM" | **fixed** |
 
 ## Bugs fixed
@@ -84,9 +85,31 @@ Run: `cd e2e && E2E_PORT=5180 npx playwright test audit-export.spec.ts` (≈1.2 
 4. **The Export dialog said "H.264 / MP4 / AAC" even when the browser would produce WebM.** It now
    shows "VP9 (fallback) / WebM / Opus" when WebCodecs is missing.
 
+5. **Preview and export decoded the same clip with different YUV matrices** (lead from the Adjust
+   agent). Measured in Chromium on tag variants of smptebars:
+   | stream | `<video>` (preview) | WebCodecs (export) | ffmpeg / intended |
+   |---|---|---|---|
+   | matrix tagged, primaries + transfer tagged | tag | tag | tag |
+   | matrix tagged only (ffmpeg's default output), height ≥ 720 | **BT.709 (ignores the tag)** | tag | tag |
+   | matrix tagged only, height < 720 | BT.601 (ignores the tag) | tag | tag |
+   | untagged, height < 720 | BT.601 | **BT.709** | BT.601 |
+   | untagged, height ≥ 720 | BT.709 | BT.709 | BT.709 |
+
+   So for the reported clip the **preview** was wrong (ffmpeg with the tagged BT.601 matrix gives
+   191,0,1 = the export), and for untagged SD clips the **export** was wrong. Fix
+   (`src/media/colorMatrix.ts`): read the stream's tags once per asset (Mediabunny, header only)
+   and decide the intended matrix (the tag, else Chromium's height rule). The export re-tags the
+   decoded YUV planes of a deviating stream into a new frame with the intended colour space
+   (lossless, `frameSource.ts`); the preview does the same from `new VideoFrame(<video>)` while
+   paused (lossless) and applies the equivalent 3×3 matrix during playback (`mediaPool.ts`; that
+   approximation can be off by ~15 levels where the wrong matrix clipped a channel, only while
+   playing). Streams that already agree take the old path unchanged.
+
 Regression tests: `src/export/audioDsp.test.ts` (9 unit tests: stretch length/pitch/level at
 0.5×/1.5×/2×/3×, source alignment, silence past the end; limiter bit-identity, no overs, look-ahead,
-release), `src/export/export.test.ts` (planMix carries `preservePitch`), and the e2e items 24, 27, 32.
+release), `src/media/colorMatrix.test.ts` (7: the decoder rules, the 709→601 correction on the red
+bar, round trip, greys untouched), `src/export/export.test.ts` (planMix carries `preservePitch`), and
+the e2e items 18b, 24, 27, 32.
 
 ## Still open (measured, not fixed)
 
@@ -97,12 +120,18 @@ release), `src/export/export.test.ts` (planMix carries `preservePitch`), and the
   (MediaRecorder); only used without WebCodecs.
 - **Preview vs export on loud overlaps:** the export is now limited; the preview still sums into
   the speakers and can distort there.
+- Colour rules were measured in Playwright's Chromium (software decode). Real Chrome with
+  hardware decode may follow a different rule; `E2E_CHANNEL=chrome` re-runs item 18b against it.
+  BT.2020/HDR streams are left alone. Library posters and timeline filmstrips (also `<video>`)
+  are not corrected.
 - Not testable here: the Opus-in-MP4 path (Linux Chromium without AAC) and its pre-skip sync.
 
 ## Files
 
 - `e2e/audit-export.spec.ts`, `e2e/audit-helpers.ts` — the audit
 - `src/export/audioDsp.ts` (+ `audioDsp.test.ts`) — time-stretch and limiter
+- `src/media/colorMatrix.ts` (+ `colorMatrix.test.ts`), `src/export/frameSource.ts`,
+  `src/player/mediaPool.ts` — YUV matrix agreement
 - `src/export/offlineMix.ts`, `src/export/exportWebm.ts`, `src/export/ExportDialog.tsx`,
   `src/export/export.test.ts`
 - `docs/QA-REPORT.md` (known limits updated), `.gitignore` (`e2e/.audit-media/`)

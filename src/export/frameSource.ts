@@ -9,6 +9,7 @@
  */
 import type { FrameState, MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
+import { intendedMatrix, webCodecsMatrix, type Matrix } from '../media/colorMatrix';
 import type { Id, Project } from '../model/types';
 
 /** Minimal frame shape we need from Mediabunny's WrappedCanvas. */
@@ -164,6 +165,18 @@ export class ExportFrameSource implements FrameSources {
           input.dispose?.();
           throw new Error(`This browser cannot decode the video "${this.project.assets[assetId]?.name ?? assetId}".`);
         }
+        // WebCodecs decodes UNTAGGED video with BT.709 even when it is SD, where the preview and
+        // the convention use BT.601. Such streams are re-tagged frame by frame (lossless: the YUV
+        // planes are copied into a new frame carrying the intended colour space).
+        const cs = await track.getColorSpace().catch(() => ({}) as VideoColorSpaceInit);
+        const tags = { matrix: cs.matrix ?? null, primaries: cs.primaries ?? null, transfer: cs.transfer ?? null, width: track.codedWidth, height: track.codedHeight };
+        const want = intendedMatrix(tags);
+        const retag = want && webCodecsMatrix(tags) !== want ? want : null;
+        if (retag) {
+          const { VideoSampleSink } = await import('mediabunny');
+          const vsink = new VideoSampleSink(track);
+          return { open: (startSec: number) => retaggedFrames(vsink.samples(Math.max(0, startSec)), retag, cs.fullRange ?? false), dispose: () => input.dispose?.() };
+        }
         const sink = new CanvasSink(track);
         return {
           open: (startSec: number) => sink.canvases(Math.max(0, startSec)) as AsyncGenerator<TimedFrame, void, unknown>,
@@ -173,5 +186,32 @@ export class ExportFrameSource implements FrameSources {
       this.decoders.set(assetId, p);
     }
     return p;
+  }
+}
+
+type Sample = import('mediabunny').VideoSample;
+
+/** Decoded frames re-tagged with the intended YUV matrix, drawn to canvases (like CanvasSink). */
+async function* retaggedFrames(src: AsyncGenerator<Sample, void, unknown>, matrix: Matrix, fullRange: boolean): AsyncGenerator<TimedFrame, void, unknown> {
+  const { VideoSample } = await import('mediabunny');
+  const colorSpace: VideoColorSpaceInit = matrix === 'bt601' ? { matrix: 'smpte170m', primaries: 'smpte170m', transfer: 'smpte170m', fullRange } : { matrix: 'bt709', primaries: 'bt709', transfer: 'bt709', fullRange };
+  try {
+    for await (const s of src) {
+      try {
+        const buf = new Uint8Array(s.allocationSize());
+        const layout = await s.copyTo(buf);
+        // copyTo() copies the visible rect, so the new frame's coded size is that rect
+        const fixed = new VideoSample(buf, { format: s.format!, codedWidth: s.visibleRect.width, codedHeight: s.visibleRect.height, timestamp: s.timestamp, duration: s.duration, layout, colorSpace, rotation: s.rotation });
+        const canvas = new OffscreenCanvas(fixed.displayWidth, fixed.displayHeight);
+        const ctx = canvas.getContext('2d');
+        if (ctx) fixed.draw(ctx, 0, 0, canvas.width, canvas.height);
+        fixed.close();
+        yield { canvas, timestamp: s.timestamp };
+      } finally {
+        s.close();
+      }
+    }
+  } finally {
+    await src.return(undefined);
   }
 }

@@ -12,6 +12,9 @@
  *  - a-loud.wav       4 s 440 Hz at amplitude 0.8 (two of these overlap past 0 dBFS).
  *  - a-click.wav      4 s silence + a 2 ms 1 kHz burst at exactly 1.500 s (PCM, no priming).
  *  - img-quad.png     600×600, four flat quadrants (red, green, blue, white).
+ *  - c-hd-601matrix.mp4  1920×1080 smptebars tagged with the BT.601 matrix only (no primaries /
+ *                     transfer) — ffmpeg's default; Chromium's <video> reads it as BT.709.
+ *  - c-sd-untagged.mp4   640×360 smptebars with no colour tags — WebCodecs reads it as BT.709.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -29,6 +32,8 @@ export const AM = {
   loud: 'a-loud.wav',
   click: 'a-click.wav',
   quad: 'img-quad.png',
+  colorHd601: 'c-hd-601matrix.mp4',
+  colorSdUntagged: 'c-sd-untagged.mp4',
 } as const;
 
 export const amPath = (f: string) => path.join(AUDIT_MEDIA, f);
@@ -65,6 +70,13 @@ export function ensureAuditMedia(): void {
   wav(AM.a1k, '0.25*sin(2*PI*1000*t)', 8);
   wav(AM.loud, '0.8*sin(2*PI*440*t)', 4);
   wav(AM.click, '0.9*sin(2*PI*1000*t)*gte(t,1.5)*lt(t,1.502)', 4);
+  if (need(AM.colorHd601))
+    ff(['-f', 'lavfi', '-i', 'smptebars=size=1920x1080:rate=30:duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-x264-params', 'colormatrix=bt470bg', '-movflags', '+faststart', amPath(AM.colorHd601)]);
+  if (need(AM.colorSdUntagged))
+    ff([
+      '-f', 'lavfi', '-i', 'smptebars=size=640x360:rate=30:duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+      '-bsf:v', 'h264_metadata=matrix_coefficients=2:colour_primaries=2:transfer_characteristics=2', '-movflags', '+faststart', amPath(AM.colorSdUntagged),
+    ]);
   if (need(AM.quad))
     ff([
       '-f', 'lavfi', '-i', 'color=black:s=600x600:d=1', '-frames:v', '1',
@@ -260,4 +272,17 @@ export function volumedetect(file: string, t0 = 0, t1 = 1e9): { mean: number; ma
   const r = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-i', file, '-vn', '-af', `atrim=${t0}:${t1},volumedetect`, '-f', 'null', '-'], { encoding: 'utf8' });
   const num = (k: string) => Number(new RegExp(`${k}:\\s*(-?[\\d.]+|-inf) dB`).exec(r.stderr)?.[1]?.replace('-inf', '-120') ?? NaN);
   return { mean: num('mean_volume'), max: num('max_volume') };
+}
+
+/** Mean RGB of a small patch of frame 0 of a source, decoded by ffmpeg with an explicit matrix. */
+export function referenceRgb(file: string, fx: number, fy: number, matrix: 'bt601' | 'bt709'): [number, number, number] {
+  const [w, h] = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim().split(',').map(Number) as [number, number];
+  const cw = Math.round(w * 0.04);
+  const ch = Math.round(h * 0.04);
+  const buf = execFileSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-i', file, '-frames:v', '1',
+    '-vf', `crop=${cw}:${ch}:${Math.round(w * fx - cw / 2)}:${Math.round(h * fy - ch / 2)},scale=1:1:flags=area:in_color_matrix=${matrix}:in_range=tv,format=rgb24`,
+    '-f', 'rawvideo', '-',
+  ]);
+  return [buf[0]!, buf[1]!, buf[2]!];
 }

@@ -15,6 +15,7 @@
  */
 import type { MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
+import { colorTagsFor, correctCanvas, correctionMatrix, elementMatrix, intendedMatrix, type Matrix } from '../media/colorMatrix';
 import { getAssetUrl } from '../media/registry';
 import { findClip } from '../model/project';
 import { clipContains } from '../model/time';
@@ -35,7 +36,19 @@ interface VideoEntry {
    * keeps the previous frame on the element, so we keep drawing it (no black flash on scrub).
    */
   hasFrame: boolean;
+  /**
+   * Colour-matrix correction when Chromium's <video> decodes this stream with another YUV
+   * matrix than intended (see media/colorMatrix.ts); the frame is then drawn through `scratch`.
+   */
+  fix: number[] | null;
+  /** The intended matrix (for the exact, re-tagged path while paused). */
+  want: Matrix | null;
+  /** `exact` = drawn from the decoded planes re-tagged (lossless); otherwise the 3×3 approximation. */
+  scratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; time: number; exact: boolean; pending: number | null } | null;
 }
+
+/** Corrected preview frames are computed at most this size (long side) to bound the per-frame cost. */
+const FIX_MAX_SIDE = 1280;
 
 interface ImageEntry {
   kind: 'image';
@@ -87,7 +100,78 @@ export class MediaPool implements FrameSources {
     }
     const e = this.videos.get(op.clipId);
     if (!e || e.el.videoWidth === 0 || (e.el.readyState < 2 && !e.hasFrame)) return null;
+    if (e.fix) return this.corrected(e);
     return { image: e.el, width: e.el.videoWidth, height: e.el.videoHeight };
+  }
+
+  /**
+   * The element's current frame in the intended colours. Playing: the 3×3 approximation (sync,
+   * slightly off where the wrong matrix clipped a channel). Paused: the decoded planes are copied
+   * into a new VideoFrame tagged with the intended colour space (exact), then onReady() redraws.
+   */
+  private corrected(e: VideoEntry): SourceImage {
+    const vw = e.el.videoWidth;
+    const vh = e.el.videoHeight;
+    const k = Math.min(1, FIX_MAX_SIDE / Math.max(vw, vh));
+    const w = Math.max(1, Math.round(vw * k));
+    const h = Math.max(1, Math.round(vh * k));
+    let sc = e.scratch;
+    if (!sc) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return { image: e.el, width: vw, height: vh };
+      sc = e.scratch = { canvas, ctx, time: Number.NaN, exact: false, pending: null };
+    }
+    if (sc.canvas.width !== w || sc.canvas.height !== h) {
+      sc.canvas.width = w;
+      sc.canvas.height = h;
+      sc.time = Number.NaN;
+    }
+    const still = e.el.paused && !e.el.seeking;
+    const t = e.el.currentTime;
+    if (!still || sc.time !== t) {
+      sc.ctx.drawImage(e.el, 0, 0, w, h);
+      correctCanvas(sc.ctx, w, h, e.fix!);
+      sc.time = still ? t : Number.NaN;
+      sc.exact = false;
+    }
+    if (still && !sc.exact && sc.pending !== t) void this.exact(e, sc, t, w, h);
+    return { image: sc.canvas, width: w, height: h }; // source-pixel units of the scratch (crop maths)
+  }
+
+  private async exact(e: VideoEntry, sc: NonNullable<VideoEntry['scratch']>, t: number, w: number, h: number): Promise<void> {
+    if (typeof VideoFrame === 'undefined' || !e.want) return;
+    sc.pending = t;
+    let src: VideoFrame | null = null;
+    let fixed: VideoFrame | null = null;
+    let retry = false; // a frame that cannot be re-tagged is not retried for the same time
+    try {
+      src = new VideoFrame(e.el);
+      if (!src.format) return; // GPU-only frame: keep the approximation
+      const buf = new Uint8Array(src.allocationSize());
+      const layout = await src.copyTo(buf);
+      const fr = src.colorSpace.fullRange ?? false;
+      const colorSpace: VideoColorSpaceInit = e.want === 'bt601' ? { matrix: 'smpte170m', primaries: 'smpte170m', transfer: 'smpte170m', fullRange: fr } : { matrix: 'bt709', primaries: 'bt709', transfer: 'bt709', fullRange: fr };
+      // copyTo() copies the visible rect, so the new frame's coded size is that rect
+      const vr = src.visibleRect;
+      const cw = vr ? vr.width : src.codedWidth;
+      const ch = vr ? vr.height : src.codedHeight;
+      fixed = new VideoFrame(buf, { format: src.format, codedWidth: cw, codedHeight: ch, timestamp: src.timestamp, layout, colorSpace, displayWidth: src.displayWidth, displayHeight: src.displayHeight });
+      if (e.scratch !== sc || e.el.currentTime !== t || !e.el.paused || sc.canvas.width !== w || sc.canvas.height !== h) {
+        retry = true;
+        return;
+      }
+      sc.ctx.drawImage(fixed, 0, 0, w, h);
+      sc.time = t;
+      sc.exact = true;
+      this.onReady();
+    } catch {
+      /* keep the approximation */
+    } finally {
+      src?.close();
+      fixed?.close();
+      if (sc.pending === t && retry) sc.pending = null;
+    }
   }
 
   // ---------------------------------------------------------------- sync
@@ -258,7 +342,15 @@ export class MediaPool implements FrameSources {
     el.muted = true;
     el.playsInline = true;
     el.preload = 'auto';
-    const e: VideoEntry = { kind: 'video', el, url, lastUsed: performance.now(), lastSeekAt: -Infinity, pendingSeek: null, hasFrame: false };
+    const e: VideoEntry = { kind: 'video', el, url, lastUsed: performance.now(), lastSeekAt: -Infinity, pendingSeek: null, hasFrame: false, fix: null, want: null, scratch: null };
+    void colorTagsFor(assetId, () => fetch(url).then((r) => r.blob())).then((tags) => {
+      const fix = tags ? correctionMatrix(elementMatrix(tags), intendedMatrix(tags)) : null;
+      if (fix && this.videos.get(clipId) === e) {
+        e.fix = fix;
+        e.want = intendedMatrix(tags!);
+        this.onReady();
+      }
+    });
     el.addEventListener('loadedmetadata', () => {
       if (e.pendingSeek !== null) this.seek(e, e.pendingSeek);
     });
@@ -300,6 +392,7 @@ export class MediaPool implements FrameSources {
     e.el.removeAttribute('src');
     e.el.load();
     e.el.remove();
+    e.scratch = null;
     this.videos.delete(clipId);
   }
 }

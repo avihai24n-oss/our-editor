@@ -36,6 +36,7 @@ import {
   peakAbs,
   probeStreams,
   readBarcode,
+  referenceRgb,
   rmsDb,
   videoFrame,
   volumedetect,
@@ -228,8 +229,8 @@ async function freshPage(browser: Browser, init?: string): Promise<Page> {
   if (init) await pg.addInitScript(init);
   pg.on('pageerror', (e) => console.log('pageerror', e.message));
   await openApp(pg);
-  await pg.getByTestId('media-import-input').setInputFiles([AM.code, AM.codeTone, AM.a440, AM.a1k, AM.loud, AM.click, AM.quad].map(amPath));
-  await expect.poll(() => pg.evaluate(() => Object.keys((window as any).__oe.getState().project.assets).length), { timeout: 30_000 }).toBe(7);
+  await pg.getByTestId('media-import-input').setInputFiles([AM.code, AM.codeTone, AM.a440, AM.a1k, AM.loud, AM.click, AM.quad, AM.colorHd601, AM.colorSdUntagged].map(amPath));
+  await expect.poll(() => pg.evaluate(() => Object.keys((window as any).__oe.getState().project.assets).length), { timeout: 30_000 }).toBe(9);
   return pg;
 }
 
@@ -494,6 +495,40 @@ test.describe('export audit', () => {
     record('transitions layout', { transitions: tr, main: p.tracks.find((t: any) => t.kind === 'main').clips.map((c: any) => [c.start, c.duration]) });
     const { file } = await doExport(page);
     for (const t of [0.2, 0.5, 1.4, 1.6, 2.9, 3.1, 4.4, 4.6, 5.7]) await checkFrame(page, file, p, S(t), 30, 'anim+transition', { barcode: false });
+  });
+
+  test('pictures: saturated colours match ffmpeg in preview AND export (BT.601-tagged HD, untagged SD)', async () => {
+    await resetProject(page, '16:9');
+    await build(
+      page,
+      `(st, idOf) => {
+        const a = st().addClip(idOf('${AM.colorHd601}'), { at: 0 });
+        st().trimEnd(a, 0.5e6);
+        const b = st().addClip(idOf('${AM.colorSdUntagged}'), { at: 0.5e6 });
+        st().trimEnd(b, 1e6);
+      }`,
+    );
+    const p = await projectJson(page);
+    const { file } = await doExport(page, { resolution: '720p', fps: 30 });
+    // smptebars, top band: 0.54 = green… 0.70 = magenta, 0.82 = red, 0.96 = blue (75 % bars)
+    const bars: [string, number][] = [['yellow', 0.21], ['cyan', 0.36], ['green', 0.5], ['magenta', 0.64], ['red', 0.79], ['blue', 0.93]];
+    for (const [src, frame, label] of [[AM.colorHd601, 6, 'HD 601-matrix'], [AM.colorSdUntagged, 21, 'SD untagged']] as const) {
+      const exp = videoFrame(file, frame, 320, 180);
+      const prv = imageRgb(await previewPng(page, Math.round((frame * 1e6) / 30), `color-${frame}`), 320, 180);
+      const rows = bars.map(([name, x]) => {
+        const ref = referenceRgb(amPath(src), x, 0.3, 'bt601');
+        const e = meanRgb(exp, x - 0.015, 0.27, x + 0.015, 0.33).map(Math.round);
+        const v = meanRgb(prv, x - 0.015, 0.27, x + 0.015, 0.33).map(Math.round);
+        const err = (a: number[]) => Math.max(...a.map((c, i) => Math.abs(c - ref[i]!)));
+        return { bar: name, ref, export: e, preview: v, exportErr: err(e), previewErr: err(v) };
+      });
+      record(`colour ${label}`, { rows });
+      for (const r of rows) {
+        expect.soft(r.exportErr, `${label} ${r.bar}: export vs ffmpeg BT.601`).toBeLessThanOrEqual(8);
+        expect.soft(r.previewErr, `${label} ${r.bar}: preview vs ffmpeg BT.601`).toBeLessThanOrEqual(8);
+      }
+    }
+    void p;
   });
 
   // ============================================================ sound
