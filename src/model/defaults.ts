@@ -141,7 +141,7 @@ export function createClipFromAsset(asset: MediaAsset, trackId: Id, start: Us): 
   if (asset.kind === 'image') {
     return { ...base, type: 'image', duration: DEFAULT_IMAGE_DURATION, assetId: asset.id, ...visualDefaults() };
   }
-  const timed = { assetId: asset.id, inPoint: 0, speed: 1, preservePitch: true, duration: Math.max(1, asset.duration) };
+  const timed = { assetId: asset.id, inPoint: 0, speed: 1, speedCurve: null, preservePitch: true, duration: Math.max(1, asset.duration) };
   if (asset.kind === 'audio') return { ...base, ...timed, type: 'audio', audio: defaultAudio() };
   return { ...base, ...timed, type: 'video', audio: defaultAudio(), ...visualDefaults() };
 }

@@ -200,7 +200,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   // ---------------------------------------------------------------- Audio & speed
   { group: 'Audio & speed', label: 'Extract / restore audio', command: 'extractAudio', status: 'works', combos: [L('s', { mod: true, shift: true })] },
   { group: 'Audio & speed', label: 'Speed', command: 'speedPanel', status: 'works', combos: [L('r', { mod: true })] },
-  { group: 'Audio & speed', label: 'Curve speed', command: 'curveSpeed', status: 'works', combos: [L('b', { shift: true })], note: 'Opens Speed › Curve; curves themselves come later' },
+  { group: 'Audio & speed', label: 'Curve speed', command: 'curveSpeed', status: 'works', combos: [L('b', { shift: true })] },
   { group: 'Audio & speed', label: 'Volume up 1 dB', command: 'volumeUp', status: 'works', combos: [{ codes: ['Period'], mod: true }] },
   { group: 'Audio & speed', label: 'Volume down 1 dB', command: 'volumeDown', status: 'works', combos: [{ codes: ['Comma'], mod: true }] },
   { group: 'Audio & speed', label: 'Main track magnet', command: 'toggleMagnet', status: 'works', combos: [L('p')] },

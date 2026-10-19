@@ -64,7 +64,7 @@ describe('library tab cycling (Tab / Shift+Tab)', () => {
 });
 
 describe('inspector Speed requests (⌘R / ⇧B)', () => {
-  it('switches to Speed and shows the Curve "coming in v2" state', () => {
+  it('switches to Speed › Standard and Speed › Curve', () => {
     const s = useEditor.getState();
     s.newProject();
     const a = createAsset({ kind: 'video', name: 'v.mp4', mime: 'video/mp4', size: 1, duration: secToUs(4), width: 1080, height: 1920, hasAudio: true });
@@ -74,7 +74,7 @@ describe('inspector Speed requests (⌘R / ⇧B)', () => {
     act(() => void emitAppEvent('inspectorTab', { tab: 'speed', sub: 'standard' }));
     expect(screen.getByTestId('speed-row')).toBeTruthy();
     act(() => void emitAppEvent('inspectorTab', { tab: 'speed', sub: 'curve' }));
-    expect(screen.getByTestId('speed-curve-soon')).toBeTruthy();
+    expect(screen.getByTestId('speed-curve')).toBeTruthy();
     expect(screen.queryByTestId('speed-row')).toBeNull();
   });
 });

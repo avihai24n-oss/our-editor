@@ -4,11 +4,16 @@
  * silent; hidden tracks still sound. One AudioBufferSourceNode per clip → GainNode
  * (volume dB × linear fades) → destination of an OfflineAudioContext.
  *
- * Note: in an OfflineAudioContext playbackRate changes pitch; pitch-preserved speed changes
- * need a time-stretcher (v2 backlog). Preview preserves pitch via the media element.
+ * Speed (standard or curve) uses the clip's own time mapping (model/time.ts sourceOffsetAt —
+ * the same integral as getFrameState): each clip's audio is rendered to a buffer at rate 1, with
+ * output sample n reading source time inPoint + ∫ speed. "Change audio pitch" on → resampled
+ * (pitch follows speed); off (default) → WSOLA time-stretch, pitch preserved (./timeStretch.ts).
  */
 import { dbToGain } from '../model/project';
-import type { Id, Project } from '../model/types';
+import type { SpeedCurve } from '../model/speedCurve';
+import { sourceOffsetAt } from '../model/time';
+import type { Id, Project, Us } from '../model/types';
+import { resampleMapped, sampledMap, stretchMapped } from './timeStretch';
 
 export const MIX_SAMPLE_RATE = 48_000;
 
@@ -20,6 +25,12 @@ export interface MixClip {
   /** Source in-point, seconds. */
   inSec: number;
   speed: number;
+  /** Speed › Curve, or null. */
+  speedCurve: SpeedCurve | null;
+  /** Clip duration in µs (the curve is normalised over it). */
+  durationUs: Us;
+  inPointUs: Us;
+  preservePitch: boolean;
   /** Linear gain from volume dB. */
   volume: number;
   fadeInSec: number;
@@ -47,6 +58,10 @@ export function planMix(project: Project): MixClip[] {
         durationSec: clip.duration / 1e6,
         inSec: clip.inPoint / 1e6,
         speed: clip.speed,
+        speedCurve: clip.speedCurve ?? null,
+        durationUs: clip.duration,
+        inPointUs: clip.inPoint,
+        preservePitch: clip.preservePitch,
         volume,
         fadeInSec: Math.min(clip.audio.fadeIn, clip.duration) / 1e6,
         fadeOutSec: Math.min(clip.audio.fadeOut, clip.duration) / 1e6,
@@ -90,20 +105,52 @@ export async function renderMix(project: Project, durationUs: number, decode: De
     const buf = await decode(c.assetId);
     if (!buf) continue;
     const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = c.speed;
     const g = ctx.createGain();
     const pts = gainPoints(c);
     g.gain.setValueAtTime(pts[0]![1], pts[0]![0]);
     for (const [t, v] of pts.slice(1)) g.gain.linearRampToValueAtTime(v, t);
     src.connect(g).connect(ctx.destination);
-    const offset = Math.min(c.inSec, Math.max(0, buf.duration - 1e-3));
-    src.start(c.startSec, offset, c.durationSec * c.speed);
+    if (!c.speedCurve && c.speed === 1) {
+      src.buffer = buf;
+      const offset = Math.min(c.inSec, Math.max(0, buf.duration - 1e-3));
+      src.start(c.startSec, offset, c.durationSec);
+    } else {
+      const frames = Math.max(1, Math.round(c.durationSec * buf.sampleRate));
+      src.buffer = speedMappedBuffer(ctx, buf, c, frames);
+      src.start(c.startSec);
+    }
     src.stop(c.startSec + c.durationSec);
     any = true;
   }
   if (!any) return null;
   return ctx.startRendering();
+}
+
+/** Source time (seconds) heard at output sample n of the clip. */
+export function mixSourceMap(c: Pick<MixClip, 'inPointUs' | 'durationUs' | 'speed' | 'speedCurve'>, sampleRate: number): (n: number) => number {
+  const clip = { duration: c.durationUs, speed: c.speed, speedCurve: c.speedCurve };
+  return (n: number) => (c.inPointUs + sourceOffsetAt(clip, (n / sampleRate) * 1e6)) / 1e6;
+}
+
+/** Channels of a clip's audio after its speed mapping (rate-1 output, `frames` long). */
+export function speedMappedChannels(
+  channels: readonly Float32Array[],
+  sampleRate: number,
+  c: Pick<MixClip, 'inPointUs' | 'durationUs' | 'speed' | 'speedCurve' | 'preservePitch'>,
+  frames: number,
+): Float32Array[] {
+  const exact = mixSourceMap(c, sampleRate);
+  const map = c.speedCurve ? sampledMap(exact, frames) : exact;
+  return c.preservePitch ? stretchMapped(channels, sampleRate, frames, map) : resampleMapped(channels, sampleRate, frames, map);
+}
+
+function speedMappedBuffer(ctx: BaseAudioContext, buf: AudioBuffer, c: MixClip, frames: number): AudioBuffer {
+  const channels: Float32Array[] = [];
+  for (let i = 0; i < buf.numberOfChannels; i++) channels.push(buf.getChannelData(i));
+  const out = speedMappedChannels(channels, buf.sampleRate, c, frames);
+  const b = ctx.createBuffer(buf.numberOfChannels, frames, buf.sampleRate);
+  out.forEach((data, i) => b.copyToChannel(data as Float32Array<ArrayBuffer>, i));
+  return b;
 }
 
 /** Decoder with a per-asset cache; `load` returns the asset's file (IndexedDB blob). */

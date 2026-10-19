@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAsset } from '../model/defaults';
+import { CURVE_PRESETS, presetCurve } from '../model/speedCurve';
 import { findClip, mainTrack, timelineRows } from '../model/project';
-import { clipEnd, secToUs } from '../model/time';
+import { clipEnd, secToUs, sourceSpan } from '../model/time';
 import type { Clip, MediaAsset, Project, VideoClip } from '../model/types';
 import { selectCanRedo, selectCanUndo, selectSelectedClip, useEditor } from './index';
 
@@ -31,7 +32,7 @@ function checkInvariants(p: Project, magnet = st().magnet) {
       if (c.type === 'video' || c.type === 'audio') {
         const a = p.assets[c.assetId]!;
         expect(c.inPoint).toBeGreaterThanOrEqual(0);
-        expect(c.inPoint + c.duration * c.speed).toBeLessThanOrEqual(a.duration + 2);
+        expect(c.inPoint + sourceSpan(c)).toBeLessThanOrEqual(a.duration + 2);
       }
     }
     for (const tr of t.transitions) {
@@ -589,7 +590,8 @@ describe('random op sequences keep invariants', () => {
       else if (r < 0.4) st().moveClip(c.id, { start: t, trackId: pick(proj().tracks)!.id });
       else if (r < 0.5) st().trimStart(c.id, t);
       else if (r < 0.6) st().trimEnd(c.id, t);
-      else if (r < 0.65) st().setSpeed(c.id, 0.2 + rnd() * 5);
+      else if (r < 0.62) st().setSpeed(c.id, 0.2 + rnd() * 5);
+      else if (r < 0.65) st().setSpeedCurve(c.id, rnd() < 0.15 ? null : presetCurve(pick(CURVE_PRESETS)!.id));
       else if (r < 0.7) st().deleteClips([c.id]);
       else if (r < 0.75) st().addTransition(c.id, 'mix', S(rnd() * 3));
       else if (r < 0.8) st().duplicateClips([c.id]);

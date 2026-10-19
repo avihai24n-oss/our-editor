@@ -6,7 +6,7 @@
 import { BLEND_MODES, filterDef } from '../model/catalog';
 import { defaultAdjust } from '../model/defaults';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
-import { clamp, clipContains, clipEnd, sourceTimeAt } from '../model/time';
+import { clamp, clipContains, clipEnd, sourceTimeAt, speedAtTime } from '../model/time';
 import type {
   Adjust,
   AnimationType,
@@ -68,6 +68,10 @@ export interface MediaDrawOp extends DrawOpBase {
   assetId: Id;
   /** Video: source time to show, µs, clamped to [0, asset.duration]. Image: 0. */
   sourceTime: Us;
+  /** Video: instantaneous playback speed at t (standard speed, or the curve's value). Image: 1. */
+  speed?: number;
+  /** True when the speed changes over the clip (Speed › Curve). */
+  varying?: boolean;
   /** Size of the media at scale 1 = "contain" fit in the canvas, project px (before crop). */
   fitWidth: number;
   fitHeight: number;
@@ -99,7 +103,10 @@ export interface AudioOp {
   trackId: Id;
   /** Source time to be heard now, µs. */
   sourceTime: Us;
+  /** Instantaneous speed at t (standard speed, or the curve's value at t). */
   speed: number;
+  /** True when the speed changes over the clip (Speed › Curve). */
+  varying?: boolean;
   preservePitch: boolean;
   /** Linear gain including volume dB, fades. Track/clip mute already removed these ops. */
   gain: number;
@@ -311,6 +318,8 @@ function buildVisualOp(
     mediaType: clip.type,
     assetId: clip.assetId,
     sourceTime: clampSource(clip, project, t),
+    speed: clip.type === 'video' ? speedAtTime(clip, t) : 1,
+    varying: clip.type === 'video' && !!clip.speedCurve,
     fitWidth: fit.width,
     fitHeight: fit.height,
     crop: clip.crop,
@@ -367,7 +376,8 @@ export function getFrameState(project: Project, t: Us): FrameState {
         assetId: clip.assetId,
         trackId: track.id,
         sourceTime: clampSource(clip, project, t),
-        speed: clip.speed,
+        speed: speedAtTime(clip, t),
+        varying: !!clip.speedCurve,
         preservePitch: clip.preservePitch,
         gain,
       });

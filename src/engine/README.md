@@ -20,14 +20,14 @@ Need a change in `frameState.ts`? Write it in `docs/integration-notes/engine.md`
 | Which clips are visible at t | per track, half-open `[start, end)` | nothing |
 | Layer order | `ops` is already bottom → top (`project.tracks` order; main first) | draw ops in order |
 | Hidden tracks / disabled clips | skipped (hidden tracks still produce `audio`) | nothing |
-| Media time | `MediaDrawOp.sourceTime` (µs) = inPoint + (t − start) × speed, clamped to `[0, asset.duration − 1]` | seek/show that frame (`/1e6` for `currentTime`) |
+| Media time | `MediaDrawOp.sourceTime` (µs) = `sourceTimeAt(clip, t)` = inPoint + ∫ speed over the clip so far (standard: (t − start) × speed; curve: duration · F((t − start) / duration), see `model/speedCurve.ts`), clamped to `[0, asset.duration − 1]`. `speed` = the instantaneous speed, `varying` = the clip has a speed curve | seek/show that frame (`/1e6` for `currentTime`); the preview sets `playbackRate` from `speed` every tick |
 | Fit | `fitWidth/fitHeight` = contain-fit of the asset in the canvas at scale 1 | draw the media into that box |
 | Transform | `transform` = clip transform × animation × transition, final | see drawing recipe |
 | Blend | `composite` (a `GlobalCompositeOperation`) | `ctx.globalCompositeOperation = op.composite` |
 | Filter + Adjust | `color: ColorOps` = adjust + filter preset × intensity, plus `grayscale`/`sepia` 0..1 | build `ctx.filter` / shader uniforms from it |
 | Animation In/Out | applied into `transform`/`blur`; progress exposed as `op.animation` | nothing (info only) |
 | Transitions | both clips emitted inside `[cut − d/2, cut + d/2)`, `from` then `to`, with effect applied; source frames held at the edges; dip transitions add a `FillDrawOp` | honour `clipRect` and `blur`; draw `fill` ops |
-| Audio | `audio: AudioOp[]` with `sourceTime`, `speed`, `preservePitch`, `gain` (dB × fades); muted tracks/clips and videos with `hasAudio === false` are removed | play/sync elements, set gain |
+| Audio | `audio: AudioOp[]` with `sourceTime`, `speed` (instantaneous), `varying`, `preservePitch`, `gain` (dB × fades); muted tracks/clips and videos with `hasAudio === false` are removed | play/sync elements, set gain |
 
 ## Drawing recipe (Canvas 2D, canvas backing store = `width × height`)
 

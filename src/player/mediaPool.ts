@@ -110,11 +110,11 @@ export class MediaPool implements FrameSources {
       e.lastUsed = now;
       const clip = this.project ? findClip(this.project, op.clipId)?.clip : undefined;
       const asset = this.project?.assets[op.assetId];
-      const speed = clip && (clip.type === 'video' || clip.type === 'audio') ? clip.speed : 1;
+      const speed = op.speed ?? (clip && (clip.type === 'video' || clip.type === 'audio') ? clip.speed : 1);
       // running = the source actually advances at t (not a held edge frame of a transition)
       const atEnd = asset ? op.sourceTime >= asset.duration - 1e6 / fps : false;
       const running = playing && !!clip && clipContains(clip, t) && !atEnd;
-      this.apply(e, op.sourceTime / 1e6, running, speed, 0.5 / fps, now);
+      this.apply(e, op.sourceTime / 1e6, running, speed, 0.5 / fps, now, !!op.varying);
     }
   }
 
@@ -222,7 +222,7 @@ export class MediaPool implements FrameSources {
 
   // ---------------------------------------------------------------- internals
 
-  private apply(e: VideoEntry, target: number, running: boolean, speed: number, tolerance: number, now: number): void {
+  private apply(e: VideoEntry, target: number, running: boolean, speed: number, tolerance: number, now: number, varying = false): void {
     const el = e.el;
     if (el.readyState < 1) {
       e.pendingSeek = target; // applied on loadedmetadata
@@ -230,7 +230,7 @@ export class MediaPool implements FrameSources {
     }
     const a = decideSync(
       { currentTime: el.currentTime, paused: el.paused, seeking: el.seeking, playbackRate: el.playbackRate, sinceSeekMs: now - e.lastSeekAt },
-      { target, running, speed, tolerance },
+      { target, running, speed, tolerance, varying },
     );
     if (a.rate !== null) el.playbackRate = a.rate;
     if (a.pause) el.pause();

@@ -37,12 +37,13 @@ export function Inspector() {
   // The chosen tab is remembered per clip type (CapCut keeps e.g. "Adjust" while hopping clips).
   const [wanted, setWanted] = usePref<string>(`insp.tab.${clip?.type ?? 'none'}`, '');
   // Speed › Standard | Curve. ⌘R / ⇧B (shortcut table) open the Speed tab on one of them.
-  const [speedSub, setSpeedSub] = useState<'standard' | 'curve'>('standard');
+  // null = automatic: Curve when the clip has a speed curve, else Standard.
+  const [speedSub, setSpeedSub] = useState<'standard' | 'curve' | null>(null);
   useEffect(
     () =>
       onAppEvent('inspectorTab', ({ tab, sub }) => {
         setWanted(tab);
-        setSpeedSub(sub ?? 'standard');
+        setSpeedSub(sub ?? null);
       }),
     [setWanted],
   );
@@ -75,7 +76,7 @@ export function Inspector() {
         </>
       );
     } else if (tab === 'audio' && (clip.type === 'video' || clip.type === 'audio')) body = <AudioTab clip={clip} />;
-    else if (tab === 'speed' && (clip.type === 'video' || clip.type === 'audio')) body = <SpeedTab clip={clip} sub={speedSub} onSubChange={setSpeedSub} />;
+    else if (tab === 'speed' && (clip.type === 'video' || clip.type === 'audio')) body = <SpeedTab clip={clip} sub={speedSub ?? (clip.speedCurve ? 'curve' : 'standard')} onSubChange={setSpeedSub} />;
     else if (tab === 'animation' && clip.type !== 'audio') body = <AnimationTab key={clip.id} clip={clip} />;
     else if (tab === 'adjust' && clip.type !== 'audio') body = <AdjustTab clip={clip} />;
     else if (tab === 'text' && clip.type === 'text') body = <TextTab clip={clip} />;
@@ -83,7 +84,7 @@ export function Inspector() {
     return (
       <Shell testId={`inspector-${clip.type}`} tabs={tabs.map((id) => ({ id, label: TAB_LABELS[id] }))} value={tab} onChange={(id) => {
           setWanted(id);
-          setSpeedSub('standard');
+          setSpeedSub(null);
         }}>
         {asset?.missing && <div className="inotice">Media lost — the source file for this clip could not be found.</div>}
         {body}

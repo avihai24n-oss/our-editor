@@ -3,6 +3,7 @@
  * position, cut lookup. No React, no DOM — unit-tested in geometry.test.ts.
  */
 import { LIMITS } from '../model/catalog';
+import { presetLabel, type CurvePresetId } from '../model/speedCurve';
 import { clipEnd, formatShort, frameToUs, US_PER_SEC, usToFrame, usToPx } from '../model/time';
 import type { Clip, Id, Track, Us } from '../model/types';
 
@@ -235,3 +236,6 @@ export function speedBadge(speed: number): string | null {
   if (Math.abs(speed - 1) < 1e-6) return null;
   return speed >= 10 ? `${Math.round(speed)}x` : `${speed.toFixed(1)}x`;
 }
+
+/** Badge for a clip with a speed curve: the preset name ("Montage", "Custom"…). */
+export const curveBadge = (preset: CurvePresetId): string => presetLabel(preset);

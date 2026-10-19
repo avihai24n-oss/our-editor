@@ -12,6 +12,8 @@
  *   docs/integration-notes/<area>.md.
  */
 
+import type { SpeedCurve } from './speedCurve';
+
 export type Id = string;
 /** Integer microseconds. */
 export type Us = number;
@@ -251,10 +253,18 @@ export interface VisualFields {
 /** Fields shared by clips that read a time range of a media asset. */
 export interface TimedMediaFields {
   assetId: Id;
-  /** Source in-point. The source span used is [inPoint, inPoint + duration * speed]. */
+  /**
+   * Source in-point. The source span used is [inPoint, inPoint + sourceSpan(clip)], where
+   * sourceSpan = duration × speed (Standard) or duration × mean(curve) (Curve). See model/time.ts.
+   */
   inPoint: Us;
-  /** 0.1..100 */
+  /** Standard speed, 0.1..100. Ignored (kept at 1) while `speedCurve` is set. */
   speed: number;
+  /**
+   * Speed › Curve: speed over the clip's normalised output time (0.1x..10x), or null for
+   * Standard speed. Added after v1; `migrateProject` fills null in older projects.
+   */
+  speedCurve: SpeedCurve | null;
   /** CapCut "Change audio pitch" = !preservePitch. Default true (pitch preserved). */
   preservePitch: boolean;
 }

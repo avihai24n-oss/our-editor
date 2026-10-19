@@ -66,7 +66,12 @@ real-time WebM export.
   - Scale, position, rotate (with a dial), the six align buttons and mirror.
   - Blend mode and opacity, with an on/off checkbox.
 - **Audio:** Volume (dB), fade in and fade out.
-- **Speed › Standard:** 0.1×–100×, editable duration, and "Change audio pitch".
+- **Speed › Standard:** 0.1×–100× on CapCut's six-tick slider, editable duration, "Change audio
+  pitch", Reset. **Speed › Curve:** None, Custom, Montage, Hero, Bullet, Jump cut, Flash in and
+  Flash out, with a graph editor (drag points between 0.1× and 10× on a log axis, add / delete a
+  point at the playhead or by double-click, Reset, resulting duration). Curves drive the preview,
+  the export frames and the exported audio (pitch kept unless "Change audio pitch" is on), split
+  and trim. Smooth slow-mo (AI) is shown disabled, like CapCut without it.
 - **Animation:** In / Out (9 each) with a duration.
 - **Adjust:** a Filter with intensity, and 11 sliders with an on/off checkbox. Apply to all.
 - **Text:** content, font, size, colour, B/I/U, alignment, spacing, and stroke / background / shadow.
@@ -154,7 +159,7 @@ be undone.
 
 See **[docs/SPEC-v1.md § 5 — v2 backlog](docs/SPEC-v1.md#5-v2-backlog-researched-deferred)**:
 
-- **Editing:** keyframes, crop UI, the right-click menu, Speed curves, Combo animations and masks.
+- **Editing:** keyframes, crop UI, the right-click menu, Velocity effects, Combo animations and masks.
 - **Colour:** HSL/Curves and a WebGL colour pipeline.
 - **Content and project:** stickers/effects, captions, and a project home screen.
 

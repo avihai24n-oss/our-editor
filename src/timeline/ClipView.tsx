@@ -8,7 +8,7 @@ import { usToPx } from '../model/time';
 import type { Clip, MediaAsset } from '../model/types';
 import { Icon } from '../ui/Icon';
 import { Filmstrip, ImageStrip, Waveform } from './ClipContent';
-import { speedBadge } from './geometry';
+import { curveBadge, speedBadge } from './geometry';
 
 export type ClipPart = 'body' | 'left' | 'right';
 
@@ -33,7 +33,7 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
   const fromPx = viewFrom - left;
   const toPx = viewTo - left;
   const bodyH = height - 8; // 4px vertical inset
-  const badge = clip.type === 'video' || clip.type === 'audio' ? speedBadge(clip.speed) : null;
+  const badge = clip.type === 'video' || clip.type === 'audio' ? (clip.speedCurve ? curveBadge(clip.speedCurve.preset) : speedBadge(clip.speed)) : null;
   const missing = !!asset?.missing;
   const contentH = Math.max(8, bodyH);
 
@@ -87,7 +87,7 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
       {width > 28 && (
         <div className="tl-clip__label">
           {clip.type === 'video' && clip.audio.muted && <Icon name="volume-mute" size={11} />}
-          {badge && <span className="tl-clip__badge">{badge}</span>}
+          {badge && <span className="tl-clip__badge" data-testid="clip-speed-badge">{badge}</span>}
           {clip.type !== 'text' && <span className="tl-clip__name">{clip.name}</span>}
         </div>
       )}

@@ -11,6 +11,7 @@
  * Owned by the architect/QA. Builders: do not edit; request changes in docs/integration-notes/.
  */
 import { produce } from 'immer';
+import type { SpeedCurve } from '../model/speedCurve';
 import { create } from 'zustand';
 import { importFiles as importMediaFiles } from '../media/import';
 import { aspectSize, LIMITS } from '../model/catalog';
@@ -127,6 +128,10 @@ export interface EditorState {
   updateClips: (clipIds: Id[], patch: ClipPatch) => void;
   setSpeed: (clipId: Id, speed: number) => void;
   setDuration: (clipId: Id, duration: Us) => void;
+  /** Speed › Curve: apply a curve (or null = None). Source span kept; duration = span / mean. */
+  setSpeedCurve: (clipId: Id, curve: SpeedCurve | null) => void;
+  /** Speed tab Reset: Standard 1x, no curve, original pitch. One undo step. */
+  resetSpeed: (clipId: Id) => void;
   /** Toolbar mirror: toggles transform.flipH on the selected visual clips. */
   mirrorSelected: () => void;
   /** Toolbar rotate: +90° on the selected visual clips. */
@@ -417,6 +422,15 @@ export const useEditor = create<EditorState>()((set, get) => ({
   },
   setDuration: (clipId, duration) => {
     edit(set, get, (d) => ops.setDuration(d, clipId, duration));
+  },
+  setSpeedCurve: (clipId, curve) => {
+    edit(set, get, (d) => ops.setSpeedCurve(d, clipId, curve));
+  },
+  resetSpeed: (clipId) => {
+    edit(set, get, (d) => {
+      if (!ops.setSpeed(d, clipId, 1)) return;
+      ops.updateClip(d, clipId, { preservePitch: true });
+    });
   },
   mirrorSelected: () => {
     edit(set, get, (d) => {
