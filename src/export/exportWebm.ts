@@ -4,7 +4,7 @@
  * header carries no duration (some players cannot seek) — the dialog says so.
  * Pictures come from <video> elements seeked frame by frame (ElementFrameSource).
  */
-import type { FrameState, MediaDrawOp } from '../engine/frameState';
+import { frameLookupSec, type FrameState, type MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
 import { getAssetUrl } from '../media/registry';
 import type { Id, Project, Us } from '../model/types';
@@ -115,7 +115,7 @@ export class ElementFrameSource implements FrameSources {
       }
       const v = await this.video(op.clipId, url);
       if (!v) continue;
-      await seekTo(v, op.sourceTime / 1e6);
+      await seekTo(v, frameLookupSec(op.sourceTime));
       if (v.videoWidth) this.ready.set(key, { image: v, width: v.videoWidth, height: v.videoHeight });
     }
   }

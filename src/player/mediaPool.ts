@@ -13,7 +13,7 @@
  *   the ones on screen;
  * - release = pause, drop src, load() (otherwise the element keeps the resource), detach.
  */
-import type { MediaDrawOp } from '../engine/frameState';
+import { frameLookupSec, type MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
 import { getAssetUrl } from '../media/registry';
 import { findClip } from '../model/project';
@@ -47,6 +47,8 @@ interface ImageEntry {
 const EVICT_AFTER_MS = MEMORY_LIMITS.idleReleaseMs;
 const MAX_VIDEOS = MEMORY_LIMITS.previewVideos;
 const MAX_IMAGES = 12;
+/** Paused frame tolerance: 1 ms is below any frame duration and above currentTime rounding. */
+const PAUSED_TOLERANCE_SEC = 0.001;
 
 let hiddenHost: HTMLDivElement | null = null;
 function host(): HTMLDivElement {
@@ -114,12 +116,21 @@ export class MediaPool implements FrameSources {
       // running = the source actually advances at t (not a held edge frame of a transition)
       const atEnd = asset ? op.sourceTime >= asset.duration - 1e6 / fps : false;
       const running = playing && !!clip && clipContains(clip, t) && !atEnd;
-      this.apply(e, op.sourceTime / 1e6, running, speed, 0.5 / fps, now);
+      // Paused (or a held / stepped frame): the element must sit exactly on the target, not within
+      // half a frame of it — "half a frame" in time still straddles a frame boundary half the time
+      // (measured: paused on frame 74, element left on 75). After one seek currentTime == target.
+      this.apply(e, frameLookupSec(op.sourceTime), running, speed, running ? 0.5 / fps : PAUSED_TOLERANCE_SEC, now);
     }
   }
 
-  /** Warm up clips that are about to appear: create elements and park them on their frame. */
-  preload(ops: readonly MediaDrawOp[]): void {
+  /**
+   * Warm up clips that are about to appear: create elements and park them on the frame they
+   * will ENTER with. `ops` come from a look-ahead frame (t + preload window), so their
+   * sourceTime is up to that window past the clip's first frame; parking there made the first
+   * frame after a cut show a frame from later in the clip (measured: 5 frames ahead at a cut).
+   * `t` is the timeline time now.
+   */
+  preload(ops: readonly MediaDrawOp[], t: Us): void {
     const now = performance.now();
     for (const op of ops) {
       if (op.mediaType === 'image') {
@@ -131,8 +142,17 @@ export class MediaPool implements FrameSources {
       const e = this.video(op.clipId, op.assetId);
       if (!e) continue;
       e.lastUsed = now;
-      this.apply(e, op.sourceTime / 1e6, false, 1, 0.02, now);
+      this.apply(e, frameLookupSec(this.entrySourceTime(op, t)), false, 1, 0.02, now);
     }
+  }
+
+  /** Source time of `op`'s clip at the moment it comes on screen (its start, or now if it has started). */
+  private entrySourceTime(op: MediaDrawOp, t: Us): Us {
+    const clip = this.project ? findClip(this.project, op.clipId)?.clip : undefined;
+    if (!clip || clip.type !== 'video' || clip.start <= t) return op.sourceTime;
+    const asset = this.project?.assets[op.assetId];
+    const max = asset ? Math.max(0, asset.duration - 1) : Number.MAX_SAFE_INTEGER;
+    return Math.min(max, Math.max(0, clip.inPoint));
   }
 
   /** Pause every video not in `keep`; free the ones unused for a while (now, or by the sweep timer). */
@@ -230,7 +250,7 @@ export class MediaPool implements FrameSources {
     }
     const a = decideSync(
       { currentTime: el.currentTime, paused: el.paused, seeking: el.seeking, playbackRate: el.playbackRate, sinceSeekMs: now - e.lastSeekAt },
-      { target, running, speed, tolerance },
+      { target, running, speed, tolerance, nudge: true },
     );
     if (a.rate !== null) el.playbackRate = a.rate;
     if (a.pause) el.pause();

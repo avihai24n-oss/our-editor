@@ -118,8 +118,11 @@ export class PreviewEngine {
       const end = projectDuration(st.project);
       // preview axis: while hovering the timeline, show the hovered frame instead of the playhead's
       const t = st.previewTime ?? st.playhead;
-      // at the very end show the last frame instead of an empty canvas
-      this.renderAt(end > 0 && t >= end ? Math.max(0, end - 1) : t, false);
+      // at the very end show the last frame instead of an empty canvas: the start of the last
+      // project frame (end − 1 µs is off the frame grid, and with the frame-lookup epsilon it
+      // would land on the source frame AFTER the clip's out-point)
+      const lastFrame = Math.max(0, end - Math.round(1e6 / st.project.settings.fps));
+      this.renderAt(end > 0 && t >= end ? lastFrame : t, false);
     });
   }
 
@@ -158,7 +161,8 @@ export class PreviewEngine {
     if (s.project !== prev.project) this.pool.setProject(s.project);
     if (s.playing !== prev.playing) {
       if (s.playing) void this.startPlayback();
-      else this.stopPlayback();
+      // a pause that also moved the playhead (scrub, undo, stepping) keeps that playhead
+      else this.stopPlayback(s.playhead !== prev.playhead && s.playhead !== this.lastWritten);
       return;
     }
     if (s.playing && this.clock.isRunning) {
@@ -189,11 +193,20 @@ export class PreviewEngine {
     if (ok && token === this.playToken && this.clock.isRunning) this.clock.setSource(() => this.audio.now());
   }
 
-  private stopPlayback(): void {
+  private stopPlayback(keepStorePlayhead = false): void {
     this.playToken++;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
-    if (this.clock.isRunning) this.clock.stop();
+    if (this.clock.isRunning) {
+      const t = this.clock.stop();
+      // The store playhead is written at most every 33 ms, so it lags the frame on screen by up
+      // to a frame or two. Pausing must keep the picture the user stopped on, not jump back.
+      if (!keepStorePlayhead) {
+        const end = projectDuration(useEditor.getState().project);
+        this.lastWritten = Math.max(0, Math.min(Math.round(t), end));
+        useEditor.getState().setPlayhead(this.lastWritten);
+      }
+    }
     this.audio.stopAll();
     this.pool.pauseAll();
     this.invalidate();
@@ -242,7 +255,7 @@ export class PreviewEngine {
         this.lastPreloadAt = now;
         const ahead = getFrameState(project, t + PRELOAD_AHEAD_US).ops.filter((o): o is MediaDrawOp => o.kind === 'media');
         const upcoming = ahead.filter((o) => !keep.has(o.clipId));
-        this.pool.preload(upcoming);
+        this.pool.preload(upcoming, t);
         upcoming.forEach((o) => keep.add(o.clipId));
         this.pool.idle(keep);
       }
