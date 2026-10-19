@@ -226,7 +226,7 @@ function edit<T>(set: SetFn, get: GetFn, recipe: (draft: Project, ctx: ops.EditC
   if (s.txBase) {
     set({ project: next });
   } else {
-    set({ project: next, past: capHistory([...s.past, before]), future: [] });
+    set({ project: next, past: pushPast(s.past, before, s.magnet), future: [] });
   }
   pruneSelection(set, get);
   return result;
@@ -273,6 +273,16 @@ function mainPacked(p: Project): boolean {
  * magnet then goes off too: left on, the NEXT unrelated edit would silently close every gap.
  */
 const magnetFor = (p: Project, magnet: boolean): boolean => magnet && mainPacked(p);
+
+/**
+ * The magnet setting while a snapshot was the current document. Redo uses it so that redoing
+ * "magnet on" (the packing step) turns the magnet back on, symmetric with its undo.
+ */
+const magnetAt = new WeakMap<Project, boolean>();
+const pushPast = (past: Project[], p: Project, magnet: boolean): Project[] => {
+  magnetAt.set(p, magnet);
+  return capHistory([...past, p]);
+};
 
 /** Undo/redo keep the media bin: assets of the current doc are carried into the restored one. */
 const withAssets = (target: Project, current: Project): Project =>
@@ -640,9 +650,14 @@ export const useEditor = create<EditorState>()((set, get) => ({
   zoomIn: () => get().setZoom(get().zoom * 1.25),
   zoomOut: () => get().setZoom(get().zoom / 1.25),
   setMagnet: (on) => {
+    const was = get().magnet;
     set({ magnet: on });
+    if (!on) return;
     // turning the magnet on packs the main track immediately (one undo step)
-    if (on) edit(set, get, () => undefined);
+    const n = get().past.length;
+    edit(set, get, () => undefined);
+    const pushed = get().past.length > n ? get().past[get().past.length - 1] : undefined;
+    if (pushed) magnetAt.set(pushed, was); // the unpacked document belonged to the magnet-off state
   },
   setSnapping: (on) => set({ snapping: on }),
   setLinkage: (on) => set({ linkage: on }),
@@ -654,6 +669,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const { past, future, project } = get();
     const prev = past[past.length - 1];
     if (!prev) return;
+    magnetAt.set(project, get().magnet);
     set({ project: withAssets(prev, project), past: past.slice(0, -1), future: [project, ...future], playing: false, magnet: magnetFor(prev, get().magnet) });
     pruneSelection(set, get);
   },
@@ -663,7 +679,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const { past, future, project } = get();
     const next = future[0];
     if (!next) return;
-    set({ project: withAssets(next, project), past: capHistory([...past, project]), future: future.slice(1), playing: false, magnet: magnetFor(next, get().magnet) });
+    const magnet = magnetAt.get(next) === true && mainPacked(next) ? true : magnetFor(next, get().magnet);
+    set({ project: withAssets(next, project), past: pushPast(past, project, get().magnet), future: future.slice(1), playing: false, magnet });
     pruneSelection(set, get);
   },
   beginTx: () => {
@@ -676,7 +693,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     if (s.txBase === s.project) set({ txBase: null });
     // a gesture that ended where it started (slider back to its value, trim back to its edge) is no step
     else if (sameValue({ ...s.txBase, updatedAt: 0 }, { ...s.project, updatedAt: 0 })) set({ project: withAssets(s.txBase, s.project), txBase: null });
-    else set({ past: capHistory([...s.past, s.txBase]), future: [], txBase: null });
+    else set({ past: pushPast(s.past, s.txBase, s.magnet), future: [], txBase: null });
   },
   cancelTx: () => {
     const s = get();

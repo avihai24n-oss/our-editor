@@ -14,6 +14,8 @@ import { createAsset } from '../model/defaults';
 import { findClip } from '../model/project';
 import { secToUs } from '../model/time';
 import type { Clip, MediaAsset, TransitionType } from '../model/types';
+import { getFrameState } from '../engine/frameState';
+import { planMix } from '../export/offlineMix';
 import { useEditor } from './index';
 import { projectViolations } from './invariants';
 
@@ -807,5 +809,56 @@ describe('audit: no empty undo steps', () => {
     st().updateClip(a, { transform: { scale: 1 } });
     st().commitTx();
     expect(st().past.length).toBe(n);
+  });
+});
+
+describe('audit: magnet undo / redo symmetry', () => {
+  it('REGRESSION: redo of "magnet on" turns the magnet back on (undo had turned it off)', () => {
+    const [v5, v4] = setup(A.v5(), A.v4());
+    st().setMagnet(false);
+    st().addClip(v5!, { at: 0 });
+    const b = st().addClip(v4!, { at: S(8) })!;
+    st().setMagnet(true);
+    st().undo();
+    expect([st().magnet, clipOf(b).clip.start]).toEqual([false, S(8)]);
+    st().redo();
+    expect([st().magnet, clipOf(b).clip.start]).toEqual([true, S(5)]);
+    healthy();
+  });
+  it('redo of an ordinary magnet-off edit that happens to close a gap leaves the magnet off', () => {
+    const [v5, v4] = setup(A.v5(), A.v4());
+    st().setMagnet(false);
+    st().addClip(v5!, { at: 0 });
+    const b = st().addClip(v4!, { at: S(8) })!;
+    st().moveClip(b, { start: S(5) });
+    st().undo();
+    st().redo();
+    expect(st().magnet).toBe(false);
+  });
+});
+
+describe('audit: hide / mute reach the preview AND the export (shared frame state + mix plan)', () => {
+  it('a hidden track draws nothing in getFrameState (player and exporter) but still sounds; a muted one is silent in both', () => {
+    const [v5, odd] = setup(A.v5(), A.odd());
+    const v = st().addClip(v5!, { at: 0 })!;
+    const a = st().addClip(odd!, { at: 0 })!;
+    const mainId = main().id;
+    const audioId = clipOf(a).track.id;
+    const drawn = () => getFrameState(st().project, S(1)).ops.filter((o) => o.kind === 'media').length;
+    const heard = () => getFrameState(st().project, S(1)).audio.map((x) => x.clipId).sort();
+    const mixed = () => planMix(st().project).map((x) => x.clipId).sort();
+    expect([drawn(), heard(), mixed()]).toEqual([1, [v, a].sort(), [v, a].sort()]);
+    st().setTrack(mainId, { hidden: true });
+    expect([drawn(), heard(), mixed()]).toEqual([0, [v, a].sort(), [v, a].sort()]);
+    st().setTrack(mainId, { hidden: false, muted: true });
+    expect([drawn(), heard(), mixed()]).toEqual([1, [a], [a]]);
+    st().setTrack(audioId, { muted: true });
+    expect([heard(), mixed()]).toEqual([[], []]);
+    // extracted audio: the video's own sound is off, the audio clip carries it
+    st().setTrack(mainId, { muted: false });
+    st().setTrack(audioId, { muted: false });
+    st().toggleExtractAudio([v]);
+    const ex = st().project.tracks.filter((t) => t.kind === 'audio').at(-1)!.clips[0]!.id;
+    expect(mixed()).toEqual([a, ex].sort());
   });
 });
