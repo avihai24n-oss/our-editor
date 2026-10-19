@@ -16,8 +16,7 @@ test('a stalled export fails loudly within the watchdog time, and the next expor
   await page.evaluate(() => {
     const s = (window as any).__oe.getState();
     const a = Object.values(s.project.assets)[0] as { id: string };
-    s.addClip(a.id, { at: 0 });
-    const id = s.project.tracks[0].clips[0].id;
+    const id = s.addClip(a.id, { at: 0 });
     (window as any).__oe.getState().setSpeed(id, 0.5); // the 0.5x case from the Speed-tab report
     (window as any).__oeExportFault = { hangAtFrame: 30, stallMs: 3000 };
   });
