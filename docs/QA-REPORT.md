@@ -185,8 +185,7 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
 ## Known remaining issues and limits (v1)
 
 **Editing**
-- **Uniform scale off** (`scaleX` / `scaleY`) is deferred. It changes render geometry, hit-testing
-  and the canvas handles. The switch is shown on and disabled.
+- ~~Uniform scale off is deferred~~ — done 2026-10-19, see "Inspector › Video tab" below.
 - **Inserting a track between two existing tracks:** the store supports it (`newTrack`), but the
   timeline has no drop zone between rows yet. Only the empty space above or below the stack
   creates a track.
@@ -333,3 +332,78 @@ that reflects real Chrome.
 | `npm run build` | passes |
 | `e2e/memory.spec.ts` | pass. It imports 5 files onto the timeline and idles 75 s. The JS heap is 9.01 → 9.02 MB, browser RSS 929 → 905 MB (samples 928 → 905, never rising), and **0 IndexedDB writes and 0 rAF calls** while idle. Live: 1 preview video, 0 voices, 0 grabbers. Hidden: 0 elements and no rAF. Visible again: 1 video. A second test checks that after playback every off-screen decoder is released while paused. |
 | `e2e/smoke.spec.ts`, `flows.spec.ts`, `shortcuts.spec.ts` | pass (run one at a time, `--workers=1`) |
+
+## Inspector › Video tab — 2026-10-19
+
+Shown for video and image clips. Layout follows CapCut desktop (`docs/capcut-screens/02`): sub-tabs
+**Basic · Remove BG · Mask**. No AI: CapCut's AI items keep their place but are switched off with an
+"AI" badge and "Coming soon".
+
+| Sub-tab | Section | Controls (range, default) | Status |
+|---|---|---|---|
+| Basic | Transform | Scale 1–400 % (100); **Uniform scale** on/off → Scale width / Scale height 1–400 %; Position X/Y px from centre (0, 0); Rotate ° + dial (0); 6 align buttons; mirror H/V; ↺ | works (video + image + text) |
+| Basic | Blend (checkbox) | Mode: Normal, Darken, Screen, Overlay, Multiply, Lighten, Hard light, Soft light, **Linear burn** (new), Color burn, Color dodge; Opacity 0–100 % (100); ↺ | works |
+| Basic | Canvas (checkbox, main-track clips) | None / Color (12 swatches + picker) / Blur (4 levels = 12/30/60/100 px) / Image (an imported image, cover-fit); ↺; **Apply to all** (main track) | works |
+| Basic | Stabilize*, Enhance quality, Reduce image noise, Optical flow*, AI remove, AI expand, Retouch (*video only) | — | disabled, AI |
+| Remove BG | Auto removal, Custom removal | — | disabled, AI |
+| Remove BG | Chroma key (checkbox) | Colour (picker + eyedropper "Pick"), Intensity 0–100 (50), Shadow 0–100 (0); ↺ | works |
+| Mask | Shape tiles | None, Linear, Mirror, Circle, Rectangle, Heart, Star | works |
+| Mask | Mask | Invert; Position X/Y px; Rotate ° + dial; Size W/H px (Mirror: H only, Linear: none); Feather 0–100 (0); Round corners 0–100 (Rectangle); ↺; on-canvas handles: move (dot), size (square), rotate (round), feather (arrow) | works |
+
+**One engine.** Everything is resolved in `getFrameState` and drawn by `renderFrame`, which both the
+player and the exporter call: per-axis scale (`ResolvedTransform.scaleX/scaleY`), masks on the
+clip's scratch layer (`destination-in` / `destination-out`, feather = gaussian blur for closed
+shapes, exact linear gradients for Linear / Mirror; `src/engine/render/mask.ts`), chroma key on a
+per-frame copy of the source (Cb/Cr distance, `src/engine/render/chroma.ts`), linear burn as
+difference → lighter → difference passes, and the canvas background as an extra op drawn before a
+main-track clip (`role: 'background'`, not hit-testable; fill op for colours).
+
+**Model.** `Transform.uniformScale / scaleX / scaleY` (all visual clips); `mask`, `chroma`, `canvas` on
+video and image clips; `BlendMode` gains `'linear-burn'`; `ClipPatch` merges `mask / chroma / canvas`
+and `ops.updateClip` clamps them. `migrateProject` → `migrateVideoTabFields` fills them in older
+projects (scaleX/Y start from the saved scale). All edits are store actions → undoable and autosaved.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **378 / 378 pass** (25 files). New: `src/engine/render/videoTab.test.ts` (defaults, clamping + undo, migration, per-axis frame state, canvas background ops, linear burn op, mask geometry for all six shapes incl. feather / invert / rotation / round corners, star & heart polygons, chroma key alpha + despill, non-uniform corner drag, compositor calls for masks / blur / linear burn) and `src/inspector/VideoTab.test.tsx` (uniform switch, picture box, default mask sizes, on-canvas mask maths incl. flipped / rotated clips, the tab UI: AI rows disabled, image vs video, overlay has no Canvas, Canvas + Apply to all + undo, chroma, mask tiles / invert / size) |
+| `npm run build` | passes |
+| `e2e/tab-video.spec.ts` (new) | pass. Drives the real UI and samples the player canvas with `getImageData` (numbers below), then reloads and exports a 1080p MP4 and reads its frame at 1 s with ffmpeg (`-ss 1 -frames:v 1` → PNG → rgb24) |
+| `smoke`, `flows`, `shortcuts`, `file-drop`, `timeline-stability`, `memory` | pass (one at a time through the browser lock) |
+
+Pixel evidence (preview canvas, RGB; white 1080×1920 video on the main track, black canvas):
+
+| Setting | Samples (x, y as fractions) |
+|---|---|
+| baseline | (0.5,0.5) 255 · corner 255 |
+| Scale 50 % | (0.1,0.1) **0,0,0** · (0.3,0.3) 255 · ⌘Z → corner 255 again |
+| Uniform off, width 50 % | (0.1,0.5) **0** · (0.5,0.05) 255 · (0.5,0.95) 255 |
+| Position X 540 | (0.25,0.5) **0** · (0.75,0.5) 255 |
+| Rotate 90° | (0.5,0.1) **0** · centre 255 |
+| Opacity 50 % | centre **128,128,128** (luma halved) |
+| #4080c0 image overlay over that 50 % grey: Multiply / Screen / Linear burn / Darken / Lighten | 31,64,96 · 159,191,224 · 0,0,65 · 62,127,128 · 128,128,192 (expected 32,64,96 · 160,191,223 · 0,1,65 · 64,128,128 · 128,128,192) |
+| Mask Circle | centre 255 · (0.7,0.5) 255 · (0.8,0.5) **0** · corner **0** |
+| Circle, Feather 100 | edge (0.75,0.5) **116** (soft) · centre 255 |
+| Circle, Invert | centre **0** · corner 255 |
+| Circle dragged 100 px right on canvas | (0.8,0.5) 255 · (0.3,0.5) 0; ⌘Z restores |
+| Linear / Mirror / Rectangle | top 255, bottom 0 / band 255, (0.5,0.25) 0 / (0.25,0.5) 255, (0.5,0.25) 0 |
+| Heart / Star | centre 255, above + side 0 / centre + top arm 255, between arms (0.639,0.402) **0** |
+| Chroma key (image overlay, left half #00ff00, right #ff0000) | before 0,255,0 → after **255,255,255** (the white clip shows through); red half stays 252,0,0; Intensity 0 → green again |
+| Canvas Blur (clip at 50 %) | (0.5,0.15) 0 → **255** (blurred copy) |
+| Canvas Color #e94b3c | (0.5,0.15) and corner **233,75,60** |
+
+Final composition (canvas colour + clip at 50 % + keyed, circle-masked image overlay):
+
+| Point | Preview | After reload | Exported MP4 @ 1 s |
+|---|---|---|---|
+| (0.05,0.05) canvas | 233,75,60 | 233,75,60 | 231,74,59 |
+| (0.5,0.2) canvas | 233,75,60 | 233,75,60 | 231,74,59 |
+| (0.5,0.3) clip outside mask | 255,255,255 | 255,255,255 | 255,255,255 |
+| (0.42,0.5) keyed half | 255,255,255 | 255,255,255 | 255,255,255 |
+| (0.6,0.5) red half in mask | 252,0,0 | 252,0,0 | 251,0,0 |
+
+Limits: masks have no keyframes yet (the ◇ buttons stay disabled like everywhere else); the Pen /
+custom mask and Remove BG's AI cut-outs are not built; the Canvas "Image" choice lists images
+already in the Media pool; feathering a closed shape is a gaussian blur (CapCut's edge falloff
+may differ slightly); a non-uniformly scaled clip shears a rotated mask, as in the math of any 2D
+transform. Crop stays on the timeline toolbar (CapCut has no crop control in this tab).

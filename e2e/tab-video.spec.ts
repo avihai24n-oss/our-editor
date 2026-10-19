@@ -326,7 +326,7 @@ test('Video tab: preview pixels, undo, reload, export', async ({ page }) => {
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-ss', '1', '-i', file, '-frames:v', '1', png]);
   fs.mkdirSync(path.join(path.dirname(file), '..', 'screens'), { recursive: true });
   fs.copyFileSync(png, path.join(path.dirname(file), '..', 'screens', 'tab-video-03-export-frame.png'));
-  const raw = execFileSync('ffmpeg', ['-v', 'error', '-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const raw = execFileSync('ffmpeg', ['-v', 'error', '-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 64 * 1024 * 1024 });
   const at = (fx: number, fy: number): RGB => {
     const x = Math.round(fx * 1079);
     const y = Math.round(fy * 1919);
