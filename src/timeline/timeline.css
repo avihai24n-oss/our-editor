@@ -151,7 +151,9 @@
   width: 10px;
   height: 12px;
   display: flex;
-  z-index: 1;
+  /* above the playhead head: a click on a marker seeks there, so the second click of a
+     double-click (remove) used to land on the playhead head instead of the marker */
+  z-index: 4;
 }
 .tl-playhead-head {
   position: absolute;

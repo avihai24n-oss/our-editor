@@ -14,7 +14,7 @@ import {
 } from '../model/defaults';
 import { adjacentNext, audioLinked, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
 import { clamp, clipContains, clipEnd, frameUs, sourceSpan } from '../model/time';
-import type { Clip, ClipPatch, Id, Project, Track, TrackKind, TransitionType, Us } from '../model/types';
+import type { Clip, ClipPatch, Id, Project, TimedClip, Track, TrackKind, TransitionType, Us } from '../model/types';
 
 export interface EditCtx {
   magnet: boolean;
@@ -24,6 +24,15 @@ export const minClipUs = (p: Project): Us => Math.ceil(frameUs(p.settings.fps));
 
 /** Deep copy that works on immer drafts and plain objects. */
 const cloneClip = (c: Clip): Clip => structuredClone(isDraft(c) ? current(c) : c);
+
+/**
+ * Keeps the items that pass `keep`, IN PLACE: an immer draft is only touched when something is
+ * removed. (`arr = arr.filter(…)` always writes a new array, so every edit — even a refused one —
+ * produced a "changed" project and an empty undo step.)
+ */
+export function retain<T>(arr: T[], keep: (x: T) => boolean): void {
+  for (let i = arr.length - 1; i >= 0; i--) if (!keep(arr[i]!)) arr.splice(i, 1);
+}
 
 // ---------------------------------------------------------------- normalize
 
@@ -42,7 +51,11 @@ export function normalize(p: Project, ctx: EditCtx): void {
       c.trackId = track.id;
       c.start = Math.max(0, Math.round(c.start));
       c.duration = Math.max(min, Math.round(c.duration));
-      if (isTimedClip(c)) c.inPoint = Math.max(0, Math.round(c.inPoint));
+      if (isTimedClip(c)) {
+        c.inPoint = Math.max(0, Math.round(c.inPoint));
+        const asset = p.assets[c.assetId];
+        if (asset) fitToMedia(c, asset.duration, min);
+      }
       if (c.type !== 'audio') {
         if (c.animationIn) c.animationIn.duration = clamp(Math.round(c.animationIn.duration), 0, c.duration);
         if (c.animationOut) {
@@ -71,11 +84,65 @@ export function normalize(p: Project, ctx: EditCtx): void {
     }
     pruneTransitions(p, track);
   }
+  pruneAudioLinks(p);
+}
+
+/**
+ * A timed clip never reads past the end of its media: [inPoint, inPoint + duration × speed] must
+ * lie inside [0, mediaDuration]. Shortens the clip (or, when not even one frame is left after the
+ * in-point, moves the in-point back / lowers the speed). Every op already clamps; this is the
+ * safety net for rounding at fractional speeds and the 1-frame minimum.
+ */
+function fitToMedia(c: TimedClip, mediaUs: Us, min: Us): void {
+  if (mediaUs <= 0) return;
+  const EPS = 1e-3;
+  if (c.inPoint + c.duration * c.speed <= mediaUs + EPS) return;
+  const d = Math.floor((mediaUs - c.inPoint) / c.speed + EPS);
+  if (d >= min) {
+    c.duration = d;
+    return;
+  }
+  c.duration = min;
+  if (min * c.speed > mediaUs + EPS) c.speed = Math.max(LIMITS.speedMin, mediaUs / min);
+  c.inPoint = Math.max(0, Math.floor(mediaUs - min * c.speed));
+}
+
+/**
+ * Extract-audio links come in pairs: a link id carried only by video clips (its audio was deleted)
+ * or only by audio clips (its video was deleted) is dropped. The video stays muted; ⌘⇧S then
+ * extracts again.
+ */
+function pruneAudioLinks(p: Project): void {
+  const sides = new Map<Id, { video: boolean; audio: boolean }>();
+  for (const t of p.tracks) for (const c of t.clips) {
+    if ((c.type === 'video' || c.type === 'audio') && c.audioLink) {
+      const s = sides.get(c.audioLink) ?? { video: false, audio: false };
+      s[c.type] = true;
+      sides.set(c.audioLink, s);
+    }
+  }
+  for (const t of p.tracks) for (const c of t.clips) {
+    if ((c.type === 'video' || c.type === 'audio') && c.audioLink) {
+      const s = sides.get(c.audioLink)!;
+      if (!s.video || !s.audio) delete c.audioLink;
+    }
+  }
+}
+
+/** Copies get their own link ids (pairs copied together stay paired; a lone copy is unlinked by normalize). */
+function relink(clips: Clip[]): void {
+  const map = new Map<Id, Id>();
+  for (const c of clips) {
+    if ((c.type === 'video' || c.type === 'audio') && c.audioLink) {
+      if (!map.has(c.audioLink)) map.set(c.audioLink, newId('lnk'));
+      c.audioLink = map.get(c.audioLink)!;
+    }
+  }
 }
 
 function pruneTransitions(p: Project, track: Track): void {
   const min = minClipUs(p);
-  track.transitions = track.transitions.filter((tr) => {
+  retain(track.transitions, (tr) => {
     const next = adjacentNext(track, tr.fromClipId);
     return next !== undefined && next.id === tr.toClipId;
   });
@@ -87,12 +154,12 @@ function pruneTransitions(p: Project, track: Track): void {
   }
   // one transition per cut
   const seen = new Set<Id>();
-  track.transitions = track.transitions.filter((tr) => (seen.has(tr.fromClipId) ? false : (seen.add(tr.fromClipId), true)));
+  retain(track.transitions, (tr) => (seen.has(tr.fromClipId) ? false : (seen.add(tr.fromClipId), true)));
 }
 
 /** Removes empty non-main tracks. Called by actions that can empty a track (move, delete). */
 export function removeEmptyTracks(p: Project): void {
-  p.tracks = p.tracks.filter((t) => t.kind === 'main' || t.clips.length > 0);
+  retain(p.tracks, (t) => t.kind === 'main' || t.clips.length > 0);
 }
 
 // ---------------------------------------------------------------- tracks
@@ -176,7 +243,8 @@ export function addClipFromAsset(p: Project, assetId: Id, opts: AddClipOpts, ctx
     else placeOnTrack(p, clip, explicit, at);
   } else if (clip.type === 'audio') {
     placeOnTrack(p, clip, freeTrack(p, 'audio', at, clip.duration), at);
-  } else if (opts.kind === 'overlay') {
+  } else if (opts.kind === 'overlay' || mainTrack(p).locked) {
+    // a locked main track is never touched: the clip goes to a free overlay track instead
     placeOnTrack(p, clip, freeTrack(p, 'overlay', at, clip.duration), at);
   } else {
     insertOnMain(p, clip, at, ctx);
@@ -294,19 +362,23 @@ export function insertClips(p: Project, clips: readonly Clip[], at: Us, ctx: Edi
   const minStart = Math.min(...usable.map((c) => c.start));
   const base = Math.max(0, Math.round(at));
   const out: Id[] = [];
-  for (const src of [...usable].sort((a, b) => a.start - b.start)) {
-    const clip = cloneClip(src);
+  const sorted = [...usable].sort((a, b) => a.start - b.start);
+  const copies = sorted.map(cloneClip);
+  relink(copies);
+  const mainLocked = mainTrack(p).locked;
+  sorted.forEach((src, i) => {
+    const clip = copies[i]!;
     clip.id = newId('clp');
     const start = base + (src.start - minStart);
     const orig = p.tracks.find((t) => t.id === src.trackId && !t.locked && trackAccepts(t.kind, clip));
-    if (orig?.kind === 'main' || (!orig && (clip.type === 'video' || clip.type === 'image'))) {
+    if (orig?.kind === 'main' || (!orig && !mainLocked && (clip.type === 'video' || clip.type === 'image'))) {
       insertOnMain(p, clip, start, ctx);
     } else {
       const kind = newTrackKindFor(clip);
       placeOnTrack(p, clip, orig ?? freeTrack(p, kind, start, clip.duration), start);
     }
     out.push(clip.id);
-  }
+  });
   return out;
 }
 
@@ -325,7 +397,8 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
   if (isTimedClip(c)) {
     // inPoint must stay >= 0: earliest start = start - inPoint / speed
     s = Math.max(s, c.start - Math.floor(c.inPoint / c.speed));
-    c.inPoint = Math.round(c.inPoint + (s - c.start) * c.speed);
+    // floor: the source end (inPoint + duration × speed) never grows past where it was
+    c.inPoint = Math.max(0, Math.floor(c.inPoint + (s - c.start) * c.speed + 1e-6));
   }
   c.duration = end - s;
   c.start = s;
@@ -364,7 +437,8 @@ export function splitClip(p: Project, clipId: Id, t: Us): Id | null {
   b.start = t;
   b.duration = clipEnd(a) - t;
   a.duration = t - a.start;
-  if (isTimedClip(b) && isTimedClip(a)) b.inPoint = Math.round(a.inPoint + a.duration * a.speed);
+  // floor: the right part never reads past the original source end (rounding at fractional speeds)
+  if (isTimedClip(b) && isTimedClip(a)) b.inPoint = Math.floor(a.inPoint + a.duration * a.speed + 1e-6);
   if (a.type !== 'audio' && b.type !== 'audio') {
     a.animationOut = null;
     b.animationIn = null;
@@ -384,9 +458,9 @@ export function deleteClips(p: Project, ids: readonly Id[]): number {
   for (const track of p.tracks) {
     if (track.locked) continue;
     const before = track.clips.length;
-    track.clips = track.clips.filter((c) => !set.has(c.id));
+    retain(track.clips, (c) => !set.has(c.id));
     n += before - track.clips.length;
-    track.transitions = track.transitions.filter((t) => !set.has(t.fromClipId) && !set.has(t.toClipId));
+    retain(track.transitions, (t) => !set.has(t.fromClipId) && !set.has(t.toClipId));
   }
   removeEmptyTracks(p);
   return n;
@@ -414,6 +488,7 @@ export function duplicateClips(p: Project, ids: readonly Id[], ctx: EditCtx): Id
     if (!f || f.track.locked) continue;
     const copy = cloneClip(f.clip);
     copy.id = newId('clp');
+    relink([copy]);
     const at = clipEnd(f.clip);
     if (f.track.kind === 'main') {
       copy.start = at;
@@ -480,10 +555,16 @@ export function setSpeed(p: Project, clipId: Id, speed: number): boolean {
   const f = findClip(p, clipId);
   if (!f || f.track.locked || !isTimedClip(f.clip)) return false;
   const c = f.clip;
-  const span = sourceSpan(c);
-  const s = clamp(speed, LIMITS.speedMin, LIMITS.speedMax);
+  const min = minClipUs(p);
+  const asset = p.assets[c.assetId];
+  const avail = asset && asset.duration > 0 ? asset.duration - c.inPoint : Infinity;
+  const span = Math.min(sourceSpan(c), avail);
+  let s = clamp(speed, LIMITS.speedMin, LIMITS.speedMax);
+  // one frame at this speed must still fit in the media after the in-point
+  if (min * s > avail) s = Math.max(LIMITS.speedMin, avail / min);
   c.speed = s;
-  c.duration = Math.max(minClipUs(p), Math.round(span / s));
+  // floor: duration × speed stays within the source span (never past the media end)
+  c.duration = Math.max(min, Math.floor(span / s + 1e-6));
   return true;
 }
 
@@ -551,6 +632,52 @@ export function restoreAudio(p: Project, videoClipId: Id): boolean {
     linked.filter((c) => c.type === 'audio').map((c) => c.id),
   );
   return true;
+}
+
+// ---------------------------------------------------------------- linkage
+
+/** A video clip and its extracted audio clip that line up (same link id, same start). */
+export interface LinkedPair {
+  videoId: Id;
+  audioId: Id;
+  videoStart: Us;
+  videoDuration: Us;
+  audioStart: Us;
+}
+
+/** Every lined-up video/audio pair of extract-audio links in `p`. */
+export function linkedPairs(p: Project): LinkedPair[] {
+  const audio = new Map<Id, Clip[]>();
+  for (const t of p.tracks) for (const c of t.clips) {
+    if (c.type === 'audio' && c.audioLink) audio.set(c.audioLink, [...(audio.get(c.audioLink) ?? []), c]);
+  }
+  const out: LinkedPair[] = [];
+  if (!audio.size) return out;
+  for (const t of p.tracks) for (const v of t.clips) {
+    if (v.type !== 'video' || !v.audioLink) continue;
+    const a = audio.get(v.audioLink)?.find((x) => x.start === v.start);
+    if (a) out.push({ videoId: v.id, audioId: a.id, videoStart: v.start, videoDuration: v.duration, audioStart: a.start });
+  }
+  return out;
+}
+
+/**
+ * Linkage: after an edit, an audio clip whose linked video was MOVED (start changed, length kept)
+ * while the audio itself stayed put follows it by the same time delta. Trims (length changed) and
+ * audio on locked tracks are left alone. Returns true when something moved.
+ */
+export function followLinked(p: Project, pairs: readonly LinkedPair[], ctx: EditCtx): boolean {
+  let moved = false;
+  for (const pr of pairs) {
+    const v = findClip(p, pr.videoId);
+    const a = findClip(p, pr.audioId);
+    if (!v || !a || a.track.locked) continue;
+    const delta = v.clip.start - pr.videoStart;
+    if (!delta || v.clip.duration !== pr.videoDuration || a.clip.start !== pr.audioStart) continue;
+    moveClip(p, pr.audioId, { start: pr.audioStart + delta }, ctx);
+    moved = true;
+  }
+  return moved;
 }
 
 // ---------------------------------------------------------------- transitions

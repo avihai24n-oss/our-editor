@@ -77,8 +77,12 @@ export interface TimelineUiState extends Persisted {
   setView: (v: TimelineView | null) => void;
 }
 
+const initial = load();
+// the store's edits read the linkage toggle; start it from the user's saved choice
+useEditor.getState().setLinkage(initial.linkage);
+
 export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
-  ...load(),
+  ...initial,
   tool: 'select',
   hoverTime: null,
   clipboard: [],
@@ -105,6 +109,7 @@ export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
   setTool: (tool) => set({ tool }),
   setLinkage: (linkage) => {
     set({ linkage });
+    useEditor.getState().setLinkage(linkage);
     save({ linkage, previewAxis: get().previewAxis });
   },
   setPreviewAxis: (previewAxis) => {
