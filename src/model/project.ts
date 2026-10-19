@@ -1,6 +1,7 @@
 /**
  * Pure read-only helpers over a Project (no React, no DOM). Safe to call from anywhere.
  */
+import type { SpeedCurve } from './speedCurve';
 import { clipEnd } from './time';
 import type {
   AudioClip,
@@ -125,11 +126,29 @@ export function migrateProject(p: Project): Project {
   const tracks = p.tracks.map((t) => {
     let tChanged = false;
     const clips = t.clips.map((c) => {
-      if (c.type === 'audio') return c;
-      const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
-      if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean') return c;
-      tChanged = true;
-      return { ...c, blendEnabled: v.blendEnabled ?? true, adjustEnabled: v.adjustEnabled ?? true } as Clip;
+      let out: Clip = c;
+      if (c.type !== 'audio') {
+        const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
+        if (typeof v.blendEnabled !== 'boolean' || typeof v.adjustEnabled !== 'boolean') {
+          out = { ...out, blendEnabled: v.blendEnabled ?? true, adjustEnabled: v.adjustEnabled ?? true } as Clip;
+        }
+      }
+      if (out.type === 'video' || out.type === 'audio') {
+        // Speed › Curve (added after v1): missing or malformed → Standard speed.
+        const tc = out as TimedClip & { speedCurve?: unknown };
+        const curve = tc.speedCurve as SpeedCurve | null | undefined;
+        const valid =
+          curve === null ||
+          (!!curve &&
+            Array.isArray(curve.points) &&
+            curve.points.length >= 2 &&
+            curve.points.every((q) => Number.isFinite(q?.x) && Number.isFinite(q?.v) && q.v > 0));
+        if (curve === undefined || !valid) out = { ...out, speedCurve: null } as Clip;
+        else if (curve && tc.speed !== 1) out = { ...out, speed: 1 } as Clip;
+        if (typeof tc.speed !== 'number' || !(tc.speed > 0)) out = { ...out, speed: 1 } as Clip;
+      }
+      if (out !== c) tChanged = true;
+      return out;
     });
     if (!tChanged) return t;
     changed = true;

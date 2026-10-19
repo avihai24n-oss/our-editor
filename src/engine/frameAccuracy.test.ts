@@ -27,7 +27,7 @@ describe('frame lookup (bug: speed 2× / 10× showed the previous source frame)'
       const bad: string[] = [];
       for (const speed of speeds) {
         for (const inFrames of [0, 37]) {
-          const clip = { start: frameToUs(11, projectFps), inPoint: frameToUs(inFrames, SRC_FPS), speed };
+          const clip = { start: frameToUs(11, projectFps), duration: 60_000_000, inPoint: frameToUs(inFrames, SRC_FPS), speed };
           for (let n = 0; n < 400; n++) {
             const t = frameToUs(11 + n, projectFps);
             const got = Math.floor(frameLookupSec(sourceTimeAt(clip, t)) * SRC_FPS);
@@ -42,7 +42,7 @@ describe('frame lookup (bug: speed 2× / 10× showed the previous source frame)'
 
   it('without the epsilon the 2× case is one frame early (documents the root cause)', () => {
     const t = frameToUs(1, 30); // 33 333 µs
-    const st = sourceTimeAt({ start: 0, inPoint: 0, speed: 2 }, t); // 66 666 µs
+    const st = sourceTimeAt({ start: 0, duration: 60_000_000, inPoint: 0, speed: 2 }, t); // 66 666 µs
     expect(Math.floor((st / 1e6) * 30)).toBe(1); // exact lookup: frame 1 (wrong)
     expect(Math.floor(frameLookupSec(st) * 30)).toBe(2); // with the epsilon: frame 2
   });
@@ -58,7 +58,7 @@ describe('frame lookup (bug: speed 2× / 10× showed the previous source frame)'
     };
     const r = new SequentialReader(open);
     for (let n = 0; n < 36; n++) {
-      const st = sourceTimeAt({ start: 0, inPoint: 0, speed: 10 }, frameToUs(n, 30));
+      const st = sourceTimeAt({ start: 0, duration: 60_000_000, inPoint: 0, speed: 10 }, frameToUs(n, 30));
       const f = await r.frameAt(frameLookupSec(st));
       expect(Math.round(f!.timestamp * SRC_FPS)).toBe(10 * n);
     }

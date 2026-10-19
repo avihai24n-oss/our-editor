@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PlaybackClock } from './clock';
-import { decideSync, driftLimit, SEEK_GRACE_MS, type ElementState } from './sync';
+import { decideSync, driftLimit, followRate, SEEK_GRACE_MS, type ElementState } from './sync';
 
 describe('PlaybackClock', () => {
   it('advances from the anchor on the injected clock', () => {
@@ -68,5 +68,29 @@ describe('decideSync', () => {
     expect(a.pause).toBe(true);
     expect(a.seek).toBe(5);
     expect(a.play).toBe(false);
+  });
+});
+
+describe('speed curves in the preview (varying speed)', () => {
+  const playing: ElementState = { currentTime: 1, paused: false, seeking: false, playbackRate: 1, sinceSeekMs: 1000 };
+  it('followRate is the curve speed plus a bounded proportional correction', () => {
+    expect(followRate(1, 1, 2)).toBe(2);
+    expect(followRate(1, 1.05, 2)).toBeCloseTo(2.1, 3); // 50 ms behind → +0.1
+    expect(followRate(1, 3, 2)).toBe(2.5); // capped at +25 %
+    expect(followRate(1, 0, 2)).toBe(1.6); // and −20 %
+    expect(followRate(0, 0, 0.1)).toBe(0.1);
+    expect(followRate(0, 0, 20)).toBe(16); // native limit
+  });
+  it('sets the element rate from the curve every tick without seeking while in sync', () => {
+    const a = decideSync(playing, { target: 1.02, running: true, speed: 3, tolerance: 1 / 60, varying: true });
+    expect(a.seek).toBeNull();
+    expect(a.rate).toBeCloseTo(3.04, 3);
+    // tiny rate differences (< 1 %) are not rewritten every frame
+    const b = decideSync({ ...playing, playbackRate: 3.01 }, { target: 1, running: true, speed: 3, tolerance: 1 / 60, varying: true });
+    expect(b.rate).toBeNull();
+  });
+  it('still re-seeks when far off', () => {
+    const a = decideSync(playing, { target: 2, running: true, speed: 0.5, tolerance: 1 / 60, varying: true });
+    expect(a.seek).toBe(2);
   });
 });

@@ -22,8 +22,14 @@ export interface SyncWant {
   target: number;
   /** Timeline is playing AND the source should be advancing (not a held edge frame). */
   running: boolean;
-  /** Clip speed. */
+  /** Clip speed now (instantaneous for a speed curve). */
   speed: number;
+  /**
+   * The speed changes over time (Speed › Curve). The element's playbackRate then follows the
+   * curve every tick, plus a small proportional correction toward the target so the element
+   * stays on the integral of the curve without re-seeking (seeks stutter).
+   */
+  varying?: boolean;
   /** Half a frame, seconds — tolerance when paused. */
   tolerance: number;
   /**
@@ -57,6 +63,20 @@ export function nudgedRate(speed: number, lag: number): number {
   return Math.min(MAX_RATE, Math.max(MIN_RATE, speed * (1 + k)));
 }
 
+/** Time constant of the curve-following correction, seconds of wall time. */
+export const FOLLOW_TC = 0.5;
+
+/**
+ * playbackRate for a varying speed: the curve's speed plus (target − current) / FOLLOW_TC,
+ * limited to ±25 % of the speed and to the browser's native range.
+ */
+export function followRate(currentTime: number, target: number, speed: number): number {
+  const r = speed + (target - currentTime) / FOLLOW_TC;
+  const lo = Math.max(MIN_RATE, speed * 0.8);
+  const hi = Math.min(MAX_RATE, speed * 1.25);
+  return Math.round(Math.min(hi, Math.max(lo, r)) * 1000) / 1000;
+}
+
 export function decideSync(el: ElementState, want: SyncWant): SyncAction {
   const out: SyncAction = { seek: null, play: false, pause: false, rate: null };
   const nativeRate = want.speed >= MIN_RATE && want.speed <= MAX_RATE;
@@ -64,19 +84,23 @@ export function decideSync(el: ElementState, want: SyncWant): SyncAction {
 
   if (want.running && nativeRate) {
     let rate = want.speed;
+    // a speed curve: follow the curve's instantaneous speed plus a proportional correction
+    if (want.varying) rate = followRate(el.currentTime, want.target, want.speed);
     if (el.paused) {
       if (diff > want.tolerance) out.seek = want.target;
       out.play = true;
     } else if (!el.seeking && el.sinceSeekMs > SEEK_GRACE_MS && diff > driftLimit(want.speed)) {
       out.seek = want.target;
-    } else if (want.nudge && !el.seeking) {
+    } else if (want.nudge && !want.varying && !el.seeking) {
       const lag = want.target - el.currentTime;
       if (diff > want.tolerance) rate = nudgedRate(want.speed, lag);
       // inside the dead band keep a running nudge until the drift is under a quarter frame
       else if (diff > want.tolerance / 2 && Math.abs(el.playbackRate - want.speed) > 1e-6 && Math.sign(el.playbackRate - want.speed) === Math.sign(lag))
         rate = el.playbackRate;
     }
-    if (Math.abs(el.playbackRate - rate) > 1e-6) out.rate = rate;
+    // a curve-following rate changes every tick: only write it when it moved by > 1 %
+    const tol = want.varying ? 0.01 * rate : 1e-6;
+    if (Math.abs(el.playbackRate - rate) > tol) out.rate = rate;
     return out;
   }
 

@@ -661,3 +661,180 @@
   display: flex;
   gap: 8px;
 }
+
+/* ---------------------------------------------------------------- speed › curve */
+.insp {
+  --curve-yellow: #f6c83b;
+}
+.icurve-yellow {
+  color: var(--curve-yellow);
+}
+.icurve-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 10px 8px;
+}
+.icurve-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.icurve-tile__art {
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-raised);
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  overflow: hidden;
+}
+.icurve-tile__art svg[width='64'] {
+  width: 100%;
+  height: auto;
+}
+.icurve-tile:hover .icurve-tile__art {
+  background: var(--bg-hover);
+}
+.icurve-tile.is-active .icurve-tile__art {
+  border-color: var(--accent);
+}
+.icurve-tile__label {
+  color: var(--text-dim);
+}
+.icurve-tile.is-active .icurve-tile__label {
+  color: var(--text);
+}
+.icurve-dash {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.icurve-mid {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+}
+.icurve-line {
+  fill: none;
+  stroke: var(--curve-yellow);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.icurve-line--big {
+  stroke: #e6e6e6;
+  pointer-events: none;
+}
+.icurve-editor {
+  margin-top: 4px;
+  background: #0d0d0e;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.icurve-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: var(--fs-md);
+  border-bottom: 1px solid var(--border);
+}
+.icurve-editor__head .iduration__arrow {
+  flex: 1;
+}
+.icurve-editor__to {
+  font-variant-numeric: tabular-nums;
+}
+.icurve-editor__graph {
+  position: relative;
+  width: 100%;
+  touch-action: none;
+  user-select: none;
+}
+.icurve-editor__graph svg {
+  display: block;
+  cursor: crosshair;
+}
+.icurve-axis {
+  fill: var(--text-faint);
+  font-size: 11px;
+  pointer-events: none;
+}
+.icurve-playhead {
+  stroke: #ffffff;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.icurve-pt {
+  cursor: grab;
+}
+.icurve-pt:active {
+  cursor: grabbing;
+}
+.icurve-pt.is-end {
+  cursor: ns-resize;
+}
+.icurve-pt__hit {
+  fill: transparent;
+}
+.icurve-pt__half,
+.icurve-pt__end {
+  fill: #5b5b60;
+  stroke: #0d0d0e;
+  stroke-width: 1;
+}
+.icurve-pt:hover .icurve-pt__half,
+.icurve-pt:hover .icurve-pt__end {
+  fill: #9a9aa0;
+}
+.icurve-pt.is-selected .icurve-pt__half,
+.icurve-pt.is-selected .icurve-pt__end {
+  fill: var(--accent);
+}
+.icurve-pt.is-end .icurve-pt__end {
+  fill: #d8d8d8;
+}
+.icurve-editor__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+.icurve-editor__value {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.icurve-editor__pm {
+  min-width: 28px;
+  padding: 0 8px;
+  font-size: 16px;
+}
+
+/* Smooth slow-mo (AI) — CapCut's disabled row */
+.islowmo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: var(--fs-md);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.islowmo__name {
+  font-weight: 600;
+}
+.islowmo__hint {
+  font-size: var(--fs-sm);
+}

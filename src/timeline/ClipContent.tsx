@@ -5,6 +5,7 @@
  */
 import { memo, useEffect, useRef, useState } from 'react';
 import { dbToGain } from '../model/project';
+import { clipMeanSpeed, sourceOffsetAt } from '../model/time';
 import type { AudioClip, ImageClip, MediaAsset, VideoClip } from '../model/types';
 import { getThumb, peekThumb } from './media/thumbnails';
 import { getPeaks, peaksReady } from './media/waveform';
@@ -52,12 +53,13 @@ export const Filmstrip = memo(function Filmstrip({ clip, asset, width, height, z
   const ratio = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
   const tileW = Math.max(16, Math.round(height * ratio));
   const [first, last] = tileRange(fromPx - tileW, toPx + tileW, tileW, width);
-  const tileSec = (tileW / zoom) * clip.speed;
+  const tileSec = (tileW / zoom) * clipMeanSpeed(clip);
   const step = thumbStep(tileSec);
   const dur = asset.duration / 1e6;
   const tiles = [];
   for (let i = first; i <= last; i++) {
-    const src = clip.inPoint / 1e6 + ((i * tileW) / zoom) * clip.speed;
+    // speed mapping (standard or curve): the frame the clip shows at this tile's left edge
+    const src = (clip.inPoint + sourceOffsetAt(clip, ((i * tileW) / zoom) * 1e6)) / 1e6;
     const t = quantizeTime(src, step, dur);
     tiles.push(<Tile key={i} assetId={asset.id} url={url} time={t} height={height} left={i * tileW} width={tileW} />);
   }
@@ -112,15 +114,16 @@ export const Waveform = memo(function Waveform({ clip, asset, width, height, zoo
     ctx.clearRect(0, 0, w, height);
     ctx.fillStyle = getComputedStyle(cv).color || '#6ea0ff';
     const norm = normGain(peaks) * gain;
-    const in0 = clip.inPoint / 1e6;
-    const secPerPx = clip.speed / zoom;
+    const srcSec = (px: number) => (clip.inPoint + sourceOffsetAt(clip, (px / zoom) * 1e6)) / 1e6;
+    let t0 = srcSec(a);
     for (let x = 0; x < w; x++) {
-      const t0 = in0 + (a + x) * secPerPx;
-      const v = Math.min(1, peakAt(peaks, t0, t0 + secPerPx) * norm);
+      const t1 = srcSec(a + x + 1);
+      const v = Math.min(1, peakAt(peaks, t0, Math.max(t1, t0 + 1e-4)) * norm);
+      t0 = t1;
       const h = Math.max(v > 0 ? 1 : 0, v * (height - 2));
       ctx.fillRect(x, height - h, 1, h);
     }
-  }, [peaks, w, a, height, zoom, clip.inPoint, clip.speed, gain]);
+  }, [peaks, w, a, height, zoom, clip, gain]);
 
   if (!url || asset.missing || w <= 0) return null;
   return <canvas ref={ref} className="tl-wave" style={{ left: a, width: w, height }} aria-hidden />;

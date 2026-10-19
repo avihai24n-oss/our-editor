@@ -1,6 +1,7 @@
 /**
  * Pure time helpers. All document times are integer microseconds (Us).
  */
+import { curveIntegral, curveIntegralInverse, curveMean, curveSpeedAt, type SpeedCurve } from './speedCurve';
 import type { Clip, Project, Track, TimedClip, Us } from './types';
 
 export const US_PER_SEC = 1_000_000;
@@ -72,15 +73,54 @@ export const clipEnd = (c: Pick<Clip, 'start' | 'duration'>): Us => c.start + c.
 export const clipContains = (c: Pick<Clip, 'start' | 'duration'>, t: Us): boolean =>
   t >= c.start && t < clipEnd(c);
 
-/** Source span consumed by a timed clip, in µs of source time. */
-export const sourceSpan = (c: Pick<TimedClip, 'duration' | 'speed'>): Us => Math.round(c.duration * c.speed);
+// ---------------------------------------------------------------- speed mapping
+//
+// A timed clip reads its source at speed v(τ) at local timeline time τ = t − start, so the source
+// offset is src(τ) = ∫₀^τ v. Standard speed: v = speed, src = τ·speed. Curve speed: v(τ) =
+// curve(τ / duration), src = duration · F(τ / duration) (see ./speedCurve). Every consumer —
+// frameState (player + export frames), the audio mix, the timeline filmstrip/waveform, trim and
+// split — goes through these functions.
+
+type SpeedFields = Pick<TimedClip, 'speed'> & { speedCurve?: SpeedCurve | null };
+
+/** Average speed over the clip: the curve's mean, or the standard speed. */
+export const clipMeanSpeed = (c: SpeedFields): number => (c.speedCurve ? curveMean(c.speedCurve) : c.speed);
+
+/** Source span consumed by a timed clip, in µs of source time (= duration × mean speed). */
+export const sourceSpan = (c: Pick<TimedClip, 'duration'> & SpeedFields): Us => Math.round(c.duration * clipMeanSpeed(c));
+
+/** Timeline duration that plays `span` µs of source with this speed / curve. */
+export const durationForSpan = (span: Us, c: SpeedFields): number => span / clipMeanSpeed(c);
 
 /**
- * Source (media) time for a timed clip at timeline time t:
- * inPoint + (t - start) * speed. Not clamped — callers clamp to [0, asset.duration].
+ * Source offset (µs, fractional) after `local` µs of the clip on the timeline. Past the clip's
+ * edges the end speeds continue.
  */
-export const sourceTimeAt = (c: Pick<TimedClip, 'start' | 'inPoint' | 'speed'>, t: Us): Us =>
-  Math.round(c.inPoint + (t - c.start) * c.speed);
+export function sourceOffsetAt(c: Pick<TimedClip, 'duration'> & SpeedFields, local: number): number {
+  if (!c.speedCurve) return local * c.speed;
+  const D = Math.max(1, c.duration);
+  return D * curveIntegral(c.speedCurve, local / D);
+}
+
+/** Inverse of sourceOffsetAt: the local timeline offset (µs, fractional) that reads `offset` µs of source. */
+export function localTimeForSourceOffset(c: Pick<TimedClip, 'duration'> & SpeedFields, offset: number): number {
+  if (!c.speedCurve) return offset / c.speed;
+  const D = Math.max(1, c.duration);
+  return D * curveIntegralInverse(c.speedCurve, offset / D);
+}
+
+/** Instantaneous speed at timeline time t. */
+export function speedAtTime(c: Pick<TimedClip, 'start' | 'duration'> & SpeedFields, t: Us): number {
+  if (!c.speedCurve) return c.speed;
+  return curveSpeedAt(c.speedCurve, (t - c.start) / Math.max(1, c.duration));
+}
+
+/**
+ * Source (media) time for a timed clip at timeline time t: inPoint + ∫ speed. Not clamped —
+ * callers clamp to [0, asset.duration].
+ */
+export const sourceTimeAt = (c: Pick<TimedClip, 'start' | 'inPoint' | 'duration'> & SpeedFields, t: Us): Us =>
+  Math.round(c.inPoint + sourceOffsetAt(c, t - c.start));
 
 /** The clip of a track at time t, or undefined. */
 export const clipAtTime = (track: Track, t: Us): Clip | undefined => track.clips.find((c) => clipContains(c, t));

@@ -94,7 +94,7 @@ export class AudioEngine {
       if (el.readyState < 1) continue;
       const a = decideSync(
         { currentTime: el.currentTime, paused: el.paused, seeking: el.seeking, playbackRate: el.playbackRate, sinceSeekMs: now - v.lastSeekAt },
-        { target: op.sourceTime / 1e6, running: true, speed: op.speed, tolerance: 0.5 / fps },
+        { target: op.sourceTime / 1e6, running: true, speed: op.speed, tolerance: 0.5 / fps, varying: !!op.varying },
       );
       if (a.rate !== null) el.playbackRate = a.rate;
       if (a.seek !== null) {

@@ -208,6 +208,8 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
 - Fixed in the export audit (2026-10-19, [AUDIT-export.md](AUDIT-export.md)): speed-changed clips now
   keep their pitch in the export (WSOLA time-stretch, like the preview), loud overlapping clips go
   through a peak limiter instead of clipping, and the WebM fallback file now has a duration.
+
+- ~~Speed changes also change pitch in the export~~ — fixed by the Speed tab work (WSOLA time-stretch, see § Speed tab).
 - Highlights, Shadows and Sharpen are CSS-filter approximations. The WebGL colour pass is v2.
 - The WebM fallback (browsers without WebCodecs) records in real time and is not frame-exact
   (61 frames for 60, audio ≈15 ms late).
@@ -216,7 +218,7 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
 
 **Not built**
 - Stickers, Effects, Captions and Templates tabs are placeholders ("Coming soon").
-- Speed Curve, Combo animations, HSL / Curves and "Save as preset" are shown disabled.
+- Combo animations, HSL / Curves, "Save as preset" and Speed › Velocity effects are shown disabled (Speed › Curve is built, see § Speed tab).
 - **No AI features**, as requested.
 
 **Persistence**
@@ -356,6 +358,83 @@ dropdown, the toolbar icon, the cursors and (through `shortcutDefs.ts`) the keys
   work from any control except text fields (the zoom slider now only keeps its arrow / page keys).
 - No toast on switching: CapCut shows none; the toolbar icon + cursor are the indicator.
 
+## Speed tab (Standard · Curve · Velocity effects) — 2026-10-19
+
+### What CapCut desktop's Speed tab has
+
+Sources: the reference screenshots `docs/capcut-screens/04-inspector-speed-standard.png` and
+`05-inspector-speed-curve.png`; CapCut's own guides ([velocity / curve on PC](https://www.capcut.com/resource/how-to-do-velocity-on-capcut),
+[speed ramp tool](https://www.capcut.com/tools/speed-ramp), [speed up a video](https://www.capcut.com/resource/how-to-speed-up-a-video));
+third-party guides that list the presets ([shotkit](https://shotkit.com/velocity-capcut/)).
+
+| Sub-tab | CapCut | Ours |
+|---|---|---|
+| **Standard** | Speed slider 0.1x–100x with six evenly spaced ticks (0.1 · 1 · 2 · 5 · 10 · 100, log between ticks), `1.00x` field with a stepper; Duration row `source → new` with an editable field; "Change audio pitch" switch (off = pitch kept); "Smooth slow-mo" (AI frame interpolation, Pro, "Only slow-speed videos are supported."); Reset | Same. Smooth slow-mo is shown exactly in CapCut's disabled state (no AI). Reset = 1x, no curve, original pitch, one undo step |
+| **Curve** (Pro in CapCut) | Tiles None · Custom · Montage · Hero · Bullet · Jump cut · Flash in · Flash out (yellow curves on 1x / dashed guides); a graph editor 0.1x (bottom) … 1x (middle) … 10x (top) on a log axis with dashed guides half-way; Custom starts with five 1x beats; split-circle handles, arrow handles at both ends; the white playhead line; Reset and an add / delete beat button; "Duration 2s → 2s" | Same layout and behaviour. Preset shapes measured from the screenshot's thumbnails (pixel trace of the yellow curves): Montage 1x → 3.7x → 0.25x → 1x; Hero 1x → 2.7x plateau → 0.3x → 2.7x plateau → 1x; Bullet 2.7x → 0.27x → 2.7x; Jump cut 0.35x → 3x → 0.35x; Flash in 3x → 1x; Flash out 1x → 3x |
+| **Velocity effects** | A gallery of speed-ramp **templates combined with visual effects** (CapCut lists flash, blur shake, fade blur, retro zoom, rainbow). Not AI, but they need an effects engine we do not have | Shown, disabled ("coming soon") |
+
+### How curve speed works
+
+- Model: `speedCurve: { preset, points[{x, v, s?, sl?}] } | null` on video/audio clips
+  (`src/model/speedCurve.ts`). `x` is the clip's normalised **output** time, `v` the speed. Between
+  points the curve is a cubic Hermite in log10(v) with flat tangents at authored points (CapCut's
+  smooth beats). `migrateProject` fills `speedCurve: null` in old projects and repairs malformed
+  ones; applying a curve keeps the source span and sets the standard speed to 1x.
+- Mapping (one implementation, `src/model/time.ts`): source offset after τ µs =
+  `D · F(τ / D)`, `F(x) = ∫₀ˣ v` (Gauss–Legendre table, 16 sub-intervals × 8 nodes per segment);
+  `sourceSpan = D · mean`, so `D = span / mean`; `localTimeForSourceOffset` is the inverse
+  (safeguarded Newton); `speedAtTime` the instantaneous speed. `getFrameState` (player + export
+  frames), the export audio, the filmstrip and waveform, split and trim all use these.
+- Split and trim are **exact**: Hermite pieces are closed under re-parametrisation, so cutting a
+  curve at any point gives each part its own exact piece (`sliceCurve`); trimming outwards extends
+  flat at the end speed (`extendCurve`, with separate arriving / leaving slopes so the extension is
+  exactly flat), limited by the source.
+- Preview: each video / audio element's `playbackRate` follows the curve every tick plus a bounded
+  proportional correction toward the integral (`followRate`, ±25 %), so it stays in sync without
+  seeking; `preservesPitch` follows the toggle.
+- Export audio: each clip with a speed is rendered at rate 1 through the same mapping —
+  "Change audio pitch" on → mapped resampling (pitch follows speed); off → WSOLA time-stretch
+  (2048-sample Hann grains, 50 % overlap, ±384-sample similarity search), pitch kept. This also
+  fixes the v1 limit "speed changes change pitch in the export".
+- Standard ↔ Curve like CapCut: choosing a standard speed (slider, field or duration) removes the
+  curve; choosing None returns to 1x. The Speed tab opens on Curve when the clip has a curve. The
+  timeline badge shows the preset name.
+
+### Evidence
+
+`e2e/tab-speed.spec.ts` imports the 5 s testsrc2 clip (440 Hz tone), applies each case through the
+inspector, exports 720p 30 fps, and checks: the clip's stored duration against `5 s / mean`
+computed with an independent Simpson integral of the curve; the timeline clip's width (≤ 1.5 px);
+the MP4 and audio-stream durations (ffprobe); 16 output frames matched (MSE over 36×64 gray
+thumbnails) against all 150 source frames; and the dominant frequency (zero crossings) in 80 ms
+windows where the speed is steady.
+
+| Case | Timeline duration (s) | MP4 (s) | Audio (s) | Source frame correct | Pitch measured (speed → Hz, wanted) |
+|---|---|---|---|---|---|
+| Standard 2x | 2.500 | 2.537 | 2.537 | 16/16 | 2x → 440 (440) |
+| Standard 2x, change pitch | 2.500 | 2.537 | 2.537 | 16/16 | 2x → **880** (880) |
+| Standard 0.5x | 10.000 | 10.025 | 10.025 | 16/16 | 0.5x → 440 (440) |
+| Curve Custom | 5.000 | 5.033 | 5.033 | 16/16 | 1x → 440 |
+| Curve Montage | 3.511 | 3.540 | 3.540 | 16/16 | 1x → 440 |
+| Curve Hero | 2.958 | 2.985 | 2.985 | 16/16 | 2.7x → 440 |
+| Curve Bullet | 2.439 | 2.473 | 2.473 | 16/16 | 2.7x → 440 |
+| Curve Jump cut | 7.524 | 7.551 | 7.551 | 15/16 ¹ | 0.35x → 440 |
+| Curve Flash in | 2.602 | 2.633 | 2.623 | 15/16 ¹ | 3x → 440, 1x → 440 |
+| Curve Flash out | 2.602 | 2.633 | 2.623 | 16/16 | 1x → 440, 3x → 440 |
+| Curve Jump cut, change pitch | 7.524 | 7.551 | 7.551 | 15/16 ¹ | 0.35x → **154** (154) |
+
+¹ The miss is the neighbouring frame when the predicted source time lies exactly on a source-frame
+boundary (position 134.000 / 48.000 frames); the spec accepts ±1 only within 0.06 frame of a
+boundary and demands the exact frame everywhere else. The MP4s are 0.03 s longer than the
+timeline because of AAC priming / the last frame's length (same as before this change).
+
+The spec also drags a Custom point to ~8x in the real graph (duration 5.0 s → 2.5 s, timeline and
+"Duration" label follow, **one** undo step, ⌘Z / ⇧⌘Z), Reset, applies Hero and splits at 40 % (the
+right part keeps Hero and continues the source within 2 ms), reloads (both curves restored, the
+tab opens on Curve with Hero selected), then sets 2x in Standard (curve removed) and checks Smooth
+slow-mo is disabled. Screenshots: `e2e/screens/tab-speed-*.png`; raw numbers:
+`e2e/test-results/tab-speed-measurements.json`.
+
 | Check | Result |
 |---|---|
 | `npm run typecheck` | clean |
@@ -386,3 +465,16 @@ on the previous code. Fixed:
 | `npm run typecheck` / `npm run build` | clean / passes |
 | `npm test` | 358 / 358 pass (24 files; new `src/store/assetLifecycle.test.ts`) |
 | e2e, one spec at a time, workers = 1 | smoke 1, flows 1, file-drop 2, shortcuts 2, timeline-stability 7, memory 2, audit-library 14: all pass |
+
+| `npm test` | **407 / 407 pass** (27 files). New: `src/model/speedCurve.test.ts` (property tests against a Simpson integral and a midpoint integral of `speedAtTime` on 40+ random curves and every preset; F monotone; inverse round-trips; slices exact; flat extension), `src/store/speedCurve.store.test.ts` (apply / None / standard replaces curve / undo / clamping / exact split, trim in and out, delete-left/right, extract audio, migration, frameState ops), `src/export/timeStretch.test.ts` (resample 2x → 880 Hz, 0.5x → 220 Hz; WSOLA keeps 440 Hz at 0.25x–3.7x with full level; curve audio follows / keeps pitch), `src/inspector/SpeedTab.test.tsx`, `followRate` in `player.test.ts`; the store fuzz now applies random curves |
+| `npm run build` | passes |
+| `e2e/tab-speed.spec.ts` | **12 / 12 pass** |
+| `smoke`, `flows`, `shortcuts`, `timeline-stability`, `file-drop`, `memory` | pass (one at a time, through the browser lock) |
+
+**Seen once:** in the first full run the 0.5x export stopped advancing at video frame 125 / 300
+(no error, the download never came). It did not reproduce in three later runs. The stall was in the
+video phase (`ExportFrameSource` / Mediabunny decode), not in the audio mix. It ran while ten agents
+shared the machine, so it is noted here rather than fixed.
+
+**Limits:** speeds above 16x are silent in the preview (browser playbackRate limit; the export
+is fine). Velocity effects are not built. CapCut's Pro badge on Curve is not shown.

@@ -156,7 +156,7 @@ test('CapCut shortcuts work in the browser', async ({ page }) => {
   await expect(page.getByTestId('speed-row')).toBeVisible();
   expect(await page.evaluate(() => (window as any).__noReload)).toBe(true);
   await page.keyboard.press('Shift+KeyB');
-  await expect(page.getByTestId('speed-curve-soon')).toBeVisible();
+  await expect(page.getByTestId('speed-curve')).toBeVisible();
   await screenshot(page, 'shortcuts-03-speed-curve');
 
   // ---- toast-only bindings

@@ -1,7 +1,7 @@
 /**
  * Pure DSP for the export mix (no Web Audio, unit-testable):
  *
- * - `stretchPreservePitch`: WSOLA time-stretch. The preview plays speed-changed clips through a
+ * - `stretchMapped` / `stretchPreservePitch`: WSOLA time-stretch (standard speed and speed curves). The preview plays speed-changed clips through a
  *   media element with `preservesPitch` (CapCut's default, "Change audio pitch" off), so the
  *   export must keep the pitch too. An OfflineAudioContext playbackRate would shift it
  *   (2× = an octave up), which is what the export did before (audit 2026-10-19).
@@ -25,20 +25,37 @@ function window(): Float32Array {
   return hann;
 }
 
+/** Source position (SECONDS) that output sample n must play — a clip's time mapping. */
+export type SourceMap = (n: number) => number;
+
 /**
  * Plays `channels` from sample `start` at `speed` (source samples per output sample) for
  * `outLength` output samples, keeping the pitch. Samples outside the input read as silence.
- * All channels share one alignment so the stereo image stays put.
+ * Standard speed is the constant-rate case of `stretchMapped`.
  */
 export function stretchPreservePitch(channels: readonly Float32Array[], start: number, speed: number, outLength: number): Float32Array<ArrayBuffer>[] {
+  return stretchMapped(channels, 1, outLength, (n) => start + n * speed, speed === 1);
+}
+
+/**
+ * WSOLA time-stretch along an arbitrary, increasing time mapping: output sample n plays source
+ * time `srcAt(n)` seconds (× `sampleRate` = source sample). Standard speed and speed curves share
+ * this one implementation (the project's only pitch-preserving stretcher — the integration kept
+ * it over tab-speed's variant: 6–30 dB better sine SNR at 0.5×–3× thanks to the ±512-sample
+ * search refined to 1 sample). All channels share one alignment so the stereo image stays put.
+ *
+ * `unity` = the mapping is rate 1 everywhere: frames are copied without searching (bit-exact).
+ */
+export function stretchMapped(channels: readonly Float32Array[], sampleRate: number, outLength: number, srcAt: SourceMap, unity = false): Float32Array<ArrayBuffer>[] {
   const out = channels.map(() => new Float32Array(Math.max(0, outLength)));
   if (outLength <= 0 || !channels.length) return out;
   const len = channels[0]!.length;
   const w = window();
   const half = FRAME / 2;
+  const pos = (n: number) => srcAt(n) * sampleRate;
   // mono sum of the input range this call can touch (for the alignment search only)
-  const lo = Math.max(0, Math.floor(start) - FRAME - SEEK);
-  const hi = Math.min(len, Math.ceil(start + (outLength + FRAME) * speed) + FRAME + SEEK);
+  const lo = Math.max(0, Math.floor(Math.min(pos(-half), pos(0))) - FRAME - SEEK);
+  const hi = Math.min(len, Math.ceil(pos(outLength + FRAME)) + FRAME + SEEK);
   const sum = new Float32Array(Math.max(0, hi - lo));
   for (const ch of channels) for (let i = lo; i < hi; i++) sum[i - lo]! += ch[i]!;
   const mono = (i: number): number => (i >= lo && i < hi ? sum[i - lo]! : 0);
@@ -46,9 +63,10 @@ export function stretchPreservePitch(channels: readonly Float32Array[], start: n
   const frames = Math.ceil(outLength / HOP) + 1;
   for (let k = 0; k <= frames; k++) {
     const oc = k * HOP; // output centre
-    const ideal = start + oc * speed;
-    let centre = Math.round(ideal);
-    if (k > 0 && speed !== 1) {
+    let centre = Math.round(pos(oc));
+    // rate 1 here (source advanced exactly one hop): a plain copy needs no alignment
+    const rate1 = unity || (k > 0 && Math.abs(pos(oc) - pos(oc - HOP) - HOP) < 1e-6);
+    if (k > 0 && !rate1) {
       // find the offset whose overlap region best continues the previous frame
       const nat = Math.round(prev + HOP);
       const corr = (d: number, step: number) => {

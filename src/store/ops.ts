@@ -13,7 +13,8 @@ import {
   newId,
 } from '../model/defaults';
 import { adjacentNext, audioLinked, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
-import { clamp, clipContains, clipEnd, frameUs, sourceSpan } from '../model/time';
+import { curveIntegral, curveMean, extendCurve, normalizeCurve, sliceCurve, type SpeedCurve } from '../model/speedCurve';
+import { clamp, clipContains, clipEnd, clipMeanSpeed, durationForSpan, frameUs, sourceOffsetAt, sourceSpan } from '../model/time';
 import type { Clip, ClipPatch, Id, Project, TimedClip, Track, TrackKind, TransitionType, Us } from '../model/types';
 
 export interface EditCtx {
@@ -96,13 +97,17 @@ export function normalize(p: Project, ctx: EditCtx): void {
 function fitToMedia(c: TimedClip, mediaUs: Us, min: Us): void {
   if (mediaUs <= 0) return;
   const EPS = 1e-3;
-  if (c.inPoint + c.duration * c.speed <= mediaUs + EPS) return;
-  const d = Math.floor((mediaUs - c.inPoint) / c.speed + EPS);
+  const speed = clipMeanSpeed(c); // a speed curve reads duration × its mean speed of source
+  if (c.inPoint + c.duration * speed <= mediaUs + EPS) return;
+  const d = Math.floor((mediaUs - c.inPoint) / speed + EPS);
   if (d >= min) {
     c.duration = d;
     return;
   }
+  // not even one frame fits: fall back to a standard speed that fits
   c.duration = min;
+  c.speedCurve = null;
+  c.speed = speed;
   if (min * c.speed > mediaUs + EPS) c.speed = Math.max(LIMITS.speedMin, mediaUs / min);
   c.inPoint = Math.max(0, Math.floor(mediaUs - min * c.speed));
 }
@@ -395,10 +400,15 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
   const magnetMain = f.track.kind === 'main' && ctx.magnet;
   if (prev && !magnetMain) s = Math.max(s, clipEnd(prev));
   if (isTimedClip(c)) {
-    // inPoint must stay >= 0: earliest start = start - inPoint / speed
-    s = Math.max(s, c.start - Math.floor(c.inPoint / c.speed));
-    // floor: the source end (inPoint + duration × speed) never grows past where it was
-    c.inPoint = Math.max(0, Math.floor(c.inPoint + (s - c.start) * c.speed + 1e-6));
+    if (c.speedCurve) {
+      const r = trimCurveStart(c, s, p.assets[c.assetId]?.duration);
+      s = r.start;
+    } else {
+      // inPoint must stay >= 0: earliest start = start - inPoint / speed
+      s = Math.max(s, c.start - Math.floor(c.inPoint / c.speed));
+      // floor: the source end (inPoint + duration × speed) never grows past where it was
+      c.inPoint = Math.max(0, Math.floor(c.inPoint + (s - c.start) * c.speed + 1e-6));
+    }
   }
   c.duration = end - s;
   c.start = s;
@@ -415,12 +425,98 @@ export function trimEnd(p: Project, clipId: Id, newEnd: Us, ctx: EditCtx): boole
   const next = f.track.clips[f.index + 1];
   const magnetMain = f.track.kind === 'main' && ctx.magnet;
   if (next && !magnetMain) e = Math.min(e, next.start);
+  if (isTimedClip(c) && c.speedCurve) {
+    trimCurveEnd(c, Math.max(minClipUs(p), e - c.start), p.assets[c.assetId]?.duration);
+    return true;
+  }
   if (isTimedClip(c)) {
     const asset = p.assets[c.assetId];
     if (asset) e = Math.min(e, c.start + Math.floor((asset.duration - c.inPoint) / c.speed));
   }
   c.duration = Math.max(minClipUs(p), e - c.start);
   return true;
+}
+
+// ---------------------------------------------------------------- curve trimming (exact)
+
+/** Plain (non-draft) copy of a curve, so the integral cache keys on stable arrays. */
+const plainCurve = (curve: SpeedCurve): SpeedCurve => structuredClone(isDraft(curve) ? current(curve) : curve);
+
+/**
+ * Moves the left edge of a curve clip to timeline time `s`. Inwards: the curve is cut at the new
+ * edge (exact) and inPoint advances by the source played in the removed part. Outwards: the curve
+ * is extended at its first speed, limited so inPoint stays >= 0. Returns the applied start.
+ */
+function trimCurveStart(c: TimedClip, s: Us, _assetDuration: Us | undefined): { start: Us } {
+  const curve = plainCurve(c.speedCurve!);
+  const D = c.duration;
+  const end = c.start + D;
+  if (s >= c.start) {
+    const a = (s - c.start) / D;
+    const cut = D * curveIntegral(curve, a);
+    c.inPoint = Math.floor(c.inPoint + cut + 1e-6); // floor: never past the old source end
+    c.speedCurve = sliceCurve(curve, a, 1);
+    c.duration = end - s;
+    c.start = s;
+    return { start: s };
+  }
+  // extend to the left
+  const srcBefore = (before: number) => {
+    const ext = extendCurve(curve, D, before, 0);
+    return { ext, src: (D + before) * curveIntegral(ext, before / (D + before)) };
+  };
+  let before = c.start - s;
+  let r = srcBefore(before);
+  if (r.src > c.inPoint) {
+    let lo = 0;
+    let hi = before;
+    for (let k = 0; k < 50 && hi - lo > 0.5; k++) {
+      const mid = (lo + hi) / 2;
+      if (srcBefore(mid).src > c.inPoint) hi = mid;
+      else lo = mid;
+    }
+    before = Math.floor(lo);
+    r = srcBefore(before);
+  }
+  const ns = c.start - before;
+  c.inPoint = Math.max(0, Math.round(c.inPoint - r.src));
+  c.speedCurve = r.ext;
+  c.duration = end - ns;
+  c.start = ns;
+  return { start: ns };
+}
+
+/**
+ * Sets a curve clip's duration by moving its right edge. Inwards: the curve is cut (exact).
+ * Outwards: extended at its last speed, limited by the end of the source.
+ */
+function trimCurveEnd(c: TimedClip, duration: Us, assetDuration: Us | undefined): void {
+  const curve = plainCurve(c.speedCurve!);
+  const D = c.duration;
+  if (duration <= D) {
+    c.speedCurve = sliceCurve(curve, 0, duration / D);
+    c.duration = duration;
+    return;
+  }
+  const spanFor = (after: number) => {
+    const ext = extendCurve(curve, D, 0, after);
+    return { ext, span: (D + after) * curveMean(ext) };
+  };
+  let after = duration - D;
+  let r = spanFor(after);
+  if (assetDuration !== undefined && c.inPoint + r.span > assetDuration) {
+    let lo = 0;
+    let hi = after;
+    for (let k = 0; k < 50 && hi - lo > 0.5; k++) {
+      const mid = (lo + hi) / 2;
+      if (c.inPoint + spanFor(mid).span > assetDuration) hi = mid;
+      else lo = mid;
+    }
+    after = Math.floor(lo);
+    r = spanFor(after);
+  }
+  c.speedCurve = after > 0 ? r.ext : curve;
+  c.duration = D + after;
 }
 
 // ---------------------------------------------------------------- split / delete
@@ -436,9 +532,19 @@ export function splitClip(p: Project, clipId: Id, t: Us): Id | null {
   b.id = newId('clp');
   b.start = t;
   b.duration = clipEnd(a) - t;
+  if (isTimedClip(b) && isTimedClip(a)) {
+    // the right part starts where the left part's source ends: inPoint + ∫ speed over the left part
+    // floor: the right part never reads past the original source end (rounding at fractional speeds)
+    b.inPoint = Math.floor(a.inPoint + sourceOffsetAt(a, t - a.start) + 1e-6);
+    if (a.speedCurve) {
+      // each part keeps its own piece of the curve (exact cut)
+      const curve = plainCurve(a.speedCurve);
+      const x = (t - a.start) / a.duration;
+      a.speedCurve = sliceCurve(curve, 0, x);
+      b.speedCurve = sliceCurve(curve, x, 1);
+    }
+  }
   a.duration = t - a.start;
-  // floor: the right part never reads past the original source end (rounding at fractional speeds)
-  if (isTimedClip(b) && isTimedClip(a)) b.inPoint = Math.floor(a.inPoint + a.duration * a.speed + 1e-6);
   if (a.type !== 'audio' && b.type !== 'audio') {
     a.animationOut = null;
     b.animationIn = null;
@@ -567,7 +673,23 @@ export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
   return true;
 }
 
-/** Changes speed; the source span stays the same, the timeline duration changes. */
+/**
+ * Standard speed: the source span stays the same, the timeline duration changes. Like CapCut,
+ * choosing a standard speed replaces a speed curve.
+ */
+/**
+ * Source span of a timed clip for a speed change. µs rounding of the timeline duration would
+ * otherwise make the span drift by a µs per change; a span that ends within a few µs of the
+ * source end is snapped to it (the common "whole clip" case), and never runs past it.
+ */
+function spanForSpeedChange(p: Project, c: TimedClip): Us {
+  const span = sourceSpan(c);
+  const asset = p.assets[c.assetId];
+  if (!asset || asset.duration <= 0) return span;
+  const room = asset.duration - c.inPoint;
+  return Math.abs(span - room) <= 4 ? room : Math.min(span, room);
+}
+
 export function setSpeed(p: Project, clipId: Id, speed: number): boolean {
   const f = findClip(p, clipId);
   if (!f || f.track.locked || !isTimedClip(f.clip)) return false;
@@ -575,17 +697,18 @@ export function setSpeed(p: Project, clipId: Id, speed: number): boolean {
   const min = minClipUs(p);
   const asset = p.assets[c.assetId];
   const avail = asset && asset.duration > 0 ? asset.duration - c.inPoint : Infinity;
-  const span = Math.min(sourceSpan(c), avail);
+  const span = Math.min(spanForSpeedChange(p, c), avail);
   let s = clamp(speed, LIMITS.speedMin, LIMITS.speedMax);
   // one frame at this speed must still fit in the media after the in-point
   if (min * s > avail) s = Math.max(LIMITS.speedMin, avail / min);
   c.speed = s;
+  c.speedCurve = null;
   // floor: duration × speed stays within the source span (never past the media end)
   c.duration = Math.max(min, Math.floor(span / s + 1e-6));
   return true;
 }
 
-/** Sets the timeline duration. Timed clips back-compute speed; image/text just change length. */
+/** Sets the timeline duration. Timed clips back-compute (standard) speed; image/text just change length. */
 export function setDuration(p: Project, clipId: Id, duration: Us): boolean {
   const f = findClip(p, clipId);
   if (!f || f.track.locked) return false;
@@ -593,6 +716,22 @@ export function setDuration(p: Project, clipId: Id, duration: Us): boolean {
   const d = Math.max(minClipUs(p), Math.round(duration));
   if (isTimedClip(c)) return setSpeed(p, clipId, sourceSpan(c) / d);
   c.duration = d;
+  return true;
+}
+
+/**
+ * Speed › Curve. Applies (or with null removes) a speed curve; the source span stays the same
+ * and the timeline duration becomes span / mean(curve). Applying a curve sets the standard speed
+ * to 1x; removing it ("None") leaves the clip at 1x (CapCut).
+ */
+export function setSpeedCurve(p: Project, clipId: Id, curve: SpeedCurve | null): boolean {
+  const f = findClip(p, clipId);
+  if (!f || f.track.locked || !isTimedClip(f.clip)) return false;
+  const c = f.clip;
+  const span = spanForSpeedChange(p, c);
+  c.speed = 1;
+  c.speedCurve = curve ? normalizeCurve(plainCurve(curve)) : null;
+  c.duration = Math.max(minClipUs(p), Math.round(durationForSpan(span, c)));
   return true;
 }
 
@@ -619,6 +758,7 @@ export function extractAudio(p: Project, videoClipId: Id): Id | null {
   clip.duration = v.duration;
   clip.inPoint = v.inPoint;
   clip.speed = v.speed;
+  clip.speedCurve = v.speedCurve ? plainCurve(v.speedCurve) : null;
   clip.preservePitch = v.preservePitch;
   clip.disabled = v.disabled;
   clip.audio = { ...v.audio, muted: false };
