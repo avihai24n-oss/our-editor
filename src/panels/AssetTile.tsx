@@ -16,6 +16,8 @@ export interface AssetTileProps {
   added: boolean;
   view: 'grid' | 'list';
   selected: boolean;
+  /** Just imported by a drop: pulses briefly. */
+  highlighted?: boolean;
   onSelect: (id: string) => void;
   onAdd: (id: string) => void;
   onRemove: (id: string) => void;
@@ -72,7 +74,7 @@ export function Thumb({ asset }: { asset: MediaAsset }) {
   );
 }
 
-export const AssetTile = memo(function AssetTile({ asset, added, view, selected, onSelect, onAdd, onRemove }: AssetTileProps) {
+export const AssetTile = memo(function AssetTile({ asset, added, view, selected, highlighted, onSelect, onAdd, onRemove }: AssetTileProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (!menu) return;
@@ -105,7 +107,7 @@ export const AssetTile = memo(function AssetTile({ asset, added, view, selected,
 
   return (
     <div
-      className={`atile atile--${view}${selected ? ' is-selected' : ''}${asset.missing ? ' is-missing' : ''}`}
+      className={`atile atile--${view}${selected ? ' is-selected' : ''}${asset.missing ? ' is-missing' : ''}${highlighted ? ' is-new' : ''}`}
       draggable={!asset.missing}
       onDragStart={onDragStart}
       onClick={() => onSelect(asset.id)}

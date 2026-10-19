@@ -17,7 +17,8 @@ interface Persisted {
 }
 
 function load(): Persisted {
-  const def: Persisted = { linkage: true, previewAxis: false };
+  // CapCut ships with the preview axis on (the amber hover line)
+  const def: Persisted = { linkage: true, previewAxis: true };
   try {
     const raw = globalThis.localStorage?.getItem(LS_KEY);
     if (!raw) return def;
@@ -111,8 +112,9 @@ export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
   },
   setHoverTime: (hoverTime) => {
     if (get().hoverTime !== hoverTime) set({ hoverTime });
-    // the player follows the hovered frame (preview axis) while paused
-    useEditor.getState().setPreviewTime(get().previewAxis ? hoverTime : null);
+    // the player shows the hovered frame (preview axis) while paused; playback is never overridden
+    const ed = useEditor.getState();
+    ed.setPreviewTime(get().previewAxis && !ed.playing ? hoverTime : null);
   },
   setClipboard: (clipboard) => set({ clipboard }),
   setView: (view) => set({ view }),

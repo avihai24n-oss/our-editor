@@ -145,16 +145,45 @@ export function contentWidth(durationUs: Us, zoom: number, viewportPx: number): 
 }
 
 /**
- * Auto-scroll while playing: when the playhead leaves the visible lane (or nears its right edge),
- * page so the playhead sits 10 % in from the left. Returns the new scrollLeft or null.
+ * Lane width that never shrinks under the part of the timeline the user is looking at. Deleting or
+ * trimming the last clip shortens the edit; without this the browser clamps scrollLeft and the
+ * whole timeline jumps sideways (under the pointer, mid-trim). The extra room goes away as soon as
+ * the user scrolls back.
  */
-export function autoScroll(playheadPx: number, scrollLeft: number, viewportPx: number): number | null {
+export function stableContentWidth(durationUs: Us, zoom: number, viewportPx: number, scrollLeft: number): number {
+  return Math.max(contentWidth(durationUs, zoom, viewportPx), Math.ceil(Math.max(0, scrollLeft) + viewportPx));
+}
+
+/** Where the playhead rides while playback follows it (fraction of the lane from the left). */
+export const FOLLOW_AT = 0.75;
+
+/**
+ * Follow the playhead while playing. CapCut keeps the playhead in view without paging: once it
+ * passes FOLLOW_AT of the lane the view scrolls along with it, so the content glides instead of
+ * jumping a whole screen. A playhead that is off-screen (playback started elsewhere, or looped)
+ * is brought in 10 % from the left. Returns the new scrollLeft or null.
+ */
+export function followScroll(playheadPx: number, scrollLeft: number, viewportPx: number): number | null {
   if (viewportPx <= 0) return null;
-  const margin = Math.min(40, viewportPx * 0.1);
-  if (playheadPx < scrollLeft || playheadPx > scrollLeft + viewportPx - margin) {
-    return Math.max(0, playheadPx - viewportPx * 0.1);
-  }
+  if (playheadPx < scrollLeft || playheadPx > scrollLeft + viewportPx) return Math.max(0, Math.round(playheadPx - viewportPx * 0.1));
+  const lead = viewportPx * FOLLOW_AT;
+  if (playheadPx > scrollLeft + lead) return Math.round(playheadPx - lead);
   return null;
+}
+
+/**
+ * Heights of the empty bands above and below the track stack. The main track keeps the place it
+ * has in an empty project (55 % of the free space above it) while tracks are added or removed:
+ * a new audio track below or overlay above takes space from its own band, so nothing the user is
+ * looking at moves. Only when the stack no longer fits does the main track move up, so that
+ * everything stays visible before a vertical scrollbar is needed.
+ */
+export function bandHeights(rowsAreaH: number, aboveH: number, mainH: number, belowH: number, bandMin: number): { top: number; bottom: number } {
+  const homeY = bandMin + Math.floor(Math.max(0, rowsAreaH - mainH - 2 * bandMin) * 0.55);
+  const fitTop = rowsAreaH - aboveH - mainH - belowH - bandMin;
+  const top = Math.max(bandMin, Math.min(homeY - aboveH, fitTop));
+  const bottom = Math.max(bandMin, rowsAreaH - top - aboveH - mainH - belowH);
+  return { top, bottom };
 }
 
 // ---------------------------------------------------------------- placement helpers

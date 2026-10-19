@@ -4,7 +4,9 @@ import { secToUs } from '../model/time';
 import type { Clip, Track } from '../model/types';
 import {
   anchoredScroll,
-  autoScroll,
+  bandHeights,
+  followScroll,
+  stableContentWidth,
   clipsInSpan,
   contentWidth,
   fitZoom,
@@ -102,13 +104,60 @@ describe('zoom', () => {
   });
 });
 
-describe('autoScroll', () => {
-  it('does nothing while the playhead is comfortably visible', () => {
-    expect(autoScroll(300, 0, 1000)).toBeNull();
+describe('followScroll (playback follows the playhead without paging)', () => {
+  it('does nothing while the playhead is left of the follow point', () => {
+    expect(followScroll(300, 0, 1000)).toBeNull();
+    expect(followScroll(750, 0, 1000)).toBeNull();
   });
-  it('pages when the playhead nears the right edge or is off-screen', () => {
-    expect(autoScroll(990, 0, 1000)).toBe(890);
-    expect(autoScroll(50, 400, 1000)).toBe(0);
+  it('glides: past 75 % of the lane the view moves by exactly the playhead step', () => {
+    expect(followScroll(760, 0, 1000)).toBe(10);
+    expect(followScroll(780, 10, 1000)).toBe(30);
+    // successive frames never jump more than the playhead moved
+    let sl = 0;
+    for (let px = 700; px < 3000; px += 20) {
+      const n = followScroll(px, sl, 1000);
+      if (n !== null) {
+        expect(n - sl).toBeLessThanOrEqual(20);
+        sl = n;
+      }
+    }
+  });
+  it('brings an off-screen playhead into view 10 % from the left', () => {
+    expect(followScroll(50, 400, 1000)).toBe(0);
+    expect(followScroll(5000, 0, 1000)).toBe(4900);
+  });
+});
+
+describe('stableContentWidth', () => {
+  it('never shrinks below what is on screen (no scroll clamp when the edit gets shorter)', () => {
+    expect(stableContentWidth(S(10), 100, 1000, 0)).toBe(contentWidth(S(10), 100, 1000));
+    expect(stableContentWidth(S(10), 100, 1000, 4000)).toBe(5000);
+  });
+});
+
+describe('bandHeights', () => {
+  const area = 315;
+  const base = bandHeights(area, 0, 64, 0, 28);
+  const mainY = (b: { top: number }, above: number) => b.top + above;
+  it('matches the empty-project layout', () => {
+    expect(base.top).toBe(28 + Math.floor((315 - 64 - 56) * 0.55));
+    expect(base.top + 64 + base.bottom).toBe(area);
+  });
+  it('keeps the main track still when an audio track is added below', () => {
+    expect(mainY(bandHeights(area, 0, 64, 48, 28), 0)).toBe(mainY(base, 0));
+    const tall = bandHeights(500, 0, 64, 0, 28);
+    expect(mainY(bandHeights(500, 0, 64, 2 * 48, 28), 0)).toBe(mainY(tall, 0));
+  });
+  it('keeps the main track still when an overlay track is added above', () => {
+    expect(mainY(bandHeights(area, 48, 64, 0, 28), 48)).toBe(mainY(base, 0));
+    expect(mainY(bandHeights(area, 48, 64, 48, 28), 48)).toBe(mainY(base, 0));
+  });
+  it('moves the stack up only when it would not fit, and never below the minimum bands', () => {
+    const b = bandHeights(area, 0, 64, 4 * 48, 28);
+    expect(b.top + 64 + 4 * 48 + b.bottom).toBe(area);
+    expect(b.bottom).toBe(28);
+    const full = bandHeights(area, 3 * 48, 64, 3 * 48, 28);
+    expect(full).toEqual({ top: 28, bottom: 28 });
   });
 });
 

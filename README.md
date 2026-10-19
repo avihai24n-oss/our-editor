@@ -36,7 +36,10 @@ real-time WebM export.
 - Ten CapCut tabs. Media, Audio, Text, Transitions, Filters and Adjustment work. Stickers, Effects,
   Captions and Templates show "Coming soon".
 - **Media:**
-  - Import video, audio and images with the button or by dropping files on the panel.
+  - Import video, audio and images with the button, or drag files from Finder / the desktop
+    **anywhere on the window**: the window dims ("Drop files to import") and the files go to the
+    Media pool, which opens and briefly highlights the new tiles. Dropped on the timeline, they are
+    also placed at the drop point. Unsupported files are skipped with a toast.
   - Tiles show thumbnails, real audio waveforms, a duration badge, an "Added" badge and a
     "Media lost" state.
   - Search, grid/list view and sort.
@@ -54,7 +57,9 @@ real-time WebM export.
 - Zoom (Fit/50/150/200 %), **Ratio** menu and full screen.
 - Click a clip in the preview to select it. Drag to move it (with centre guides); corner handles
   scale it and the round handle rotates it.
-- **Preview axis (S):** while paused, hovering the timeline shows that frame.
+- **Preview axis (S, on by default like CapCut):** an amber line follows the mouse over the
+  timeline and the player shows that frame while paused. The white playhead moves only on a click,
+  a drag, the keys or playback.
 
 **Inspector (right)**
 - **Video › Basic:**

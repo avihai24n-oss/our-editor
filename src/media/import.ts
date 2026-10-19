@@ -4,20 +4,12 @@
  */
 import { createAsset } from '../model/defaults';
 import { secToUs } from '../model/time';
-import type { Id, MediaAsset, MediaKind, Project } from '../model/types';
+import type { Id, MediaAsset, Project } from '../model/types';
 import { getBlob, hasBlob, putBlob } from '../store/persistence';
 import { registerAssetUrl } from './registry';
 
-export function kindOfFile(file: File): MediaKind | null {
-  if (file.type.startsWith('video/')) return 'video';
-  if (file.type.startsWith('audio/')) return 'audio';
-  if (file.type.startsWith('image/')) return 'image';
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  if (['mp4', 'mov', 'webm', 'mkv', 'm4v'].includes(ext)) return 'video';
-  if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus'].includes(ext)) return 'audio';
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'].includes(ext)) return 'image';
-  return null;
-}
+export { kindOfFile } from './dropFiles';
+import { kindOfFile } from './dropFiles';
 
 interface Probe {
   duration: number; // seconds

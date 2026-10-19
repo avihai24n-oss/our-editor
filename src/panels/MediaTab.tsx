@@ -2,16 +2,16 @@
  * Media tab (and Audio tab, which is the same bin filtered to audio).
  * Import button + OS file drop, search / grid-list / sort toolbar, tiles, "Added" badges.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { usedAssetIds } from '../model/project';
 import { useEditor } from '../store';
 import { withShortcut } from '../timeline/shortcutDefs';
-import { consumeImportRequest, onAppEvent } from '../ui/appEvents';
+import { consumeAssetHighlight, consumeImportRequest, onAppEvent } from '../ui/appEvents';
 import { Icon } from '../ui/Icon';
 import { AssetTile } from './AssetTile';
 import { ComingSoon, GridLabel, LibraryBody, useFlash, type SidebarItem } from './LibraryLayout';
-import { isFileDrag, SORT_LABELS, visibleAssets, type AssetKindFilter, type AssetSort } from './libraryLogic';
+import { SORT_LABELS, visibleAssets, type AssetKindFilter, type AssetSort } from './libraryLogic';
 import { usePref } from './prefs';
 
 const MEDIA_SIDEBAR: SidebarItem[] = [
@@ -43,9 +43,8 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const [dropping, setDropping] = useState(false);
+  const [highlight, setHighlight] = useState<ReadonlySet<string>>(() => new Set());
   const [busy, setBusy] = useState(0);
-  const dragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [flash, showFlash] = useFlash();
 
@@ -58,6 +57,34 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
       if (consumeImportRequest()) fileRef.current?.click();
     });
   }, [mode]);
+
+  // OS files dropped outside the timeline land here (src/media/dropImport.ts): show them all and
+  // pulse the new tiles for a moment. Files dropped on this panel are handled by the same global
+  // drop, so there is one import path and one overlay.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mode !== 'media') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const show = (ids: string[]) => {
+      if (!ids.length) return;
+      consumeAssetHighlight();
+      setQuery('');
+      setCategory('all');
+      setHighlight(new Set(ids));
+      clearTimeout(timer);
+      timer = setTimeout(() => setHighlight(new Set()), 1600);
+      requestAnimationFrame(() => {
+        const el = scrollRef.current?.querySelector<HTMLElement>(`[data-asset-id="${CSS.escape(ids[0]!)}"]`);
+        el?.scrollIntoView?.({ block: 'nearest' });
+      });
+    };
+    show(consumeAssetHighlight());
+    const off = onAppEvent('assetHighlight', ({ ids }) => show(ids));
+    return () => {
+      off();
+      clearTimeout(timer);
+    };
+  }, [mode, setCategory]);
 
   const kind: AssetKindFilter = mode === 'audio' ? 'audio' : (['video', 'image', 'audio'].includes(category) ? (category as AssetKindFilter) : 'all');
   const assets = useMemo(() => Object.values(assetMap), [assetMap]);
@@ -100,31 +127,6 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
     [removeAsset],
   );
 
-  const dropHandlers = {
-    onDragEnter: (e: DragEvent) => {
-      if (!isFileDrag([...e.dataTransfer.types])) return;
-      dragDepth.current++;
-      setDropping(true);
-    },
-    onDragOver: (e: DragEvent) => {
-      if (!isFileDrag([...e.dataTransfer.types])) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-    },
-    onDragLeave: (e: DragEvent) => {
-      if (!isFileDrag([...e.dataTransfer.types])) return;
-      dragDepth.current = Math.max(0, dragDepth.current - 1);
-      if (!dragDepth.current) setDropping(false);
-    },
-    onDrop: (e: DragEvent) => {
-      if (!isFileDrag([...e.dataTransfer.types])) return;
-      e.preventDefault();
-      dragDepth.current = 0;
-      setDropping(false);
-      void doImport([...e.dataTransfer.files]);
-    },
-  };
-
   const sidebar = mode === 'media' ? MEDIA_SIDEBAR : AUDIO_SIDEBAR;
   const showSfx = mode === 'audio' && category === 'sfx';
   const accept = mode === 'audio' ? 'audio/*' : 'video/*,audio/*,image/*';
@@ -137,7 +139,7 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
 
   return (
     <LibraryBody sidebar={sidebar} value={category} onChange={setCategory}>
-      <div className="lib-drop" {...dropHandlers}>
+      <div className="lib-drop">
         <input
           ref={fileRef}
           type="file"
@@ -227,7 +229,7 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
         {showSfx ? (
           <ComingSoon label="Sound effects" icon="audio" note="A sound-effects library is coming soon. Import your own sound files for now." />
         ) : (
-          <div className="lib__scroll">
+          <div className="lib__scroll" ref={scrollRef}>
             <GridLabel>{query ? `Results for “${query}”` : 'All'}</GridLabel>
             {list.length === 0 ? (
               <div className="lib-empty">
@@ -248,6 +250,7 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
                     added={usedSet.has(a.id)}
                     view={view}
                     selected={selected === a.id}
+                    highlighted={highlight.has(a.id)}
                     onSelect={setSelected}
                     onAdd={onAdd}
                     onRemove={onRemove}
@@ -255,12 +258,6 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
                 ))}
               </div>
             )}
-          </div>
-        )}
-        {dropping && (
-          <div className="lib-drop__overlay">
-            <Icon name="import" size={28} />
-            Drop files to import
           </div>
         )}
         {flash}

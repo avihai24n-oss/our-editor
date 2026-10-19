@@ -121,9 +121,13 @@ export function LeftPanel() {
     const offImport = onAppEvent('import', () => {
       if (tabRef.current !== 'media') setTab('media');
     });
+    const offShow = onAppEvent('libraryShow', ({ tab }) => {
+      if (tabRef.current !== tab) setTab(tab);
+    });
     return () => {
       offCycle();
       offImport();
+      offShow();
     };
   }, [setTab]);
 

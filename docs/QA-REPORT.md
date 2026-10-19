@@ -36,6 +36,58 @@ Chromium; in a real macOS browser window the browser may take it first, so ⇧�
 The toast-only keys (group, compound, match cut, keyframes, split caption) are tagged "Coming soon"
 in the panel.
 
+## Timeline jumps / shaking, hover line, OS file drop — 2026-10-19
+
+Measured in real Chromium (Playwright, workers = 1, real 8 px scrollbars turned back on with
+`ignoreDefaultArgs: ['--hide-scrollbars']`), sampling every animation frame: scrollLeft / scrollTop,
+scrollbar sizes, scroll and client sizes, timeline height, main-track Y, playhead / hover / blade x,
+every clip's position. Each fix has a regression test that fails on the old code.
+
+| # | What the user saw | When | Root cause | Fix |
+|---|---|---|---|---|
+| 1 | **The playhead follows / jumps with the mouse** | After a press on the ruler, the playhead head or a clip whose button was released outside the window (or over browser UI): no `pointerup` arrives | The gesture stayed open; every later `pointermove` kept scrubbing (or moving / trimming) with no button held. Measured: playhead 0 → 5.03 s on a bare mouse move | `pointermove` with `buttons === 0` ends the gesture as a release (`Timeline.tsx`) |
+| 2 | No separate hover line; the player could show a stale frame | Hovering, then scrubbing | Preview axis was off by default and drawn as a grey dashed line over the tracks only. With it on, a scrub kept the old hover frame in the player (`previewTime` was not cleared when a gesture began) | CapCut model: amber line (`--hover-axis`) over ruler + tracks, on by default (S toggles); hovering only sets `hoverTime`, never the playhead; the player shows the hover frame while paused, the playhead frame when the pointer leaves; any gesture clears the hover; playback clears `previewTime` and hover never overrides it |
+| 3 | **Timeline shakes while playing** | Scrolling sideways (trackpad / wheel) during playback | Auto-scroll ran on every playhead write and snapped the view back to the playhead each frame. Measured scrollLeft 150 → 0 → 150 → 0 … | A sideways scroll by the user while playing suspends following until the playhead is on screen again; programmatic scroll writes are told apart from the user's |
+| 4 | **Timeline jumps a whole screen while playing** | Playback at any zoom where the edit is wider than the lane | `autoScroll` paged: at the right edge it jumped ~90 % of the lane (measured 0 → 1278 → 2570 px at 600 px/s) | `followScroll`: once the playhead passes 75 % of the lane the view glides with it (max step measured < 60 px per frame at 600 px/s, no reversals) |
+| 5 | **Timeline slides away while trimming / after deleting the last clip** | Scrolled to the end, then trimming the last clip's right edge or deleting it | The lane width follows the edit length, so the browser clamped scrollLeft: a 400 px trim scrolled the view 400 px and the edge ended 400 px from the mouse; a delete jumped 800 px | `stableContentWidth`: the lane never shrinks under what is on screen; the spare room goes when the user scrolls back |
+| 6 | **Tracks jump up / down** | Adding an audio track (main track moved up 26 px) or an overlay track (down 22 px) — also when a drop creates a track | The free space was re-split 55/45 between the bands on every change | `bandHeights`: the main track keeps its place; new tracks take room from their own band; the stack moves up only when it would otherwise not fit |
+| 7 | One-frame flicker while zooming | ⌘ + scroll, slider, ⌘= / ⌘− | The anchored scrollLeft was written in a layout effect but the virtualisation window (`view`) caught up a frame later | Every programmatic scroll write syncs `view` in the same layout pass; hover / blade lines re-resolve on scroll |
+
+**"Shakes after a click or after B":** with B active, the mouse still for 2 s, then a slow move
+(3 px / 50 ms), then a blade click, at seven window sizes (1000×900 … 1920×1080), empty and with
+clips, 3 and 6 tracks, real scrollbars: no value oscillated — no scrollbar toggling, no
+ResizeObserver loop, no hover ↔ previewTime feedback, the blade line moves monotonically. The
+oscillations that did exist are #1 (after a click whose release was lost, the playhead kept
+following the mouse) and #3 (playback vs. a manual scroll). `e2e/timeline-stability.spec.ts` now
+asserts zero changes / zero reversals for those 2 s.
+
+Checked and not a problem: clicks on the ruler / clips / empty space do not scroll; zoom keeps the
+anchor (mouse or playhead); autosave, selection and inspector changes do not change the timeline
+height or scroll; undo restores without a jump; thumbnails do not reflow clips.
+
+**OS file drop anywhere** (`src/ui/FileDropOverlay.tsx`, `src/media/dropFiles.ts`,
+`src/media/dropImport.ts`): window listeners in the capture phase `preventDefault` every OS-file
+`dragover` / `drop` (no navigation to the file, wherever it lands); a full-window dim with "Drop
+files to import" appears only for drags whose types include `Files` and none of our internal MIME
+types; a depth counter + `relatedTarget === null` + a 450 ms dragover watchdog keep it from
+flickering or sticking. Drop on the timeline: unchanged (import + place at the drop point, the
+overlay says so). Anywhere else: import to the Media pool through the store's `importFiles` (the
+Import button's path), switch to the Media tab, highlight the new tiles for 1.6 s. Unsupported files
+→ toast "Skipped N unsupported files: …". The Media tab's own drop handler and overlay were removed
+so there is one import path.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | **347 / 347 pass** (23 files). New: `followScroll`, `stableContentWidth`, `bandHeights` (geometry.test.ts); type filter, partition, internal-drag detection, skipped message (dropFiles.test.ts) |
+| `npm run build` | passes |
+| `e2e/timeline-stability.spec.ts` (new) | 6 / 6 pass; 5 of them fail on the previous code |
+| `e2e/file-drop.spec.ts` (new) | 2 / 2 pass: DataTransfer drops on the player canvas (2 files), the inspector (+ 2 unsupported → toast), the top bar, the library tab bar, the timeline (import + place, once); overlay shown / hidden; internal drag shows no overlay; reload keeps the media |
+| `smoke`, `flows`, `shortcuts`, `memory` | pass (run one at a time; peak Chromium RSS 1.6 GB) |
+
+Screenshots: `e2e/screens/stability-before-*.png` / `stability-after-*.png` (hover and lost
+pointerup, old vs new code), `stability-01…03`, `file-drop-01…03`.
+
 ## Flows verified in real Chromium (Playwright)
 
 The test media in `test-media/` is:

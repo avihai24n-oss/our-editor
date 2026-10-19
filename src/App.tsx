@@ -15,6 +15,7 @@ import { withShortcut } from './timeline/shortcutDefs';
 import { onAppEvent } from './ui/appEvents';
 import { Icon } from './ui/Icon';
 import { ShortcutsPanel } from './ui/ShortcutsPanel';
+import { FileDropOverlay } from './ui/FileDropOverlay';
 import { Toaster } from './ui/Toaster';
 import { startMemoryWatchdog } from './media/watchdog';
 import { showToast } from './ui/appEvents';
@@ -194,6 +195,7 @@ export default function App() {
       </div>
       {exportOpen && <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />}
       {shortcutsOpen && <ShortcutsPanel onClose={closeShortcuts} />}
+      <FileDropOverlay />
       <Toaster />
     </div>
   );

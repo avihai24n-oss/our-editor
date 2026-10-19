@@ -35,6 +35,7 @@
   --clip-text: #9a5b16;
   --clip-selected: #ffffff;
   --playhead: #ffffff;
+  --hover-axis: #f5b83d;
   --marker: #22d3ee;
   --transition: #e6e6e6;
   /* drag ghost (semi-transparent clip colours) */

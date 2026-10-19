@@ -583,7 +583,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const s = get();
     const end = projectDuration(s.project);
     if (end <= 0) return;
-    set({ playing: true, playhead: s.playhead >= end ? 0 : s.playhead });
+    // playback shows the playing frame, not a hover preview
+    set({ playing: true, previewTime: null, playhead: s.playhead >= end ? 0 : s.playhead });
   },
   pause: () => set({ playing: false }),
   togglePlay: () => (get().playing ? get().pause() : get().play()),

@@ -14,12 +14,13 @@ import { useShallow } from 'zustand/react/shallow';
 import { findClip, timelineRows } from '../model/project';
 import { clipEnd, formatShort, formatTimecode, projectDuration, pxToUs, snapToFrame, usToPx } from '../model/time';
 import type { Clip, Id, Marker, Track, Us } from '../model/types';
+import { importDroppedFiles } from '../media/dropImport';
 import { addTextPreset } from '../panels/TextTab';
 import { TEXT_PRESETS, textPreset } from '../panels/presets';
 import { useEditor } from '../store';
 import { ClipView, type ClipPart } from './ClipView';
 import { acceptsDrag, isFileDrag, readPayload } from './dnd';
-import { anchoredScroll, autoScroll, clampZoom, clipsInSpan, contentWidth, DRAG_THRESHOLD_PX, fitZoom, HEADER_W, nearestCut } from './geometry';
+import { anchoredScroll, bandHeights, clampZoom, clipsInSpan, DRAG_THRESHOLD_PX, fitZoom, followScroll, HEADER_W, nearestCut, stableContentWidth } from './geometry';
 import {
   assetDropOptions,
   moveInsertCut,
@@ -111,8 +112,8 @@ export function Timeline() {
   const project = useEditor((s) => s.project);
   const { zoom, playhead, playing } = useEditor(useShallow((s) => ({ zoom: s.zoom, playhead: s.playhead, playing: s.playing })));
   const selection = useEditor((s) => s.selection);
-  const { tool, previewAxis, hoverTime, area } = useTimelineUi(
-    useShallow((s) => ({ tool: s.tool, previewAxis: s.previewAxis, hoverTime: s.hoverTime, area: s.area })),
+  const { tool, hoverTime, area } = useTimelineUi(
+    useShallow((s) => ({ tool: s.tool, hoverTime: s.hoverTime, area: s.area })),
   );
 
   const rows = useMemo(() => timelineRows(project), [project]);
@@ -124,7 +125,8 @@ export function Timeline() {
   const rowsRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ left: 0, width: 800, height: 240 });
   const laneW = Math.max(100, view.width - HEADER_W);
-  const contentW = contentWidth(duration, zoom, laneW);
+  // never narrower than what is on screen: a shorter edit must not clamp (jump) the scroll
+  const contentW = stableContentWidth(duration, zoom, laneW, Math.max(view.left, scrollerRef.current?.scrollLeft ?? 0));
   const viewFrom = view.left;
   const viewTo = view.left + laneW;
 
@@ -138,31 +140,77 @@ export function Timeline() {
 
   // ---------------------------------------------------------------- view tracking
 
+  /** Copies the scroller's geometry into `view` (virtualised clips and ruler ticks read it). */
+  const syncView = useCallback(() => {
+    const sc = scrollerRef.current;
+    if (!sc) return;
+    setView((v) =>
+      v.left === sc.scrollLeft && v.width === sc.clientWidth && v.height === sc.clientHeight
+        ? v
+        : { left: sc.scrollLeft, width: sc.clientWidth, height: sc.clientHeight },
+    );
+  }, []);
+
+  /**
+   * Scroll writes made by the timeline itself (zoom anchor, playback follow). The view is synced in
+   * the same frame — called from a layout effect, React re-renders before paint — so clips and
+   * ruler ticks are never drawn for the previous scroll position (that one-frame flicker read as a
+   * jump while zooming). The written value is remembered so the scroll listener can tell these
+   * apart from the user's own scrolling.
+   */
+  const lastWrite = useRef<number | null>(null);
+  const knownLeft = useRef(0);
+  const follow = useRef({ suspended: false, userAt: 0 });
+  const writeScrollLeft = useCallback(
+    (x: number) => {
+      const sc = scrollerRef.current;
+      if (!sc) return;
+      sc.scrollLeft = x;
+      lastWrite.current = sc.scrollLeft;
+      knownLeft.current = sc.scrollLeft;
+      syncView();
+    },
+    [syncView],
+  );
+
+  /** Last pointer position over the scroller, so hover lines follow the content when it scrolls. */
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const refreshHoverRef = useRef<() => void>(() => undefined);
+
   useLayoutEffect(() => {
     const sc = scrollerRef.current;
     if (!sc) return;
     let raf = 0;
     const read = () => {
       raf = 0;
-      setView((v) =>
-        v.left === sc.scrollLeft && v.width === sc.clientWidth && v.height === sc.clientHeight
-          ? v
-          : { left: sc.scrollLeft, width: sc.clientWidth, height: sc.clientHeight },
-      );
+      syncView();
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(read);
     };
+    const onScroll = () => {
+      const left = sc.scrollLeft;
+      if (left !== knownLeft.current) {
+        const ours = lastWrite.current !== null && Math.abs(left - lastWrite.current) <= 1;
+        // the user scrolled sideways while playing: stop following until the playhead is back in view
+        if (!ours && useEditor.getState().playing) follow.current = { suspended: true, userAt: performance.now() };
+        knownLeft.current = left;
+      }
+      lastWrite.current = null;
+      schedule();
+      refreshHoverRef.current();
+    };
     read();
-    sc.addEventListener('scroll', schedule, { passive: true });
+    knownLeft.current = sc.scrollLeft;
+    sc.addEventListener('scroll', onScroll, { passive: true });
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
     ro?.observe(sc);
     return () => {
-      sc.removeEventListener('scroll', schedule);
+      sc.removeEventListener('scroll', onScroll);
       ro?.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [syncView]);
 
   /** Lane x (px from time 0) for a client X. */
   const laneX = useCallback((clientX: number): number => {
@@ -219,17 +267,17 @@ export function Timeline() {
     if (!sc) return;
     const z = fitZoom(projectDuration(s.project), sc.clientWidth - HEADER_W);
     anchor.current = { time: 0, offset: 0 };
-    s.setZoom(z);
-    sc.scrollLeft = 0;
-  }, []);
+    if (z === s.zoom) writeScrollLeft(0);
+    else s.setZoom(z);
+  }, [writeScrollLeft]);
 
   useLayoutEffect(() => {
     const sc = scrollerRef.current;
     const a = anchor.current;
     if (!sc || !a) return;
     anchor.current = null;
-    sc.scrollLeft = anchoredScroll(a.time, a.offset, zoom);
-  }, [zoom]);
+    writeScrollLeft(anchoredScroll(a.time, a.offset, zoom));
+  }, [zoom, writeScrollLeft]);
 
   useEffect(() => {
     useTimelineUi.getState().setView({
@@ -258,14 +306,27 @@ export function Timeline() {
     return () => sc.removeEventListener('wheel', onWheel);
   }, [zoomTo]);
 
-  // Auto-scroll while playing.
-  useEffect(() => {
+  // Playback follows the playhead (gliding, see followScroll). A sideways scroll by the user while
+  // playing suspends it — before, the next frame snapped the view back, so a trackpad scroll during
+  // playback shook between the two positions — until the playhead is on screen again.
+  useLayoutEffect(() => {
+    if (playing) follow.current = { suspended: false, userAt: 0 };
+  }, [playing]);
+  useLayoutEffect(() => {
     if (!playing) return;
     const sc = scrollerRef.current;
     if (!sc || gesture.current) return;
-    const next = autoScroll(usToPx(playhead, zoom), sc.scrollLeft, sc.clientWidth - HEADER_W);
-    if (next !== null) sc.scrollLeft = next;
-  }, [playing, playhead, zoom]);
+    const lane = sc.clientWidth - HEADER_W;
+    const px = usToPx(playhead, zoom);
+    const f = follow.current;
+    if (f.suspended) {
+      const onScreen = px >= sc.scrollLeft && px <= sc.scrollLeft + lane;
+      if (!onScreen || performance.now() - f.userAt < 800) return;
+      f.suspended = false;
+    }
+    const next = followScroll(px, sc.scrollLeft, lane);
+    if (next !== null && next !== sc.scrollLeft) writeScrollLeft(next);
+  }, [playing, playhead, zoom, writeScrollLeft]);
 
   // ---------------------------------------------------------------- gestures
 
@@ -300,6 +361,13 @@ export function Timeline() {
   moveRef.current = (e: PointerEvent) => {
     const g = gesture.current;
     if (!g || e.pointerId !== g.pointerId) return;
+    if (e.buttons === 0) {
+      // The button was released where we got no pointerup (outside the window, over the
+      // browser UI…). Finish the gesture here; otherwise the playhead / ghost / trim kept
+      // following the bare mouse — the "playhead jumps with the mouse" bug.
+      upRef.current(e);
+      return;
+    }
     const s = useEditor.getState();
     const z = s.zoom;
 
@@ -429,6 +497,9 @@ export function Timeline() {
   const beginGesture = useCallback(
     (g: Gesture) => {
       gesture.current = g;
+      // a gesture hides the hover lines; the player shows what the gesture does, not a stale hover frame
+      useTimelineUi.getState().setHoverTime(null);
+      setSplitHover(null);
       window.addEventListener('pointermove', onWinMove);
       window.addEventListener('pointerup', onWinUp);
       window.addEventListener('pointercancel', onWinUp);
@@ -524,22 +595,38 @@ export function Timeline() {
   }, []);
   const onMarkerRemove = useCallback((m: Marker) => useEditor.getState().removeMarker(m.id), []);
 
-  // Preview axis (hover line) and the split-mode blade line.
-  const onHover = useCallback(
-    (e: RPointerEvent) => {
+  // Preview axis (the amber hover line, CapCut) and the split-mode blade line. Hovering never
+  // touches the playhead: it only sets hoverTime, and the player shows that frame while paused.
+  const hoverAt = useCallback(
+    (clientX: number, clientY: number, target: Element | null) => {
       if (gesture.current) return;
       const ui = useTimelineUi.getState();
-      const inLane = laneX(e.clientX) >= 0;
-      const t = timeAt(e.clientX);
-      if (ui.previewAxis) ui.setHoverTime(inLane ? t : null);
-      if (ui.tool === 'split') {
-        const overClip = !!(e.target as HTMLElement).closest('[data-clip-id]');
-        setSplitHover(overClip && inLane ? snapToFrame(t, useEditor.getState().project.settings.fps) : null);
-      }
+      const sc = scrollerRef.current;
+      const r = sc?.getBoundingClientRect();
+      const inside = !!r && clientY >= r.top && clientY < r.top + (sc?.clientHeight ?? 0) && clientX < r.left + (sc?.clientWidth ?? 0);
+      const inLane = inside && laneX(clientX) >= 0;
+      const fps = useEditor.getState().project.settings.fps;
+      const t = snapToFrame(timeAt(clientX), fps);
+      ui.setHoverTime(ui.previewAxis && inLane ? t : null);
+      const overClip = !!target?.closest('[data-clip-id]');
+      const blade = ui.tool === 'split' && overClip && inLane ? t : null;
+      setSplitHover((h) => (h === blade ? h : blade));
     },
     [laneX, timeAt],
   );
+  const onHover = useCallback(
+    (e: RPointerEvent) => {
+      pointer.current = { x: e.clientX, y: e.clientY };
+      hoverAt(e.clientX, e.clientY, e.target as Element);
+    },
+    [hoverAt],
+  );
+  refreshHoverRef.current = () => {
+    const p = pointer.current;
+    if (p) hoverAt(p.x, p.y, document.elementFromPoint(p.x, p.y));
+  };
   const onHoverLeave = useCallback(() => {
+    pointer.current = null;
     useTimelineUi.getState().setHoverTime(null);
     setSplitHover(null);
   }, []);
@@ -582,7 +669,7 @@ export function Timeline() {
       if (isFileDrag(types)) {
         const files = Array.from(e.dataTransfer.files);
         if (!files.length) return;
-        void s.importFiles(files).then(({ assetIds }) => {
+        void importDroppedFiles(files).then((assetIds) => {
           let t = at;
           for (const id of assetIds) {
             const st = useEditor.getState();
@@ -626,11 +713,12 @@ export function Timeline() {
   // ---------------------------------------------------------------- render
 
   const minRowsH = Math.max(0, view.height - RULER_H);
-  const tracksH = rows.reduce((h, t) => h + rowHeight(t), 0);
-  // CapCut centres the stack: free space is split between the top and bottom bands.
-  const free = Math.max(0, minRowsH - tracksH - 2 * BAND_MIN_H);
-  const topBandH = BAND_MIN_H + Math.floor(free * 0.55);
-  const bottomBandH = BAND_MIN_H + Math.ceil(free * 0.45);
+  // The main track stays where it is while tracks come and go (see bandHeights).
+  const mainIdx = rows.findIndex((t) => t.kind === 'main');
+  const aboveH = rows.slice(0, Math.max(0, mainIdx)).reduce((h, t) => h + rowHeight(t), 0);
+  const belowH = rows.slice(mainIdx + 1).reduce((h, t) => h + rowHeight(t), 0);
+  const mainRowH = mainIdx >= 0 ? rowHeight(rows[mainIdx]!) : 0;
+  const { top: topBandH, bottom: bottomBandH } = bandHeights(minRowsH, aboveH, mainRowH, belowH, BAND_MIN_H);
   const visFrom = pxToUs(viewFrom - 200, zoom);
   const visTo = pxToUs(viewTo + 200, zoom);
   const dropRowKey = dropHint?.rowKey ?? null;
@@ -644,9 +732,9 @@ export function Timeline() {
     ) : null;
 
   return (
-    <div className={`tl${tool === 'split' ? ' tl--split' : ''}`} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+    <div className={`tl${tool === 'split' ? ' tl--split' : ''}`} data-drop-zone="timeline" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <Toolbar />
-      <div className="tl-scroller" ref={scrollerRef}>
+      <div className="tl-scroller" ref={scrollerRef} onPointerMove={onHover} onPointerLeave={onHoverLeave}>
         <div className="tl-content" style={{ width: HEADER_W + contentW }}>
           <div className="tl-ruler-row" style={{ height: RULER_H }}>
             <div className="tl-corner" style={{ width: HEADER_W }}>
@@ -674,6 +762,11 @@ export function Timeline() {
               data-testid="playhead"
               title={formatTimecode(playhead, fps)}
             />
+            {hoverTime !== null && !ghost && (
+              <div className="tl-hover tl-hover--ruler" style={{ left: HEADER_W + usToPx(hoverTime, zoom) }} data-testid="timeline-hover-head">
+                <span className="tl-hover__label">{formatShort(hoverTime)}</span>
+              </div>
+            )}
           </div>
 
           <div
@@ -681,8 +774,6 @@ export function Timeline() {
             ref={rowsRef}
             style={{ minHeight: minRowsH }}
             onPointerDown={onLanePointerDown}
-            onPointerMove={onHover}
-            onPointerLeave={onHoverLeave}
           >
             <div className={`tl-band${dropRowKey === 'band:top' ? ' is-drop' : ''}`} data-row-key="band:top" style={{ height: topBandH }}>
               <div className="tl-band__header" style={{ width: HEADER_W }} />
@@ -773,12 +864,10 @@ export function Timeline() {
             {guide !== null && <div className="tl-guide" style={{ left: HEADER_W + usToPx(guide, zoom) }} />}
             {ghost?.insertAt != null && <div className="tl-insert" style={{ left: HEADER_W + usToPx(ghost.insertAt, zoom) }} />}
             {dropHint && <div className="tl-guide tl-guide--drop" style={{ left: HEADER_W + usToPx(dropHint.at, zoom) }} />}
-            {previewAxis && hoverTime !== null && !ghost && (
-              <div className="tl-hover" style={{ left: HEADER_W + usToPx(hoverTime, zoom) }}>
-                <span className="tl-hover__label">{formatShort(hoverTime)}</span>
-              </div>
+            {hoverTime !== null && !ghost && (
+              <div className="tl-hover" style={{ left: HEADER_W + usToPx(hoverTime, zoom) }} data-testid="timeline-hover" />
             )}
-            {splitHover !== null && <div className="tl-blade" style={{ left: HEADER_W + usToPx(splitHover, zoom) }} />}
+            {splitHover !== null && <div className="tl-blade" data-testid="timeline-blade" style={{ left: HEADER_W + usToPx(splitHover, zoom) }} />}
             {trimTip && (
               <div className="tl-trimtip" style={{ left: HEADER_W + trimTip.x }}>
                 {trimTip.text}

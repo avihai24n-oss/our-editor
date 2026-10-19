@@ -16,6 +16,10 @@ export interface AppEvents {
   fitPreview: undefined;
   inspectorTab: InspectorRequest;
   libraryTab: { dir: 1 | -1 };
+  /** Show one library tab (an OS file drop outside the timeline shows the Media pool). */
+  libraryShow: { tab: 'media' };
+  /** Asset tiles to highlight briefly (just imported by a drop). */
+  assetHighlight: { ids: string[] };
 }
 
 type Listener<K extends keyof AppEvents> = (payload: AppEvents[K]) => void;
@@ -51,5 +55,20 @@ export function requestImport(): void {
 export function consumeImportRequest(): boolean {
   const v = importPending;
   importPending = false;
+  return v;
+}
+
+/**
+ * New tiles to highlight. Kept until the Media tab consumes it, because the tab may only mount
+ * after the drop switched the library to it.
+ */
+let highlightPending: string[] = [];
+export function requestAssetHighlight(ids: string[]): void {
+  highlightPending = ids;
+  emitAppEvent('assetHighlight', { ids });
+}
+export function consumeAssetHighlight(): string[] {
+  const v = highlightPending;
+  highlightPending = [];
   return v;
 }
