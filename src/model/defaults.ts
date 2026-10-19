@@ -67,7 +67,16 @@ export const defaultAdjust = (): Adjust => ({
   sharpen: 0,
 });
 
-export const defaultAudio = (): AudioProps => ({ volumeDb: 0, fadeIn: 0, fadeOut: 0, muted: false });
+export const defaultAudio = (): AudioProps => ({
+  volumeDb: 0,
+  fadeIn: 0,
+  fadeOut: 0,
+  muted: false,
+  normalize: false,
+  reduceNoise: false,
+  fillChannel: null,
+  voiceFilter: null,
+});
 
 export const defaultTextStyle = (content = 'Default text'): TextStyle => ({
   content,

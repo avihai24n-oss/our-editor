@@ -119,34 +119,16 @@ export function fadeEnvelope(clip: Pick<Clip, 'start' | 'duration'> & { audio: P
 
 /**
  * Fills fields added after a project was saved (same SCHEMA_VERSION, additive only) so old
- * documents keep working. Returns a new object only when something changed.
+ * documents keep working. Every feature that added clip fields registers one step in
+ * CLIP_MIGRATIONS; migrateProject runs all of them on every clip, in order. Each step returns the
+ * SAME object when it has nothing to do, so an up-to-date project comes back unchanged (===).
  */
 export function migrateProject(p: Project): Project {
   let changed = false;
   const tracks = p.tracks.map((t) => {
     let tChanged = false;
     const clips = t.clips.map((c) => {
-      let out: Clip = c;
-      if (c.type !== 'audio') {
-        const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
-        if (typeof v.blendEnabled !== 'boolean' || typeof v.adjustEnabled !== 'boolean') {
-          out = { ...out, blendEnabled: v.blendEnabled ?? true, adjustEnabled: v.adjustEnabled ?? true } as Clip;
-        }
-      }
-      if (out.type === 'video' || out.type === 'audio') {
-        // Speed › Curve (added after v1): missing or malformed → Standard speed.
-        const tc = out as TimedClip & { speedCurve?: unknown };
-        const curve = tc.speedCurve as SpeedCurve | null | undefined;
-        const valid =
-          curve === null ||
-          (!!curve &&
-            Array.isArray(curve.points) &&
-            curve.points.length >= 2 &&
-            curve.points.every((q) => Number.isFinite(q?.x) && Number.isFinite(q?.v) && q.v > 0));
-        if (curve === undefined || !valid) out = { ...out, speedCurve: null } as Clip;
-        else if (curve && tc.speed !== 1) out = { ...out, speed: 1 } as Clip;
-        if (typeof tc.speed !== 'number' || !(tc.speed > 0)) out = { ...out, speed: 1 } as Clip;
-      }
+      const out = migrateClip(c);
       if (out !== c) tChanged = true;
       return out;
     });
@@ -155,4 +137,67 @@ export function migrateProject(p: Project): Project {
     return { ...t, clips };
   });
   return changed ? { ...p, tracks } : p;
+}
+
+/** Runs every clip migration in order. */
+export function migrateClip(c: Clip): Clip {
+  let out = c;
+  for (const step of CLIP_MIGRATIONS) out = step(out);
+  return out;
+}
+
+/** v1 additions: blend / adjust on-off checkboxes. */
+function migrateEnabledFlags(c: Clip): Clip {
+  if (c.type === 'audio') return c;
+  const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
+  if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean') return c;
+  return { ...c, blendEnabled: v.blendEnabled ?? true, adjustEnabled: v.adjustEnabled ?? true } as Clip;
+}
+
+/** tab-speed: Speed › Curve — missing or malformed → Standard speed. */
+function migrateSpeed(c: Clip): Clip {
+  if (c.type !== 'video' && c.type !== 'audio') return c;
+  let out: Clip = c;
+  const tc = c as TimedClip & { speedCurve?: unknown };
+  const curve = tc.speedCurve as SpeedCurve | null | undefined;
+  const valid =
+    curve === null ||
+    (!!curve &&
+      Array.isArray(curve.points) &&
+      curve.points.length >= 2 &&
+      curve.points.every((q) => Number.isFinite(q?.x) && Number.isFinite(q?.v) && q.v > 0));
+  if (curve === undefined || !valid) out = { ...out, speedCurve: null } as Clip;
+  else if (curve && tc.speed !== 1) out = { ...out, speed: 1 } as Clip;
+  if (typeof tc.speed !== 'number' || !(tc.speed > 0)) out = { ...out, speed: 1 } as Clip;
+  return out;
+}
+
+/** tab-audio: normalize, reduce noise, fill channel, voice filter. */
+function migrateAudio(c: Clip): Clip {
+  if (c.type !== 'video' && c.type !== 'audio') return c;
+  const audio = migrateAudioProps(c.audio);
+  return audio === c.audio ? c : ({ ...c, audio } as Clip);
+}
+
+const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio];
+
+const FILL_CHANNELS: readonly string[] = ['left', 'right'];
+
+/**
+ * Audio fields added after v1 (normalize, reduceNoise, fillChannel, voiceFilter): missing or
+ * malformed values get the defaults. Returns the same object when nothing changed.
+ */
+export function migrateAudioProps(a: AudioProps): AudioProps {
+  const x = a as Partial<AudioProps>;
+  const vf = x.voiceFilter;
+  const voiceOk = vf === null || (typeof vf === 'object' && vf !== undefined && typeof vf.id === 'string' && typeof vf.strength === 'number');
+  const fillOk = x.fillChannel === null || (typeof x.fillChannel === 'string' && FILL_CHANNELS.includes(x.fillChannel));
+  if (typeof x.normalize === 'boolean' && typeof x.reduceNoise === 'boolean' && fillOk && voiceOk) return a;
+  return {
+    ...a,
+    normalize: typeof x.normalize === 'boolean' ? x.normalize : false,
+    reduceNoise: typeof x.reduceNoise === 'boolean' ? x.reduceNoise : false,
+    fillChannel: fillOk ? (x.fillChannel ?? null) : null,
+    voiceFilter: voiceOk ? (vf ?? null) : null,
+  };
 }
