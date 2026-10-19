@@ -904,6 +904,7 @@
 }
 .islowmo__hint {
   font-size: var(--fs-sm);
+}
 
 /* ---------------------------------------------------------------- Audio tab (AudioTab.tsx) */
 .iaudio__desc {
@@ -972,6 +973,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
 
 /* ---------------------------------------------------------------- Video tab (Canvas, AI, Remove BG, Mask) */
 .isec.is-ai .isec__head {
