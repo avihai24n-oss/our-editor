@@ -1,9 +1,12 @@
 /**
  * Pure read-only helpers over a Project (no React, no DOM). Safe to call from anywhere.
  */
+import { defaultAdjust, defaultGrade } from './defaults';
 import { clipEnd } from './time';
 import type {
+  Adjust,
   AudioClip,
+  ColorGrade,
   AudioProps,
   Clip,
   Id,
@@ -126,14 +129,36 @@ export function migrateProject(p: Project): Project {
     let tChanged = false;
     const clips = t.clips.map((c) => {
       if (c.type === 'audio') return c;
-      const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
-      if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean') return c;
-      tChanged = true;
-      return { ...c, blendEnabled: v.blendEnabled ?? true, adjustEnabled: v.adjustEnabled ?? true } as Clip;
+      const m = migrateVisualClip(c);
+      if (m !== c) tChanged = true;
+      return m;
     });
     if (!tChanged) return t;
     changed = true;
     return { ...t, clips };
   });
   return changed ? { ...p, tracks } : p;
+}
+
+const ADJUST_KEYS = Object.keys(defaultAdjust()) as (keyof Adjust)[];
+const GRADE_KEYS = Object.keys(defaultGrade()) as (keyof ColorGrade)[];
+
+/** Fills missing visual-clip fields (blend/adjust checkboxes, new Adjust sliders, the colour grade). */
+export function migrateVisualClip(c: VisualClip): VisualClip {
+  const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled' | 'grade'>>;
+  const adjustOk = !!v.adjust && ADJUST_KEYS.every((k) => typeof v.adjust[k] === 'number');
+  const gradeOk = !!v.grade && GRADE_KEYS.every((k) => v.grade![k] && typeof v.grade![k] === 'object') && !!v.grade.hsl.bands;
+  if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean' && adjustOk && gradeOk) return c;
+  const grade = defaultGrade();
+  if (v.grade) {
+    for (const k of GRADE_KEYS) if (v.grade[k] && typeof v.grade[k] === 'object') Object.assign(grade[k], v.grade[k]);
+    grade.hsl.bands = { ...defaultGrade().hsl.bands, ...(v.grade.hsl?.bands ?? {}) };
+  }
+  return {
+    ...c,
+    blendEnabled: v.blendEnabled ?? true,
+    adjustEnabled: v.adjustEnabled ?? true,
+    adjust: { ...defaultAdjust(), ...(v.adjust ?? {}) },
+    grade,
+  } as VisualClip;
 }

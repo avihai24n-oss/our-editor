@@ -697,3 +697,28 @@
 .lib-flash--error {
   border-color: var(--danger);
 }
+
+/* Adjustment › My presets: tile + delete button */
+.lib-mine {
+  position: relative;
+}
+.lib-mine__del {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+.lib-mine:hover .lib-mine__del,
+.lib-mine__del:focus-visible {
+  opacity: 1;
+}

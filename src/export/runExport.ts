@@ -3,6 +3,7 @@
  * compositor as the player) → MP4 via WebCodecs (or WebM via MediaRecorder as a fallback).
  * Loaded lazily by the dialog so Mediabunny stays out of the main bundle.
  */
+import { createColorGrader, ensureLuts, getLoadedLut } from '../engine/color';
 import { getFrameState } from '../engine/frameState';
 import { createLayerProvider, renderFrame } from '../engine/render';
 import { projectDuration } from '../model/time';
@@ -71,6 +72,12 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   }
   const scale = width / project.settings.width;
   const layers = createLayerProvider();
+  // the colour pass needs every LUT the timeline uses in memory before frame 0
+  await ensureLuts(
+    project.tracks.flatMap((t) => t.clips).flatMap((c) => (c.type !== 'audio' && c.grade?.lut.enabled && c.grade.lut.lutId ? [c.grade.lut.lutId] : [])),
+  );
+  const grader = createColorGrader();
+  const lutReady = (id: string) => !!getLoadedLut(id);
   const source = useMp4 ? new ExportFrameSource(project, loadBlob) : new ElementFrameSource(project);
   const AUDIO_SHARE = 0.03;
   try {
@@ -86,7 +93,7 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
       render: async (ctx: Parameters<typeof renderFrame>[0], t: number) => {
         const fs = getFrameState(project, t);
         await source.prepare(fs);
-        renderFrame(ctx, fs, { scale, sources: source, layers });
+        renderFrame(ctx, fs, { scale, sources: source, layers, grader, lutReady });
       },
       onProgress: (p: { frame: number; frames: number; fraction: number }) =>
         report({ phase: p.frame >= p.frames ? 'finishing' : 'video', fraction: AUDIO_SHARE + p.fraction * (1 - AUDIO_SHARE) * 0.99, frame: p.frame, frames: p.frames }),
@@ -95,6 +102,7 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
     report({ phase: 'finishing', fraction: 1, frame: 0, frames: 0 });
     return { ...result, width, height, fallback: !useMp4 };
   } finally {
+    grader?.dispose();
     await source.dispose();
   }
 }

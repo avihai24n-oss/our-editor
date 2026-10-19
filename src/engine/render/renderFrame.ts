@@ -4,8 +4,16 @@
  *
  * It never recomputes timing / animation / transition math: everything comes from the ops.
  * It only knows how to turn an op into pixels: transform, blend, opacity, wipe clip rect,
- * CSS colour filter + blur, tone passes (temperature/tint/fade/vignette) and text.
+ * the colour pass, blur and text.
+ *
+ * Colour: with `opts.grader` (WebGL2, or the CPU fallback) every non-neutral clip goes through
+ * the shared colour pipeline (engine/color): media are graded in source space (cropped, at the
+ * size they are drawn) and then drawn with their transform; text is drawn on the scratch layer
+ * and the layer is graded. Without a grader (unit tests) the legacy approximation is used:
+ * CSS filter + tone passes.
  */
+import { gradeParams, type GradeParams } from '../color/params';
+import { requestLut } from '../color/lutLibrary';
 import type { DrawOp, FrameState, MediaDrawOp, TextDrawOp } from '../frameState';
 import { cssFilter, tonePasses, type TonePass } from './color';
 import { fontString, layoutText, type TextLayout } from './textLayout';
@@ -175,6 +183,33 @@ function clipToRect(ctx: Ctx2D, r: NonNullable<VisualOp['clipRect']>, tw: number
   ctx.clip();
 }
 
+/** Grain seed for frame time t: one value per 1/30 s, identical in preview and export. */
+export const grainSeed = (t: number): number => Math.max(0, Math.floor((t / 1_000_000) * 30));
+
+const MAX_GRADE_PX = 4096;
+
+/** Grades the visible part of a media source at the size it is drawn. Null = could not grade. */
+function gradeMedia(op: MediaDrawOp, src: SourceImage, box: LocalBox, k: number, params: GradeParams, opts: RenderOptions): { image: CanvasImageSource; w: number; h: number } | null {
+  const l = clamp01(op.crop.left);
+  const t = clamp01(op.crop.top);
+  const cw = Math.max(1e-4, 1 - l - clamp01(op.crop.right));
+  const ch = Math.max(1e-4, 1 - t - clamp01(op.crop.bottom));
+  const s = Math.abs(op.transform.scale) * k;
+  const w = Math.max(1, Math.min(MAX_GRADE_PX, Math.ceil(Math.min(src.width * cw, box.w * s))));
+  const h = Math.max(1, Math.min(MAX_GRADE_PX, Math.ceil(Math.min(src.height * ch, box.h * s))));
+  const image = opts.grader!.grade({
+    source: src.image,
+    sourceWidth: src.width,
+    sourceHeight: src.height,
+    crop: { x: l, y: t, w: cw, h: ch },
+    outWidth: w,
+    outHeight: h,
+    aspect: box.w / box.h,
+    params,
+  });
+  return image ? { image, w, h } : null;
+}
+
 /**
  * Draws `fs` onto `ctx`, whose canvas is `fs.width * scale` × `fs.height * scale` pixels.
  * Returns the box of every visual op in draw order (project px), for hit testing.
@@ -219,9 +254,15 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     if (op.kind === 'media' && !src) continue;
     if (op.clipRect && (op.clipRect.w <= 0 || op.clipRect.h <= 0)) continue;
 
-    const filter = cssFilter(op.color, op.blur * k);
-    const passes = src === 'missing' ? [] : tonePasses(op.color);
-    const layer = passes.length ? opts.layers?.get(tw, th) ?? null : null;
+    // ---- colour: the shared pipeline when a grader is available, else the CSS approximation
+    const params = opts.grader && src !== 'missing' ? gradeParams(op.color, grainSeed(fs.t), opts.lutReady ?? requestLut) : null;
+    let graded: { image: CanvasImageSource; w: number; h: number } | null = null;
+    if (params && op.kind === 'media' && src && src !== 'missing') graded = gradeMedia(op, src, local, k, params, opts);
+    const gpuText = !!params && op.kind === 'text' && !!opts.layers;
+    const legacy = !graded && !gpuText;
+    const filter = legacy ? cssFilter(op.color, op.blur * k) : op.blur * k > 0.05 ? `blur(${Math.round(op.blur * k * 1000) / 1000}px)` : 'none';
+    const passes = legacy && src !== 'missing' ? tonePasses(op.color) : [];
+    const layer = passes.length || gpuText ? opts.layers?.get(tw, th) ?? null : null;
     const target = layer ?? ctx;
 
     // ---- draw the clip (directly, or onto the scratch layer)
@@ -237,12 +278,29 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     applyOpTransform(target, op, W, H, k);
     if (op.kind === 'media') {
       if (src === 'missing') drawMissing(target, local);
+      else if (graded) target.drawImage(graded.image, 0, 0, graded.w, graded.h, local.ox - local.w / 2, local.oy - local.h / 2, local.w, local.h);
       else if (src) drawMedia(target, op, src, local);
     } else if (textLayout) {
       drawText(target, op, textLayout, k * op.transform.scale);
     }
-    if (layer) drawTonePasses(target, passes, local);
+    if (layer && passes.length) drawTonePasses(target, passes, local);
     target.restore();
+
+    // text through the colour pass: grade the whole layer (vignette / mask relative to the canvas)
+    let layerImage: CanvasImageSource | null = layer ? (layer.canvas as CanvasImageSource) : null;
+    if (layer && gpuText && params) {
+      const g = opts.grader!.grade({
+        source: layer.canvas as CanvasImageSource,
+        sourceWidth: tw,
+        sourceHeight: th,
+        crop: { x: 0, y: 0, w: 1, h: 1 },
+        outWidth: tw,
+        outHeight: th,
+        aspect: tw / th,
+        params,
+      });
+      if (g) layerImage = g;
+    }
 
     // ---- composite the layer
     if (layer) {
@@ -251,7 +309,7 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
       if (op.clipRect) clipToRect(ctx, op.clipRect, tw, th);
       ctx.globalAlpha = alpha;
       ctx.globalCompositeOperation = op.composite;
-      ctx.drawImage(layer.canvas as CanvasImageSource, 0, 0);
+      ctx.drawImage(layerImage ?? (layer.canvas as CanvasImageSource), 0, 0, tw, th);
       ctx.restore();
     }
   }

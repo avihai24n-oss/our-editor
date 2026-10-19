@@ -4,12 +4,13 @@
  * export always match. No DOM, no React. See ./README.md.
  */
 import { BLEND_MODES, filterDef } from '../model/catalog';
-import { defaultAdjust } from '../model/defaults';
+import { defaultAdjust, defaultGrade } from '../model/defaults';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
 import { clamp, clipContains, clipEnd, sourceTimeAt } from '../model/time';
 import type {
   Adjust,
   AnimationType,
+  ColorGrade,
   Clip,
   Crop,
   Id,
@@ -41,6 +42,8 @@ export interface ResolvedTransform {
 export interface ColorOps extends Adjust {
   grayscale: number; // 0..1
   sepia: number; // 0..1
+  /** Adjust tab LUT / HSL / Curves / Color wheel / Mask (each section has its own enabled flag). */
+  grade?: ColorGrade;
 }
 
 interface DrawOpBase {
@@ -222,7 +225,7 @@ export function fitSize(asset: Pick<MediaAsset, 'width' | 'height'> | undefined,
 /** Clip's own filter merged into its adjust (filter scaled by intensity). */
 export function colorOps(clip: VisualClip): ColorOps {
   const own = clip.adjustEnabled === false ? defaultAdjust() : clip.adjust;
-  const out: ColorOps = { ...own, grayscale: 0, sepia: 0 };
+  const out: ColorOps = { ...defaultAdjust(), ...own, grayscale: 0, sepia: 0, grade: clip.grade ?? defaultGrade() };
   const f = clip.filter ? filterDef(clip.filter.id) : undefined;
   if (f && clip.filter) {
     const k = clamp(clip.filter.intensity, 0, 1);

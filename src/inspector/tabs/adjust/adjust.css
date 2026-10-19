@@ -1,0 +1,305 @@
+/* Inspector › Adjust sub-panels (Basic / HSL / Curves / Color wheel / Mask). */
+.iadj {
+  display: flex;
+  flex-direction: column;
+}
+
+/* AI rows (Auto adjust, Color match, Color correction): CapCut's disabled state */
+.isec.is-ai {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.isec__title--static {
+  cursor: default;
+}
+.iai-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 6px;
+  color: #fff;
+  background: linear-gradient(90deg, #7b61ff, #c86bff);
+}
+
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.link-btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.ierror {
+  color: var(--danger);
+  font-size: var(--fs-xs);
+}
+
+/* LUT */
+.ilut {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+.ilut select {
+  flex: 1;
+  min-width: 0;
+}
+.ilut__import {
+  flex: none;
+  padding: 0 10px;
+}
+
+/* HSL */
+.ihsl {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 0;
+}
+.ihsl__dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4) inset;
+  cursor: pointer;
+  position: relative;
+}
+.ihsl__dot.is-active {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.ihsl__dot.is-changed::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.ihsl__head,
+.icurve__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.ihsl__head span,
+.icurve__name {
+  flex: 1;
+}
+
+/* Curves */
+.icurve__channels {
+  display: flex;
+  gap: 8px;
+}
+.icurve__ch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  position: relative;
+  opacity: 0.55;
+}
+.icurve__ch.is-active {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.icurve__ch.is-changed::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.icurve {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+}
+.icurve__svg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.icurve__grid line,
+.icurve__diag {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.icurve__diag {
+  stroke-dasharray: 4 4;
+}
+.icurve__path {
+  fill: none;
+  stroke-width: 2;
+}
+.icurve__pt {
+  fill: var(--bg-panel);
+  stroke-width: 2;
+  cursor: grab;
+}
+.icurve__pt.is-drag {
+  fill: #fff;
+  cursor: grabbing;
+}
+
+/* Colour wheels */
+.iwheels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 12px;
+}
+.iwheel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.iwheel__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.iwheel__label {
+  font-weight: 600;
+}
+.iwheel__hint {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  flex: 1;
+}
+.iwheel__reset {
+  width: 20px;
+  height: 20px;
+  color: var(--text-dim);
+}
+.iwheel__disc {
+  position: relative;
+  width: 100%;
+  max-width: 132px;
+  aspect-ratio: 1;
+  align-self: center;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border-strong);
+  cursor: crosshair;
+  touch-action: none;
+}
+.iwheel__cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) center / 1px 100% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) center / 100% 1px no-repeat;
+  pointer-events: none;
+}
+.iwheel__puck {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+}
+.iwheel__readout {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.iwheel .srow__label {
+  font-size: var(--fs-xs);
+}
+
+/* Mask */
+.imask {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.imask__shape {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.imask__shape:hover {
+  background: var(--bg-hover);
+}
+.imask__shape.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Save as preset */
+.ipreset {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.ipreset input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 0 8px;
+  height: 28px;
+}
+.iadj-flash {
+  margin: 0 12px 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-dim);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.iadj-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: auto;
+  background: var(--bg-panel);
+}
+.iadj-dock .ifoot {
+  position: static;
+}
+.iadj-flash {
+  margin-top: 8px;
+}
