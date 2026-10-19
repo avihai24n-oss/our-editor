@@ -3,6 +3,7 @@
  * compositor as the player) → MP4 via WebCodecs (or WebM via MediaRecorder as a fallback).
  * Loaded lazily by the dialog so Mediabunny stays out of the main bundle.
  */
+import { measureSpan } from '../audio/measure';
 import { getFrameState } from '../engine/frameState';
 import { createLayerProvider, renderFrame } from '../engine/render';
 import { projectDuration } from '../model/time';
@@ -60,7 +61,9 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
 
   // ---- audio
   report({ phase: 'audio', fraction: 0.01, frame: 0, frames: 0 });
-  const audio = await renderMix(project, durationUs, createDecoder(loadBlob), o.signal);
+  const audio = await renderMix(project, durationUs, createDecoder(loadBlob), o.signal, {
+    loudness: (c) => measureSpan(c.assetId, c.inSec, c.durationSec * c.speed, loadBlob),
+  });
   if (o.signal?.aborted) throw new ExportCanceled();
 
   // ---- video

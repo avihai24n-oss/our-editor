@@ -128,6 +128,11 @@ export class PreviewEngine {
     return { ...this.pool.stats(), voices: this.audio.voiceCount, looping: this.raf !== 0 || this.pendingRender !== 0 };
   }
 
+  /** Preview audio graph per live voice (dev hook `__oeAudio`, e2e). */
+  audioDebug(): ReturnType<AudioEngine['debug']> {
+    return this.audio.debug();
+  }
+
   /** Tab hidden: stop playback and free every decoder. Visible again: draw the current frame. */
   onVisibility(hidden: boolean): void {
     if (this.disposed) return;

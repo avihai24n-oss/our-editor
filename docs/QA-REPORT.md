@@ -88,6 +88,82 @@ so there is one import path.
 Screenshots: `e2e/screens/stability-before-*.png` / `stability-after-*.png` (hover and lost
 pointerup, old vs new code), `stability-01…03`, `file-drop-01…03`.
 
+## Audio tab (CapCut parity, no AI) — 2026-10-19
+
+### What CapCut desktop's Audio tab has
+
+Sub-tabs **Basic | Voice changer** (an audio clip's inspector is **Audio | Speed**; a video clip with
+sound adds an **Audio** tab next to Video). Basic, top to bottom (screenshot 03):
+
+| Section | CapCut | Ours |
+|---|---|---|
+| **Basic** ☑ ↺ ◇ | Volume −60…+20 dB (0.0 dB default, slider position 0.75 = 0 dB matches the screenshot), Fade in / Fade out 0.0 s… clip length | Same ranges and units. Checkbox = clip sound on/off. Reset → 0 dB / 0 s / 0 s. |
+| **Normalize loudness** ☑ (Pro) | "Normalize the loudness of the selected clip or clips to a target level." Target −23 LUFS ([capcut.com](https://www.capcut.com/resource/normalize-audio-premiere)) | ITU-R BS.1770-4 integrated loudness of the clip's source span (K-weighting, 400 ms blocks, −70 / −10 LU gates), gain = −23 − measured (±30 dB cap). Readout: "Clip −38.0 LUFS → +15.0 dB". |
+| **Enhance voice** (AI, Pro) | AI | Shown disabled, "AI · Coming soon". |
+| **Video translator** (AI, Pro) | AI, video clips | Shown disabled on video clips only. |
+| **Reduce noise** ☑ (Pro) | AI denoiser | **DSP approximation, labelled "DSP · not AI"**: 80 Hz high-pass + adaptive noise gate (floor = quietest 20 ms block of the last 1.5 s, opens 10 dB above it, clamp −65…−35 dBFS, closes to −30 dB; steady material is never gated). |
+| **Isolate voice** (AI) | AI | Shown disabled. |
+| **Fill channel** ☑ ↺ ◇ ▾ | Copy one channel to both ([capcut.com](https://www.capcut.com/resource/normalize-audio-premiere): "filling right with left") | Left channel / Right channel → both, mono upmixed first. |
+
+**Voice changer** — CapCut has *Voice filters* (non-AI presets: Chipmunk, High, Low, Deep, Robot,
+Megaphone, Echo, Electronic, Distorted, Synth, Vinyl… per
+[capcut.com](https://www.capcut.com/resource/voice-changer-for-pc) and
+[capcut.com](https://www.capcut.com/resource/how-to-change-your-voice)), *Voice characters* (AI
+TTS-style voices) and *Speech to song* (AI). Ours: 11 DSP voice filters with a Strength 0–100
+slider (default 50): Chipmunk (+5…+12 st), High (+2…+6 st), Low (−2…−5 st), Deep (−4…−9 st +
+low-shelf), Robot (50 Hz ring-mod + comb), Electronic (resonant comb), Echo (250 ms feedback delay),
+Megaphone (band-pass + overdrive), Distorted (wave-shaper), Vinyl (band-limit + bit-crush), Big hall
+(seeded convolution reverb). Voice characters and Speech to song are disabled "AI · Coming soon".
+CapCut's exact filter names/parameters could not be confirmed from an official CapCut help page.
+No "Apply to all" exists in CapCut's Audio tab, so none was added.
+
+**Extracted audio:** a video whose sound was extracted (⇧⌘S) shows "This clip's sound was extracted…"
+with **Select audio** and **Restore audio** instead of the controls; the extracted clip inherits every
+audio setting, splits copy them.
+
+### How it works
+
+One FX chain builder (`src/audio/dsp.ts`) is used by **both** the preview `AudioContext`
+(`player/audioEngine.ts`, chain rebuilt when its signature changes) and the export
+`OfflineAudioContext` (`export/offlineMix.ts`): input (forced stereo) → fill channel (splitter →
+merger) → high-pass + `oe-gate` worklet → `oe-pitch` worklet → voice-filter nodes → output gain
+(volume × normalize × fades). The two AudioWorklet processors (`src/audio/worklets.ts`) load from a
+Blob URL in either context. Loudness is measured once per (asset, span) by streaming the file with
+Mediabunny (`src/audio/measure.ts`); preview, inspector readout and export share the cache.
+Export speed: an `AudioBufferSourceNode` shifts pitch with `playbackRate`, so when "Change audio
+pitch" is off the chain's pitch shifter runs at 1/speed. Effect tails are cut at the clip end in both.
+
+Model: `AudioProps` gained `normalize`, `reduceNoise`, `fillChannel`, `voiceFilter`
+(`defaultAudio()` → off); `migrateAudioProps` / `migrateProject` fill them on old projects. Dev hook:
+`window.__oeAudio.voices()` lists each live preview voice's gain, target, normalize gain and stages.
+
+### Measured (e2e/tab-audio.spec.ts → 26 s 720p MP4, ffmpeg)
+
+| Check | Result |
+|---|---|
+| Volume −6 dB | RMS −23.03 → −29.00 dB = **−5.97 dB**; volumedetect max −19.9 → −25.9 dB (**−6.0**) |
+| Fade in 1 s (100 ms astats windows vs ideal linear ramp) | −16.33 / −11.98 / −9.08 / −6.92 / −5.16 / −3.72 / −2.48 / −1.39 / −0.43 dB vs ideal −16.32 / −11.98 / −9.09 / −6.92 / −5.18 / −3.73 / −2.49 / −1.41 / −0.44 (all within 0.02 dB); full level after: +0.02 dB |
+| Normalize | source −38.0 LUFS → export **−23.0 LUFS** (ebur128); preview normalize gain 5.6205 = +15.0 dB, same as the readout |
+| Fill channel (left-only source) | L −23.01 / R −23.01 dB; without fill R = −∞ |
+| Reduce noise (beeps over −50 dBFS hiss) | hiss in pauses −51.1 → **−70.5 dB** (−19.4 dB); beeps −9.06 → −9.02 dB (untouched) |
+| Chipmunk 100 (+12 st) | zero-crossing rate 0.0417 → 0.0827 (×1.98) |
+| Speed 2× keep pitch / change pitch | ZCR 0.0413 (×0.99) / 0.0833 (×2.00) |
+| Preview graph | −6 dB voice gain 0.5005 (target 0.5012), stages `input→gain`; fill `input→fill:left→gain`; noise `input→highpass:80→gate→gain`; chipmunk `input→pitch:2.0000→voice:chipmunk:100→gain` |
+
+Also verified: every control set through the inspector, undo/redo (⌘Z / ⇧⌘Z) of a checkbox, all
+settings intact after a reload, AI rows disabled. Unit tests: `src/audio/audio.test.ts` (dB maths,
+fade points, K-weighting coefficients, EBU Tech 3341 cases 1–2 at 48 / 44.1 kHz, gating, dual-mono,
+streaming = one-shot, normalize gain, pitch ratios, signatures, migration),
+`src/audio/audioStore.test.ts` (undo/redo per control, split / extract / restore, span, save /
+reload) and `src/inspector/AudioTab.test.tsx` (section order, AI rows, checkboxes, reset, voice
+filter strength = one undo step, extracted notice). Totals: `npm test` 376 / 376; typecheck and build
+clean; e2e smoke, flows, shortcuts, file-drop, memory, timeline-stability and tab-audio all pass
+(one at a time).
+
+Limits: Reduce noise is a gate, so hiss *under* speech stays; the pitch shifter delays the clips that use it by ≈ 21 ms
+(under one frame, preview and export alike); keyframes on Volume / Fill
+channel are shown disabled like everywhere else (v2).
+
 ## Flows verified in real Chromium (Playwright)
 
 The test media in `test-media/` is:
@@ -205,7 +281,7 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
   frame while that clip's `<video>` element loads its first frame.
 
 **Export**
-- Speed changes also change pitch in the export; the preview keeps the pitch. Time-stretch is v2.
+- Pitch-kept speed changes are undone in the export by a delay-line pitch shifter (see § Audio tab). It is clean on tones and speech but is not a WSOLA time-stretch like the browser's `preservesPitch`, and it is limited to 0.25×–4× pitch compensation, so pitch is only fully kept for speeds 0.25×–4×.
 - Highlights, Shadows and Sharpen are CSS-filter approximations. The WebGL colour pass is v2.
 - The WebM fallback (browsers without WebCodecs) records in real time, is not frame-exact, and its
   file has no duration header.

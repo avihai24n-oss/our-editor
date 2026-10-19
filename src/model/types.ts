@@ -136,13 +136,48 @@ export type BlendMode =
   | 'color-burn'
   | 'color-dodge';
 
+/** Fill channel: which source channel is copied to both outputs. */
+export type FillChannel = 'left' | 'right';
+
+/** Non-AI voice filters (Audio › Voice changer). DSP recipes live in src/audio/dsp.ts. */
+export type VoiceFilterId =
+  | 'chipmunk'
+  | 'high'
+  | 'low'
+  | 'deep'
+  | 'robot'
+  | 'electronic'
+  | 'echo'
+  | 'megaphone'
+  | 'distorted'
+  | 'vinyl'
+  | 'hall';
+
+export interface VoiceFilter {
+  id: VoiceFilterId;
+  /** 0..100 (UI "Strength"). */
+  strength: number;
+}
+
 export interface AudioProps {
   /** -60..+20 dB. -60 is treated as silence. */
   volumeDb: number;
   fadeIn: Us;
   fadeOut: Us;
-  /** Per-clip mute. */
+  /** Per-clip mute (the Basic section checkbox in Audio › Basic). */
   muted: boolean;
+  /**
+   * Normalize loudness: the clip's source span is measured (ITU-R BS.1770 integrated loudness)
+   * and a gain brings it to NORMALIZE_TARGET_LUFS (src/audio/loudness.ts). Volume dB applies on top.
+   * Added after v1 (migrateProject fills it).
+   */
+  normalize: boolean;
+  /** Reduce noise — DSP high-pass + adaptive noise gate (not AI). Added after v1. */
+  reduceNoise: boolean;
+  /** Fill channel; null = off. Added after v1. */
+  fillChannel: FillChannel | null;
+  /** Voice changer filter; null = None. Added after v1. */
+  voiceFilter: VoiceFilter | null;
 }
 
 export type AnimationType =

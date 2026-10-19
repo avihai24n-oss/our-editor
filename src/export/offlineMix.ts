@@ -4,11 +4,19 @@
  * silent; hidden tracks still sound. One AudioBufferSourceNode per clip → GainNode
  * (volume dB × linear fades) → destination of an OfflineAudioContext.
  *
- * Note: in an OfflineAudioContext playbackRate changes pitch; pitch-preserved speed changes
- * need a time-stretcher (v2 backlog). Preview preserves pitch via the media element.
+ * Each clip goes through the same FX chain as the preview (src/audio/dsp.ts): fill channel,
+ * reduce noise, voice filter, then the gain stage (volume × normalize × fades).
+ *
+ * Speed: an AudioBufferSourceNode's playbackRate shifts pitch, so when the clip keeps its pitch
+ * ("Change audio pitch" off, the default) the chain's pitch shifter runs at 1/speed to undo it
+ * (clamped to 0.25..4). The preview gets the same result from the media element's preservesPitch.
  */
+import { buildFxChain, fxFromAudio, type FxConfig } from '../audio/dsp';
+import { normalizeGainDb } from '../audio/loudness';
+import { measureAudioBuffer } from '../audio/measure';
+import { ensureWorklets } from '../audio/worklets';
 import { dbToGain } from '../model/project';
-import type { Id, Project } from '../model/types';
+import type { AudioProps, Id, Project } from '../model/types';
 
 export const MIX_SAMPLE_RATE = 48_000;
 
@@ -24,7 +32,14 @@ export interface MixClip {
   volume: number;
   fadeInSec: number;
   fadeOutSec: number;
+  preservePitch: boolean;
+  /** Audio › Basic / Voice changer settings. */
+  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'>;
 }
+
+/** The FX chain config for a planned clip (pitch compensation for pitch-preserved speed). */
+export const mixFx = (c: Pick<MixClip, 'speed' | 'preservePitch' | 'fx'>): FxConfig =>
+  fxFromAudio(c.fx, c.preservePitch && c.speed !== 1 ? 1 / c.speed : 1);
 
 /** Which clips are heard in the export, in project order. Pure. */
 export function planMix(project: Project): MixClip[] {
@@ -50,6 +65,13 @@ export function planMix(project: Project): MixClip[] {
         volume,
         fadeInSec: Math.min(clip.audio.fadeIn, clip.duration) / 1e6,
         fadeOutSec: Math.min(clip.audio.fadeOut, clip.duration) / 1e6,
+        preservePitch: clip.preservePitch,
+        fx: {
+          normalize: !!clip.audio.normalize,
+          reduceNoise: !!clip.audio.reduceNoise,
+          fillChannel: clip.audio.fillChannel ?? null,
+          voiceFilter: clip.audio.voiceFilter ?? null,
+        },
       });
     }
   }
@@ -78,12 +100,29 @@ export function gainPoints(c: Pick<MixClip, 'startSec' | 'durationSec' | 'volume
 
 export type DecodeAsset = (assetId: Id) => Promise<AudioBuffer | null>;
 
+export interface RenderMixOptions {
+  /**
+   * Integrated loudness (LUFS) of a clip's source span, for Normalize loudness. runExport passes
+   * the shared measurer (src/audio/measure.ts) so the export uses the preview's number; the
+   * default measures the decoded buffer.
+   */
+  loudness?: (c: MixClip, buf: AudioBuffer) => Promise<number | null>;
+}
+
+/** Linear normalize gain of a planned clip (1 when normalize is off or unmeasurable). */
+export async function normalizeGainFor(c: MixClip, buf: AudioBuffer, o: RenderMixOptions = {}): Promise<number> {
+  if (!c.fx.normalize) return 1;
+  const lufs = o.loudness ? await o.loudness(c, buf) : measureAudioBuffer(buf, c.inSec, c.durationSec * c.speed);
+  return Math.pow(10, normalizeGainDb(lufs) / 20);
+}
+
 /** Renders the stereo mix of the whole timeline. Returns null when nothing is audible. */
-export async function renderMix(project: Project, durationUs: number, decode: DecodeAsset, signal?: AbortSignal): Promise<AudioBuffer | null> {
+export async function renderMix(project: Project, durationUs: number, decode: DecodeAsset, signal?: AbortSignal, o: RenderMixOptions = {}): Promise<AudioBuffer | null> {
   const plan = planMix(project);
   if (!plan.length || durationUs <= 0) return null;
   const durSec = durationUs / 1e6;
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(durSec * MIX_SAMPLE_RATE)), MIX_SAMPLE_RATE);
+  const worklets = await ensureWorklets(ctx);
   let any = false;
   for (const c of plan) {
     if (signal?.aborted) return null;
@@ -92,11 +131,16 @@ export async function renderMix(project: Project, durationUs: number, decode: De
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = c.speed;
-    const g = ctx.createGain();
-    const pts = gainPoints(c);
+    const chain = buildFxChain(ctx, mixFx(c), { worklets });
+    const g = chain.output;
+    const k = await normalizeGainFor(c, buf, o);
+    const pts = gainPoints({ ...c, volume: c.volume * k });
     g.gain.setValueAtTime(pts[0]![1], pts[0]![0]);
     for (const [t, v] of pts.slice(1)) g.gain.linearRampToValueAtTime(v, t);
-    src.connect(g).connect(ctx.destination);
+    // the clip ends here: cut effect tails (echo, reverb) like the preview does
+    g.gain.setValueAtTime(0, c.startSec + c.durationSec);
+    src.connect(chain.input);
+    g.connect(ctx.destination);
     const offset = Math.min(c.inSec, Math.max(0, buf.duration - 1e-3));
     src.start(c.startSec, offset, c.durationSec * c.speed);
     src.stop(c.startSec + c.durationSec);

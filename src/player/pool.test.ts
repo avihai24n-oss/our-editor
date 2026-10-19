@@ -93,7 +93,7 @@ describe('AudioEngine', () => {
     revokeAllAssetUrls();
   });
 
-  const aop = (clipId: string, assetId: string): AudioOp => ({ clipId, assetId, trackId: 't', sourceTime: 0, speed: 1, preservePitch: true, gain: 1 });
+  const aop = (clipId: string, assetId: string): AudioOp => ({ clipId, assetId, trackId: 't', sourceTime: 0, speed: 1, preservePitch: true, gain: 1, fx: { normalize: false, reduceNoise: false, fillChannel: null, voiceFilter: null }, spanIn: 0, spanLength: 1_000_000 });
 
   it('caps voices and frees them all a moment after a pause (one-shot timer)', () => {
     const { assetIds } = projectWith(12);

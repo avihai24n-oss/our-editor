@@ -1,15 +1,22 @@
 /**
  * Preview audio: one hidden media element per audible clip → MediaElementAudioSourceNode →
- * per-clip GainNode (volume dB × fades, from AudioOp.gain) → master → speakers.
+ * per-clip FX chain (src/audio/dsp.ts — the SAME graph the export builds: fill channel, reduce
+ * noise, voice-filter pitch, voice filter) → its output GainNode (volume dB × fades from
+ * AudioOp.gain × normalize gain) → master → speakers.
  * Speed = element.playbackRate; "Change audio pitch" = !preservesPitch.
+ * The chain is rebuilt when its signature changes (a filter, its strength, a checkbox).
  * The AudioContext clock drives the playback clock (see PreviewEngine).
  *
  * Memory rules: at most MEMORY_LIMITS.previewVoices elements (LRU). After a pause every voice is
  * released MEMORY_LIMITS.idleReleaseMs later by one one-shot timer (an <audio> on a video file
  * holds a demuxer and an audio decoder); `releaseAll()` frees them at once (tab hidden, watchdog).
  */
+import { buildFxChain, fxFromAudio, fxSignature, type FxChain } from '../audio/dsp';
+import { normalizeGainDb } from '../audio/loudness';
+import { loudnessReady, measureSpan, spanKey } from '../audio/measure';
+import { ensureWorklets } from '../audio/worklets';
 import type { AudioOp } from '../engine/frameState';
-import { getAssetUrl } from '../media/registry';
+import { getAssetBlob, getAssetUrl } from '../media/registry';
 import { MEMORY_LIMITS } from '../media/memory';
 import type { Id } from '../model/types';
 import { decideSync, MAX_RATE } from './sync';
@@ -18,7 +25,12 @@ interface Voice {
   el: HTMLAudioElement;
   url: string;
   node: MediaElementAudioSourceNode | null;
-  gain: GainNode | null;
+  chain: FxChain | null;
+  sig: string;
+  /** Last gain target (op.gain × normalize). */
+  target: number;
+  /** Normalize gain applied (linear), 1 when off or not measured yet. */
+  norm: number;
   lastSeekAt: number;
   lastUsed: number;
 }
@@ -31,6 +43,7 @@ export class AudioEngine {
   private master: GainNode | null = null;
   private voices = new Map<Id, Voice>();
   private releaseTimer: ReturnType<typeof setTimeout> | null = null;
+  private worklets = false;
 
   /** Lazily creates the AudioContext. Call from a user gesture path (play) when possible. */
   context(): AudioContext | null {
@@ -42,6 +55,9 @@ export class AudioEngine {
       this.ctx = new AC({ latencyHint: 'interactive' });
       this.master = this.ctx.createGain();
       this.master.connect(this.ctx.destination);
+      void ensureWorklets(this.ctx).then((ok) => {
+        this.worklets = ok;
+      });
     } catch {
       this.ctx = null;
     }
@@ -81,8 +97,14 @@ export class AudioEngine {
       if (!v) continue;
       live.add(op.clipId);
       v.lastUsed = now;
-      if (v.gain && ctx) v.gain.gain.setTargetAtTime(op.gain, ctx.currentTime, 0.015);
-      else v.el.volume = Math.min(1, Math.max(0, op.gain));
+      if (v.node && ctx && this.master) {
+        const sig = fxSignature(fxFromAudio(op.fx), this.worklets);
+        if (sig !== v.sig || !v.chain) this.rebuild(v, op, sig);
+      }
+      v.norm = op.fx.normalize ? this.normalizeGain(op) : 1;
+      v.target = op.gain * v.norm;
+      if (v.chain && ctx) v.chain.output.gain.setTargetAtTime(v.target, ctx.currentTime, 0.015);
+      else v.el.volume = Math.min(1, Math.max(0, v.target));
       const el = v.el as HTMLAudioElement & { preservesPitch?: boolean };
       if (el.preservesPitch !== op.preservePitch) el.preservesPitch = op.preservePitch;
       // beyond the native rate we cannot stay in sync — stay silent rather than stutter
@@ -106,6 +128,11 @@ export class AudioEngine {
     for (const [id, v] of this.voices) {
       if (live.has(id)) continue;
       if (!v.el.paused) v.el.pause();
+      // the clip is over: cut effect tails (echo, reverb) — the export does the same
+      if (v.chain && ctx && v.target !== 0) {
+        v.target = 0;
+        v.chain.output.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
+      }
       if (now - v.lastUsed > EVICT_AFTER_MS) this.release(id, v);
     }
     if (this.voices.size > MAX_VOICES) {
@@ -149,6 +176,54 @@ export class AudioEngine {
     this.master = null;
   }
 
+  /** Linear normalize gain for the op's source span; measures it (once, async) when unknown. */
+  private normalizeGain(op: AudioOp): number {
+    const inSec = op.spanIn / 1e6;
+    const lenSec = op.spanLength / 1e6;
+    const key = spanKey(op.assetId, inSec, lenSec);
+    const lufs = loudnessReady(key);
+    if (lufs === undefined) {
+      void measureSpan(op.assetId, inSec, lenSec, async (id) => {
+        const b = getAssetBlob(id);
+        if (b) return b;
+        const url = getAssetUrl(id);
+        return url ? (await fetch(url)).blob() : null;
+      });
+      return 1;
+    }
+    return Math.pow(10, normalizeGainDb(lufs) / 20);
+  }
+
+  private rebuild(v: Voice, op: AudioOp, sig: string): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || !v.node) return;
+    const old = v.chain;
+    try {
+      v.node.disconnect();
+    } catch {
+      /* not connected */
+    }
+    const chain = buildFxChain(ctx, fxFromAudio(op.fx), { worklets: this.worklets });
+    chain.output.gain.value = old ? old.output.gain.value : 0;
+    v.node.connect(chain.input);
+    chain.output.connect(this.master);
+    old?.dispose();
+    v.chain = chain;
+    v.sig = sig;
+  }
+
+  /** Dev / e2e: what each live voice is doing (gain values, FX stages). */
+  debug(): { clipId: Id; gain: number; target: number; normalizeGain: number; stages: string[]; paused: boolean }[] {
+    return [...this.voices.entries()].map(([clipId, v]) => ({
+      clipId,
+      gain: v.chain ? v.chain.output.gain.value : v.el.volume,
+      target: v.target,
+      normalizeGain: v.norm,
+      stages: v.chain ? [...v.chain.stages] : [],
+      paused: v.el.paused,
+    }));
+  }
+
   private voice(clipId: Id, assetId: Id): Voice | null {
     const url = getAssetUrl(assetId);
     const existing = this.voices.get(clipId);
@@ -158,17 +233,13 @@ export class AudioEngine {
     const el = new Audio();
     el.preload = 'auto';
     el.src = url;
-    const v: Voice = { el, url, node: null, gain: null, lastSeekAt: -Infinity, lastUsed: performance.now() };
+    const v: Voice = { el, url, node: null, chain: null, sig: '', target: 0, norm: 1, lastSeekAt: -Infinity, lastUsed: performance.now() };
     const ctx = this.context();
     if (ctx && this.master) {
       try {
         v.node = ctx.createMediaElementSource(el);
-        v.gain = ctx.createGain();
-        v.gain.gain.value = 0;
-        v.node.connect(v.gain).connect(this.master);
       } catch {
         v.node = null;
-        v.gain = null;
       }
     }
     this.voices.set(clipId, v);
@@ -178,7 +249,8 @@ export class AudioEngine {
   private release(clipId: Id, v: Voice): void {
     v.el.pause();
     v.node?.disconnect();
-    v.gain?.disconnect();
+    v.chain?.dispose();
+    v.chain = null;
     v.el.removeAttribute('src');
     v.el.load();
     this.voices.delete(clipId);

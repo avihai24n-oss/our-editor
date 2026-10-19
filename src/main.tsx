@@ -11,6 +11,14 @@ if (import.meta.env.DEV) {
   void import('./store').then(({ useEditor }) => {
     (window as unknown as { __oe?: typeof useEditor }).__oe = useEditor;
   });
+  void Promise.all([import('./player/PreviewEngine'), import('./audio/measure')]).then(([pe, measure]) => {
+    (window as unknown as { __oeAudio?: unknown }).__oeAudio = {
+      voices: () => pe.activePreviewEngine()?.audioDebug() ?? [],
+      measureSpan: measure.measureSpan,
+      loudnessReady: measure.loudnessReady,
+      spanKey: measure.spanKey,
+    };
+  });
   void Promise.all([import('./ui/MemoryReadout'), import('./media/memory')]).then(([readout, memory]) => {
     (window as unknown as { __oeMem?: unknown }).__oeMem = { snapshot: readout.memorySnapshot, flush: memory.flushAllCaches };
   });

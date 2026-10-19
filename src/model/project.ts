@@ -124,7 +124,15 @@ export function migrateProject(p: Project): Project {
   let changed = false;
   const tracks = p.tracks.map((t) => {
     let tChanged = false;
-    const clips = t.clips.map((c) => {
+    const clips = t.clips.map((c0) => {
+      let c = c0;
+      if (c.type === 'video' || c.type === 'audio') {
+        const audio = migrateAudioProps(c.audio);
+        if (audio !== c.audio) {
+          tChanged = true;
+          c = { ...c, audio } as Clip;
+        }
+      }
       if (c.type === 'audio') return c;
       const v = c as VisualClip & Partial<Pick<VisualClip, 'blendEnabled' | 'adjustEnabled'>>;
       if (typeof v.blendEnabled === 'boolean' && typeof v.adjustEnabled === 'boolean') return c;
@@ -136,4 +144,25 @@ export function migrateProject(p: Project): Project {
     return { ...t, clips };
   });
   return changed ? { ...p, tracks } : p;
+}
+
+const FILL_CHANNELS: readonly string[] = ['left', 'right'];
+
+/**
+ * Audio fields added after v1 (normalize, reduceNoise, fillChannel, voiceFilter): missing or
+ * malformed values get the defaults. Returns the same object when nothing changed.
+ */
+export function migrateAudioProps(a: AudioProps): AudioProps {
+  const x = a as Partial<AudioProps>;
+  const vf = x.voiceFilter;
+  const voiceOk = vf === null || (typeof vf === 'object' && vf !== undefined && typeof vf.id === 'string' && typeof vf.strength === 'number');
+  const fillOk = x.fillChannel === null || (typeof x.fillChannel === 'string' && FILL_CHANNELS.includes(x.fillChannel));
+  if (typeof x.normalize === 'boolean' && typeof x.reduceNoise === 'boolean' && fillOk && voiceOk) return a;
+  return {
+    ...a,
+    normalize: typeof x.normalize === 'boolean' ? x.normalize : false,
+    reduceNoise: typeof x.reduceNoise === 'boolean' ? x.reduceNoise : false,
+    fillChannel: fillOk ? (x.fillChannel ?? null) : null,
+    voiceFilter: voiceOk ? (vf ?? null) : null,
+  };
 }

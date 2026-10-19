@@ -65,7 +65,12 @@ real-time WebM export.
 - **Video › Basic:**
   - Scale, position, rotate (with a dial), the six align buttons and mirror.
   - Blend mode and opacity, with an on/off checkbox.
-- **Audio:** Volume (dB), fade in and fade out.
+- **Audio › Basic:** Volume (dB), fade in, fade out, Normalize loudness (−23 LUFS, BS.1770),
+  Reduce noise (DSP high-pass + noise gate, not AI) and Fill channel (left / right → both). Enhance
+  voice, Video translator and Isolate voice are shown disabled (AI, coming soon).
+- **Audio › Voice changer:** 11 DSP voice filters (Chipmunk, High, Low, Deep, Robot, Electronic,
+  Echo, Megaphone, Distorted, Vinyl, Big hall) with a Strength slider; AI voice characters and
+  Speech to song are disabled. Preview and export run the same Web Audio graph.
 - **Speed › Standard:** 0.1×–100×, editable duration, and "Change audio pitch".
 - **Animation:** In / Out (9 each) with a duration.
 - **Adjust:** a Filter with intensity, and 11 sliders with an on/off checkbox. Apply to all.
@@ -131,6 +136,8 @@ src/
   store/        useEditor (Zustand + immer): every action, undo/redo, transactions (one gesture =
                 one undo step), ops.ts (pure edit operations + normalize), IndexedDB persistence,
                 autosave/boot
+  audio/        clip FX chain (dsp.ts) + AudioWorklets shared by preview and export, BS.1770
+                loudness (loudness.ts) and the streamed per-span measurement cache (measure.ts)
   engine/       frameState.ts — THE render contract: (project, t) → what to draw / hear
     render/     renderFrame (canvas 2D compositor shared by player and export), colour, text layout
   media/        import (probe + store blobs), registry (asset → object URL), cleanup on asset removal

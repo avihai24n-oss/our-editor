@@ -6,10 +6,11 @@
 import { BLEND_MODES, filterDef } from '../model/catalog';
 import { defaultAdjust } from '../model/defaults';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
-import { clamp, clipContains, clipEnd, sourceTimeAt } from '../model/time';
+import { clamp, clipContains, clipEnd, sourceSpan, sourceTimeAt } from '../model/time';
 import type {
   Adjust,
   AnimationType,
+  AudioProps,
   Clip,
   Crop,
   Id,
@@ -103,6 +104,14 @@ export interface AudioOp {
   preservePitch: boolean;
   /** Linear gain including volume dB, fades. Track/clip mute already removed these ops. */
   gain: number;
+  /**
+   * Audio FX (Audio › Basic / Voice changer). `normalize` is applied by the audio engine with the
+   * loudness measured over the source span below (src/audio/measure.ts).
+   */
+  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'>;
+  /** Source span heard by the clip, µs: [inPoint, inPoint + spanLength). */
+  spanIn: Us;
+  spanLength: Us;
 }
 
 export interface FrameState {
@@ -370,6 +379,14 @@ export function getFrameState(project: Project, t: Us): FrameState {
         speed: clip.speed,
         preservePitch: clip.preservePitch,
         gain,
+        fx: {
+          normalize: !!clip.audio.normalize,
+          reduceNoise: !!clip.audio.reduceNoise,
+          fillChannel: clip.audio.fillChannel ?? null,
+          voiceFilter: clip.audio.voiceFilter ?? null,
+        },
+        spanIn: clip.inPoint,
+        spanLength: sourceSpan(clip),
       });
     }
   });
