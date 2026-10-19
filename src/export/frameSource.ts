@@ -7,7 +7,7 @@
  * - Image: ImageBitmap per asset.
  * - `prepare(fs)` is the only async step; `get(op)` is synchronous for renderFrame.
  */
-import type { FrameState, MediaDrawOp } from '../engine/frameState';
+import { frameLookupSec, type FrameState, type MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
 import type { Id, Project } from '../model/types';
 
@@ -109,7 +109,7 @@ export class ExportFrameSource implements FrameSources {
         this.ready.set(op.clipId, 'missing');
         continue;
       }
-      const f = await reader.frameAt(op.sourceTime / 1e6);
+      const f = await reader.frameAt(frameLookupSec(op.sourceTime));
       if (f) this.ready.set(op.clipId, { image: f.canvas, width: f.canvas.width, height: f.canvas.height });
     }
   }

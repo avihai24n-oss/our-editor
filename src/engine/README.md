@@ -20,7 +20,7 @@ Need a change in `frameState.ts`? Write it in `docs/integration-notes/engine.md`
 | Which clips are visible at t | per track, half-open `[start, end)` | nothing |
 | Layer order | `ops` is already bottom → top (`project.tracks` order; main first) | draw ops in order |
 | Hidden tracks / disabled clips | skipped (hidden tracks still produce `audio`) | nothing |
-| Media time | `MediaDrawOp.sourceTime` (µs) = inPoint + (t − start) × speed, clamped to `[0, asset.duration − 1]` | seek/show that frame (`/1e6` for `currentTime`) |
+| Media time | `MediaDrawOp.sourceTime` (µs) = inPoint + (t − start) × speed, clamped to `[0, asset.duration − 1]` | seek/show the frame at `frameLookupSec(sourceTime)` = sourceTime + `FRAME_LOOKUP_EPS_US` (100 µs) — never the bare value: µs-rounded frame times × speed land just before a frame boundary |
 | Fit | `fitWidth/fitHeight` = contain-fit of the asset in the canvas at scale 1 | draw the media into that box |
 | Transform | `transform` = clip transform × animation × transition, final | see drawing recipe |
 | Blend | `composite` (a `GlobalCompositeOperation`) | `ctx.globalCompositeOperation = op.composite` |

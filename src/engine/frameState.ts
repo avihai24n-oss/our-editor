@@ -116,6 +116,21 @@ export interface FrameState {
   audio: AudioOp[];
 }
 
+/**
+ * Look a source frame up at `sourceTime + FRAME_LOOKUP_EPS_US`, never at `sourceTime` itself.
+ *
+ * Timeline frame times are whole microseconds (frame 1 at 30 fps = 33 333 µs, not 33 333.3), and
+ * the clip speed multiplies that rounding: at 2× timeline frame 1 maps to 66 666 µs while source
+ * frame 2 starts at 66 666.7 µs, so an exact lookup lands one frame early. The error is at most
+ * 0.5 µs × (speed + 1) ≈ 51 µs at 100×; 100 µs covers it and is far below half a frame at any
+ * real frame rate (2 083 µs at 240 fps). The player and both exporters use this one constant, so
+ * preview and export pick the same frame.
+ */
+export const FRAME_LOOKUP_EPS_US = 100;
+
+/** Seconds to seek / look up for a media op's source time (see FRAME_LOOKUP_EPS_US). */
+export const frameLookupSec = (sourceTime: Us): number => (sourceTime + FRAME_LOOKUP_EPS_US) / 1e6;
+
 // ---------------------------------------------------------------- easing + effects (pure)
 
 export const easeOutCubic = (p: number): number => 1 - Math.pow(1 - clamp(p, 0, 1), 3);
