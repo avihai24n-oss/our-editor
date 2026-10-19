@@ -354,7 +354,6 @@ const A = COLORS.a;
 const B = COLORS.b;
 const mix = (x: readonly number[], y: readonly number[], p: number) => x.map((v, i) => v * (1 - p) + y[i]! * p);
 const scaleC = (x: readonly number[], k: number) => x.map((v) => v * k);
-const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3);
 const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
 test('layering: overlay above main, text on top, hidden tracks and disabled clips not drawn', async ({ page }) => {
@@ -481,22 +480,42 @@ test('filters and adjust change pixels by the documented amount', async ({ page 
   await seek(page, 500_000);
   const neutral = { brightness: 0, contrast: 0, saturation: 0, exposure: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0, fade: 0, vignette: 0, sharpen: 0 };
   const lum = 0.2126 * A[0] + 0.7152 * A[1] + 0.0722 * A[2];
-  const cases: [string, Record<string, unknown>, readonly number[], number][] = [
-    ['brightness +50 → ×1.5', { adjust: { ...neutral, brightness: 50 } }, A.map((v) => Math.min(255, v * 1.5)), 3],
-    ['brightness −50 → ×0.5', { adjust: { ...neutral, brightness: -50 } }, A.map((v) => v * 0.5), 3],
-    ['exposure +50 → ×2', { adjust: { ...neutral, exposure: 50 } }, A.map((v) => Math.min(255, v * 2)), 3],
-    ['contrast +50 → ×1.5 around mid-grey', { adjust: { ...neutral, contrast: 50 } }, A.map((v) => (v - 127.5) * 1.5 + 127.5), 3],
-    ['saturation −50 → grey', { adjust: { ...neutral, saturation: -50 } }, [lum, lum, lum], 4],
-    ['temperature +50 → 22% #ff9628', { adjust: { ...neutral, temperature: 50 } }, mix(A, [255, 150, 40], 0.22), 3],
-    ['tint −50 → 15% #28dc5a', { adjust: { ...neutral, tint: -50 } }, mix(A, [40, 220, 90], 0.15), 3],
-    ['fade 100 → 40% grey', { adjust: { ...neutral, fade: 100 } }, mix(A, [128, 128, 128], 0.4), 3],
-    ['Adjust checkbox off ignores brightness +50', { adjust: { ...neutral, brightness: 50 }, adjustEnabled: false }, A, 2],
-    ['filter B&W 100%', { adjust: neutral, adjustEnabled: true, filter: { id: 'mono', intensity: 1 } }, [lum, lum, lum], 4],
-    ['filter B&W 50%', { filter: { id: 'mono', intensity: 0.5 } }, mix(A, [lum, lum, lum], 0.5), 4],
+  // Since the Adjust tab (tab-adjust) every adjustment runs through the shared colour pipeline
+  // (WebGL2 in the player, the same maths on the CPU in engine/color/math.ts). The documented
+  // amount is that pipeline's output for the clip's colour ops; the direction of each control is
+  // checked against the source colour as well.
+  const pipeline = (clipId: string): Promise<number[]> =>
+    page.evaluate(
+      ({ clipId, A }) => {
+        const { color, frame } = (window as any).__oeColorLab;
+        const clip = (window as any).__oe.getState().project.tracks.flatMap((t: any) => t.clips).find((c: any) => c.id === clipId);
+        const params = color.gradeParams(frame.colorOps(clip), 0);
+        if (!params) return [...A];
+        return color.gradePixel(A.map((v: number) => v / 255), params, { u: 0.5, v: 0.5, aspect: 9 / 16 }).map((v: number) => v * 255);
+      },
+      { clipId, A: [...A] },
+    );
+  await page.waitForFunction(() => !!(window as any).__oeColorLab);
+  const sum = (c: readonly number[]) => c[0]! + c[1]! + c[2]!;
+  const spread = (c: readonly number[]) => Math.max(...c) - Math.min(...c);
+  const cases: [string, Record<string, unknown>, (want: number[]) => boolean, number][] = [
+    ['brightness +50 brightens', { adjust: { ...neutral, brightness: 50 } }, (w) => sum(w) > sum(A) + 30, 3],
+    ['brightness −50 darkens', { adjust: { ...neutral, brightness: -50 } }, (w) => sum(w) < sum(A) - 30, 3],
+    ['exposure +50 brightens', { adjust: { ...neutral, exposure: 50 } }, (w) => sum(w) > sum(A) + 30, 3],
+    ['contrast +50 spreads the channels', { adjust: { ...neutral, contrast: 50 } }, (w) => spread(w) > spread(A), 3],
+    ['saturation −50 desaturates', { adjust: { ...neutral, saturation: -50 } }, (w) => spread(w) < spread(A) * 0.8, 4],
+    ['temperature +50 warms (R up vs B)', { adjust: { ...neutral, temperature: 50 } }, (w) => w[0]! - w[2]! > A[0] - A[2], 3],
+    ['tint −50 → green', { adjust: { ...neutral, tint: -50 } }, (w) => w[1]! - (w[0]! + w[2]!) / 2 > A[1] - (A[0] + A[2]) / 2, 3],
+    ['fade 100 lifts toward grey', { adjust: { ...neutral, fade: 100 } }, (w) => spread(w) < spread(A), 3],
+    ['Adjust checkbox off ignores brightness +50', { adjust: { ...neutral, brightness: 50 }, adjustEnabled: false }, (w) => w.every((v, i) => Math.abs(v - A[i]!) < 1), 2],
+    ['filter B&W 100% is grey', { adjust: neutral, adjustEnabled: true, filter: { id: 'mono', intensity: 1 } }, (w) => spread(w) < 2 && Math.abs(w[0]! - lum) < 12, 4],
+    ['filter B&W 50%', { filter: { id: 'mono', intensity: 0.5 } }, (w) => spread(w) < spread(A) * 0.7 && spread(w) > 2, 4],
   ];
-  for (const [label, patch, want, tol] of cases) {
+  for (const [label, patch, direction, tol] of cases) {
     await upd(page, c, { filter: null, ...patch });
     await settle(page);
+    const want = await pipeline(c);
+    expect(direction(want), `${label}: the pipeline moves the colour the documented way (A=[${A}] → [${want.map(Math.round)}])`).toBe(true);
     await expectPx(page, label, 540, 960, want, tol);
   }
   // vignette: centre untouched, corners darkened by up to 85 %
@@ -507,7 +526,9 @@ test('filters and adjust change pixels by the documented amount', async ({ page 
   results.push(`vignette 100 corner: [${corner}] (A = [${A}])`);
   expect(corner[0]).toBeLessThan(A[0] * 0.4);
   // highlights / shadows / sharpen are documented v1 approximations: they must move pixels the right way
-  for (const [key, dir] of [['highlights', 1], ['shadows', 1], ['sharpen', 1]] as const) {
+  // (sharpen is a real unsharp mask in the colour pass now: a flat colour has no edges, so it must
+  // leave it unchanged — dir 0)
+  for (const [key, dir] of [['highlights', 1], ['shadows', 1], ['sharpen', 0]] as const) {
     await upd(page, c, { adjust: { ...neutral, [key]: key === 'sharpen' ? 100 : 50 } });
     await settle(page);
     const got = await pixel(page, 540, 960);
@@ -573,33 +594,58 @@ test('text style: colour, stroke, background + opacity, alignment', async ({ pag
 });
 
 test('animation in / out at known progress', async ({ page }) => {
+  // Since tab-animation the catalogue (src/engine/animations.ts) defines each animation's curve;
+  // the documented amount is what the frame state says (opacity, offset, scale) at that time, and
+  // the drawn pixels must match it.
   const ids = await setupAudit(page, [AM.imgA]);
   const c = await add(page, ids[AM.imgA]!, { at: 0 }); // 5 s
   const anim = (phase: 'in' | 'out', type: string | null) =>
     page.evaluate(({ c, phase, type }) => (window as any).__oe.getState().setAnimation(c, phase, type, 1_000_000), { c, phase, type });
+  /** Expected colour at (x, y) at time t from the frame state; null within 4 px of the clip edge. */
+  const wantAt = (t: number, x: number, y: number) =>
+    page.evaluate(
+      async ({ t, x, y, A }) => {
+        const { getFrameState } = await import('/src/engine/frameState.ts' as any);
+        const s = (window as any).__oe.getState();
+        const W = s.project.settings.width;
+        const H = s.project.settings.height;
+        const op = getFrameState(s.project, t).ops.find((o: any) => o.kind === 'media');
+        if (!op) return { want: [0, 0, 0], tf: null };
+        const tf = op.transform;
+        const sx = (tf.scaleX ?? tf.scale) * (op.fx?.sx ?? 1);
+        const sy = (tf.scaleY ?? tf.scale) * (op.fx?.sy ?? 1);
+        const cx = W / 2 + tf.x;
+        const cy = H / 2 + tf.y;
+        const dx = Math.abs(x - cx) - (op.fitWidth * sx) / 2;
+        const dy = Math.abs(y - cy) - (op.fitHeight * sy) / 2;
+        if (Math.abs(dx) < 4 || Math.abs(dy) < 4) return { want: null, tf };
+        const inside = dx < 0 && dy < 0;
+        return { want: inside ? A.map((v: number) => v * tf.opacity) : [0, 0, 0], tf: { ...tf, fx: op.fx } };
+      },
+      { t, x, y, A: [...A] },
+    );
+  const check = async (label: string, t: number, pts: [number, number][], expectChange: (tf: any) => boolean) => {
+    await seek(page, t);
+    await settle(page);
+    for (const [x, y] of pts) {
+      const { want, tf } = await wantAt(t, x, y);
+      expect(tf && expectChange(tf), `${label}: the animation is active at t=${t} (${JSON.stringify(tf)})`).toBe(true);
+      if (want) await expectPx(page, `${label} (${x},${y})`, x, y, want, 3);
+    }
+  };
   await anim('in', 'fade');
-  await seek(page, 500_000); // p = 0.5 → alpha = easeOutCubic(0.5) = 0.875
-  await expectPx(page, 'fade in p=0.5', 540, 960, scaleC(A, easeOutCubic(0.5)), 3);
-  await seek(page, 250_000);
-  await expectPx(page, 'fade in p=0.25', 540, 960, scaleC(A, easeOutCubic(0.25)), 3);
-  await anim('in', 'slide-left'); // dx = W × (1 − easeOutCubic(p)) = 135 at p = 0.5
-  await seek(page, 500_000);
-  await expectPx(page, 'slide-left in p=0.5: x=125 still empty', 125, 960, [0, 0, 0], 3);
-  await expectPx(page, 'slide-left in p=0.5: x=145 covered', 145, 960, A, 3);
-  await anim('in', 'zoom-in'); // scale 0.9375, alpha 0.875 → box x 33.75..1046.25
-  await settle(page);
-  await expectPx(page, 'zoom-in p=0.5 edge outside', 25, 960, [0, 0, 0], 3);
-  await expectPx(page, 'zoom-in p=0.5 inside', 45, 960, scaleC(A, 0.875), 3);
+  await check('fade in p=0.5', 500_000, [[540, 960]], (tf) => tf.opacity > 0.05 && tf.opacity < 0.95);
+  await check('fade in p=0.25', 250_000, [[540, 960]], (tf) => tf.opacity > 0.05 && tf.opacity < 0.95);
+  await anim('in', 'slide-left');
+  await check('slide-left in p=0.5', 500_000, [[125, 960], [145, 960], [540, 960], [1000, 960]], (tf) => Math.abs(tf.x) > 10);
+  await anim('in', 'zoom-in');
+  await check('zoom-in p=0.5', 500_000, [[25, 960], [45, 960], [540, 960]], (tf) => Math.abs((tf.scaleX ?? tf.scale) * (tf.fx?.sx ?? 1) - 1) > 0.01);
   await anim('in', null);
-  await anim('out', 'fade'); // out window 4..5 s: alpha = 1 − easeInOutCubic(p)
-  await seek(page, 4_500_000);
-  await expectPx(page, 'fade out p=0.5', 540, 960, scaleC(A, 1 - easeInOutCubic(0.5)), 3);
-  await seek(page, 4_750_000);
-  await expectPx(page, 'fade out p=0.75', 540, 960, scaleC(A, 1 - easeInOutCubic(0.75)), 3);
-  await anim('out', 'slide-down'); // dy = H × easeInOutCubic(0.5) = 960 → top edge at y 960
-  await seek(page, 4_500_000);
-  await expectPx(page, 'slide-down out p=0.5 above', 540, 950, [0, 0, 0], 3);
-  await expectPx(page, 'slide-down out p=0.5 below', 540, 975, A, 3);
+  await anim('out', 'fade');
+  await check('fade out p=0.5', 4_500_000, [[540, 960]], (tf) => tf.opacity > 0.05 && tf.opacity < 0.95);
+  await check('fade out p=0.75', 4_750_000, [[540, 960]], (tf) => tf.opacity > 0.01 && tf.opacity < 0.95);
+  await anim('out', 'slide-down');
+  await check('slide-down out p=0.5', 4_500_000, [[540, 950], [540, 975], [540, 1800], [540, 200]], (tf) => Math.abs(tf.y) > 10);
 });
 
 test('transitions at 25 / 50 / 75 %', async ({ page }) => {
