@@ -75,6 +75,11 @@ export interface EditorState {
   magnet: boolean;
   /** Auto snapping (CapCut default ON). */
   snapping: boolean;
+  /**
+   * Linkage (CapCut ~, default ON): a video clip and the audio extracted from it (same audioLink,
+   * same start) move together — dragged, or rippled along the magnetic main track.
+   */
+  linkage: boolean;
   saveStatus: SaveStatus;
 
   // ---- project
@@ -184,6 +189,7 @@ export interface EditorState {
   zoomOut: () => void;
   setMagnet: (on: boolean) => void;
   setSnapping: (on: boolean) => void;
+  setLinkage: (on: boolean) => void;
 
   // ---- history
   undo: () => void;
@@ -205,11 +211,15 @@ function edit<T>(set: SetFn, get: GetFn, recipe: (draft: Project, ctx: ops.EditC
   const before = s.project;
   const ctx: ops.EditCtx = { magnet: s.magnet };
   let result!: T;
+  const pairs = s.linkage ? ops.linkedPairs(before) : [];
   let next = produce(before, (d) => {
     result = recipe(d, ctx);
     ops.normalize(d, ctx);
+    if (pairs.length && ops.followLinked(d, pairs, ctx)) ops.normalize(d, ctx);
   });
-  if (next === before) return result;
+  // A refused or no-op edit (a move back to the same spot, the same value again…) must not leave an
+  // empty undo step. Immer shares every untouched subtree, so this only walks what changed.
+  if (next === before || sameValue(next, before)) return result;
   next = produce(next, (d) => {
     d.updatedAt = Date.now();
   });
@@ -222,13 +232,47 @@ function edit<T>(set: SetFn, get: GetFn, recipe: (draft: Project, ctx: ops.EditC
   return result;
 }
 
-/** Drops selected ids that no longer exist. */
+/** Deep equality that is cheap on immer results: shared (===) subtrees are skipped at once. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
+  }
+  return true;
+}
+
+/** Drops selected ids that no longer exist or whose track is now locked (a locked clip cannot be selected). */
 function pruneSelection(set: SetFn, get: GetFn): void {
   const { project, selection } = get();
-  const ids = selection.clipIds.filter((id) => findClip(project, id));
+  const ids = selection.clipIds.filter((id) => {
+    const f = findClip(project, id);
+    return !!f && !f.track.locked;
+  });
   const tr = selection.transitionId && findTransition(project, selection.transitionId) ? selection.transitionId : null;
   if (ids.length !== selection.clipIds.length || tr !== selection.transitionId) set({ selection: { clipIds: ids, transitionId: tr } });
 }
+
+/** True when the main track is packed from 0 with no gaps (what the magnet guarantees). */
+function mainPacked(p: Project): boolean {
+  let end = 0;
+  for (const c of mainTrack(p).clips) {
+    if (c.start !== end) return false;
+    end = clipEnd(c);
+  }
+  return true;
+}
+
+/**
+ * Undo / redo / load can bring back a main track with gaps (made while the magnet was off). The
+ * magnet then goes off too: left on, the NEXT unrelated edit would silently close every gap.
+ */
+const magnetFor = (p: Project, magnet: boolean): boolean => magnet && mainPacked(p);
 
 /** Undo/redo keep the media bin: assets of the current doc are carried into the restored one. */
 const withAssets = (target: Project, current: Project): Project =>
@@ -271,6 +315,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   zoom: LIMITS.zoomDefault,
   magnet: true,
   snapping: true,
+  linkage: true,
   saveStatus: { lastSavedAt: null, saving: false, error: null },
 
   // ---- project
@@ -286,7 +331,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
       playing: false,
     }),
   setProject: (project) =>
-    set({ project: migrateProject(project), previewTime: null, past: [], future: [], txBase: null, selection: { clipIds: [], transitionId: null }, playhead: 0, playing: false }),
+    set({ project: migrateProject(project), magnet: magnetFor(project, get().magnet), previewTime: null, past: [], future: [], txBase: null, selection: { clipIds: [], transitionId: null }, playhead: 0, playing: false }),
   setProjectName: (name) =>
     edit(set, get, (d) => {
       d.name = name.trim() || 'Untitled project';
@@ -381,7 +426,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
     // With the magnet on, a main-track clip keeps its slot, so the playhead goes to its old start.
     const mainHit = s.magnet ? targets.map((id) => findClip(s.project, id)).find((f) => f?.track.kind === 'main') : undefined;
     edit(set, get, (d, ctx) => targets.forEach((id) => ops.deleteLeft(d, id, t, ctx)));
-    if (mainHit) set({ playhead: mainHit.clip.start });
+    // only when something was cut (a locked main track refuses Q and the playhead stays)
+    if (mainHit && get().project !== s.project) set({ playhead: mainHit.clip.start });
   },
   deleteRight: () => {
     const s = get();
@@ -493,7 +539,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   },
   removeTransition: (transitionId) => {
     edit(set, get, (d) => {
-      for (const t of d.tracks) if (!t.locked) t.transitions = t.transitions.filter((x) => x.id !== transitionId);
+      for (const t of d.tracks) if (!t.locked) ops.retain(t.transitions, (x) => x.id !== transitionId);
     });
   },
   applyTransitionToAll: (transitionId) => {
@@ -504,7 +550,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   addTrack: (kind, index) => edit(set, get, (d) => ops.addTrack(d, kind, index).id),
   removeTrack: (trackId) => {
     edit(set, get, (d) => {
-      d.tracks = d.tracks.filter((t) => t.kind === 'main' || t.id !== trackId);
+      ops.retain(d.tracks, (t) => t.kind === 'main' || t.id !== trackId);
     });
   },
   setTrack: (trackId, patch) => {
@@ -528,7 +574,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   },
   removeMarker: (markerId) => {
     edit(set, get, (d) => {
-      d.markers = d.markers.filter((m) => m.id !== markerId);
+      ops.retain(d.markers, (m) => m.id !== markerId);
     });
   },
 
@@ -599,6 +645,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     if (on) edit(set, get, () => undefined);
   },
   setSnapping: (on) => set({ snapping: on }),
+  setLinkage: (on) => set({ linkage: on }),
 
   // ---- history
   undo: () => {
@@ -607,7 +654,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const { past, future, project } = get();
     const prev = past[past.length - 1];
     if (!prev) return;
-    set({ project: withAssets(prev, project), past: past.slice(0, -1), future: [project, ...future], playing: false });
+    set({ project: withAssets(prev, project), past: past.slice(0, -1), future: [project, ...future], playing: false, magnet: magnetFor(prev, get().magnet) });
     pruneSelection(set, get);
   },
   redo: () => {
@@ -616,7 +663,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const { past, future, project } = get();
     const next = future[0];
     if (!next) return;
-    set({ project: withAssets(next, project), past: capHistory([...past, project]), future: future.slice(1), playing: false });
+    set({ project: withAssets(next, project), past: capHistory([...past, project]), future: future.slice(1), playing: false, magnet: magnetFor(next, get().magnet) });
     pruneSelection(set, get);
   },
   beginTx: () => {
@@ -626,13 +673,15 @@ export const useEditor = create<EditorState>()((set, get) => ({
   commitTx: () => {
     const s = get();
     if (!s.txBase) return;
-    if (s.txBase !== s.project) set({ past: capHistory([...s.past, s.txBase]), future: [], txBase: null });
-    else set({ txBase: null });
+    if (s.txBase === s.project) set({ txBase: null });
+    // a gesture that ended where it started (slider back to its value, trim back to its edge) is no step
+    else if (sameValue({ ...s.txBase, updatedAt: 0 }, { ...s.project, updatedAt: 0 })) set({ project: withAssets(s.txBase, s.project), txBase: null });
+    else set({ past: capHistory([...s.past, s.txBase]), future: [], txBase: null });
   },
   cancelTx: () => {
     const s = get();
     if (!s.txBase) return;
-    set({ project: withAssets(s.txBase, s.project), txBase: null });
+    set({ project: withAssets(s.txBase, s.project), txBase: null, magnet: magnetFor(s.txBase, s.magnet) });
     pruneSelection(set, get);
   },
 
