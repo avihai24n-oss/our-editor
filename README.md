@@ -47,8 +47,8 @@ real-time WebM export.
   - Right-click → Delete.
 - **Text:** "Default text" plus 9 styled presets (click or drag).
 - **Transitions:** 11 transitions.
-- **Filters:** 10 looks.
-- **Adjustment:** 11 adjust presets.
+- **Filters:** 10 looks (rendered by the same colour pipeline as Adjust; tiles preview the real look).
+- **Adjustment:** 11 adjust presets, plus **My presets** saved from the inspector (localStorage).
 
 **Player (centre)**
 - Canvas preview that renders exactly what the export renders.
@@ -68,7 +68,18 @@ real-time WebM export.
 - **Audio:** Volume (dB), fade in and fade out.
 - **Speed › Standard:** 0.1×–100×, editable duration, and "Change audio pitch".
 - **Animation:** In / Out (9 each) with a duration.
-- **Adjust:** a Filter with intensity, and 11 sliders with an on/off checkbox. Apply to all.
+- **Adjust** (CapCut's five sub-tabs, all on a WebGL2 colour pass shared by player and export,
+  with a CPU fallback):
+  - **Basic:** Auto adjust / Color match / Color correction shown disabled (AI, coming soon);
+    Filter + intensity; **LUT** (import `.cube` 3D/1D files, intensity, protect skin tone);
+    **Adjust** — Temp, Tint, Saturation · Exposure, Brightness, Contrast, Highlights, Shadows,
+    Whites, Blacks, Brilliance · Sharpen, Clarity, Particles (grain), Fade, Vignette.
+  - **HSL:** 8 colour ranges × Hue / Saturation / Lightness.
+  - **Curves:** Luma + R / G / B with draggable points (monotone cubic).
+  - **Color wheel:** Lift, Gamma, Gain, Offset wheels, each with a luminance slider.
+  - **Mask:** limit the adjustment to a Linear / Mirror / Circle / Rectangle shape (position,
+    rotation, size, feather, roundness, invert).
+  - Every section has a checkbox and a reset; **Apply to all** and **Save as preset**.
 - **Text:** content, font, size, colour, B/I/U, alignment, spacing, and stroke / background / shadow.
 - **Transition:** type, duration, Apply to all and Remove.
 - **Project:** shown when nothing is selected (name, ratio, details).

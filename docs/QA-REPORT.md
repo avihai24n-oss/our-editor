@@ -206,13 +206,15 @@ These came from `docs/integration-notes/*.md`, where each one is marked **Applie
 
 **Export**
 - Speed changes also change pitch in the export; the preview keeps the pitch. Time-stretch is v2.
-- Highlights, Shadows and Sharpen are CSS-filter approximations. The WebGL colour pass is v2.
+- ~~Highlights, Shadows and Sharpen are CSS-filter approximations.~~ Done 2026-10-19: the WebGL2
+  colour pass (see "Adjust tab" below) renders every Adjust control in player and export.
 - The WebM fallback (browsers without WebCodecs) records in real time, is not frame-exact, and its
   file has no duration header.
 
 **Not built**
 - Stickers, Effects, Captions and Templates tabs are placeholders ("Coming soon").
-- Speed Curve, Combo animations, HSL / Curves and "Save as preset" are shown disabled.
+- Speed Curve and Combo animations are shown disabled. (HSL / Curves / Color wheel / Mask and
+  "Save as preset" work since 2026-10-19.)
 - **No AI features**, as requested.
 
 **Persistence**

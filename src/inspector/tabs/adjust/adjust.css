@@ -303,3 +303,8 @@
 .iadj-flash {
   margin-top: 8px;
 }
+/* "Color wheel" must stay on one line in the five-item segmented control */
+.insp .iseg .seg__item {
+  white-space: nowrap;
+  padding-inline: 4px;
+}
