@@ -210,7 +210,7 @@ function migrateReverse(c: Clip): Clip {
 const FILL_CHANNELS: readonly string[] = ['left', 'right'];
 
 /**
- * Audio fields added after v1 (normalize, reduceNoise, fillChannel, voiceFilter): missing or
+ * Audio fields added after v1 (normalize, reduceNoise, fillChannel, voiceFilter, voiceIsolation): missing or
  * malformed values get the defaults. Returns the same object when nothing changed.
  */
 export function migrateAudioProps(a: AudioProps): AudioProps {
@@ -218,13 +218,18 @@ export function migrateAudioProps(a: AudioProps): AudioProps {
   const vf = x.voiceFilter;
   const voiceOk = vf === null || (typeof vf === 'object' && vf !== undefined && typeof vf.id === 'string' && typeof vf.strength === 'number');
   const fillOk = x.fillChannel === null || (typeof x.fillChannel === 'string' && FILL_CHANNELS.includes(x.fillChannel));
-  if (typeof x.normalize === 'boolean' && typeof x.reduceNoise === 'boolean' && fillOk && voiceOk) return a;
+  const vi = x.voiceIsolation;
+  const isoOk =
+    vi === null ||
+    (typeof vi === 'object' && vi !== undefined && (vi.mode === 'isolate' || vi.mode === 'remove') && typeof vi.strength === 'number' && Number.isFinite(vi.strength));
+  if (typeof x.normalize === 'boolean' && typeof x.reduceNoise === 'boolean' && fillOk && voiceOk && isoOk) return a;
   return {
     ...a,
     normalize: typeof x.normalize === 'boolean' ? x.normalize : false,
     reduceNoise: typeof x.reduceNoise === 'boolean' ? x.reduceNoise : false,
     fillChannel: fillOk ? (x.fillChannel ?? null) : null,
     voiceFilter: voiceOk ? (vf ?? null) : null,
+    voiceIsolation: isoOk ? (vi ?? null) : null,
   };
 }
 

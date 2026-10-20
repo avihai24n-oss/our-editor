@@ -214,6 +214,20 @@ export type VoiceFilterId =
   | 'vinyl'
   | 'hall';
 
+/**
+ * Voice isolation (DSP, not AI) — CapCut's "Isolate voice" with a signal-processing engine
+ * (src/audio/isolateCore.ts). 'isolate' keeps the voice (noise-profile Wiener suppression +
+ * 100 Hz–8 kHz emphasis + gentle gate); 'remove' keeps the background (approximate: mid/side
+ * centre cancellation in the speech band).
+ */
+export type VoiceIsolationMode = 'isolate' | 'remove';
+
+export interface VoiceIsolation {
+  mode: VoiceIsolationMode;
+  /** 0..100 (UI "Strength"). */
+  strength: number;
+}
+
 export interface VoiceFilter {
   id: VoiceFilterId;
   /** 0..100 (UI "Strength"). */
@@ -239,6 +253,8 @@ export interface AudioProps {
   fillChannel: FillChannel | null;
   /** Voice changer filter; null = None. Added after v1. */
   voiceFilter: VoiceFilter | null;
+  /** Voice isolation (DSP); null = off. Added 20 Oct 2026 (migrateAudioProps fills it). */
+  voiceIsolation: VoiceIsolation | null;
 }
 
 /**

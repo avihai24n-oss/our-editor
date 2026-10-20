@@ -42,8 +42,8 @@ describe('Audio tab', () => {
     addVideo();
     openAudio();
     const ids = Array.from(document.querySelectorAll('[data-testid^="section-audio-"], [data-testid^="audio-ai-"]')).map((e) => e.getAttribute('data-testid'));
-    expect(ids).toEqual(['section-audio-basic', 'section-audio-normalize', 'audio-ai-enhance', 'audio-ai-translator', 'section-audio-noise', 'audio-ai-isolate', 'section-audio-fill']);
-    for (const ai of ['enhance', 'translator', 'isolate']) {
+    expect(ids).toEqual(['section-audio-basic', 'section-audio-normalize', 'audio-ai-enhance', 'audio-ai-translator', 'section-audio-noise', 'section-audio-isolate', 'section-audio-fill']);
+    for (const ai of ['enhance', 'translator']) {
       const row = screen.getByTestId(`audio-ai-${ai}`);
       expect((within(row).getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
       expect(row.textContent).toContain('Coming soon');
@@ -125,6 +125,37 @@ describe('Audio tab', () => {
       fireEvent.click(screen.getByTestId('voice-filter-none'));
     });
     expect(audioOf(id).voiceFilter).toBeNull();
+  });
+
+  it('Isolate voice (DSP): checkbox, mode, strength (one undo step), off', () => {
+    const id = addVideo();
+    openAudio();
+    const sec = screen.getByTestId('section-audio-isolate');
+    expect(sec.textContent).toContain('DSP');
+    act(() => {
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Enable Isolate voice' }));
+    });
+    expect(audioOf(id).voiceIsolation).toEqual({ mode: 'isolate', strength: 100 });
+    const before = st().past.length;
+    const slider = within(screen.getByTestId('isolate-strength-row')).getByRole('slider');
+    act(() => {
+      fireEvent.pointerDown(slider);
+      fireEvent.change(slider, { target: { value: '70' } });
+      fireEvent.change(slider, { target: { value: '60' } });
+      fireEvent.pointerUp(window);
+    });
+    expect(audioOf(id).voiceIsolation).toEqual({ mode: 'isolate', strength: 60 });
+    expect(st().past.length).toBe(before + 1);
+    act(() => {
+      fireEvent.change(screen.getByTestId('isolate-mode-select'), { target: { value: 'remove' } });
+    });
+    expect(audioOf(id).voiceIsolation).toEqual({ mode: 'remove', strength: 60 });
+    act(() => st().undo());
+    expect(audioOf(id).voiceIsolation).toEqual({ mode: 'isolate', strength: 60 });
+    act(() => {
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Enable Isolate voice' }));
+    });
+    expect(audioOf(id).voiceIsolation).toBeNull();
   });
 
   it('a video whose audio was extracted shows the link and can restore it', () => {

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { installAssetCleanup } from './media/cleanup';
 import './theme.css';
+// clip right-click menu slots (registered on import)
 
 installAssetCleanup();
 
@@ -12,8 +13,6 @@ if (import.meta.env.DEV) {
     const w = window as unknown as Record<string, unknown>;
     w.__oe = useEditor;
     w.__oeUi = useTimelineUi;
-    // the clip menu's slot registry (src/timeline/contextMenu/registry.ts), for e2e checks
-    void import('./timeline/contextMenu/registry').then((r) => (w.__oeMenu = r));
     // model invariants of the current document (empty = healthy), for the e2e audit
     w.__oeCheck = () => {
       const s = useEditor.getState();
@@ -26,6 +25,15 @@ if (import.meta.env.DEV) {
       measureSpan: measure.measureSpan,
       loudnessReady: measure.loudnessReady,
       spanKey: measure.spanKey,
+    };
+  });
+  void Promise.all([import('./timeline/contextMenu/registry'), import('./audio/noiseProfile')]).then(([registry, np]) => {
+    // e2e: the clip menu's slot registry (src/timeline/contextMenu/registry.ts) — register or run a
+    // slot without the menu UI — plus the cached noise profiles of Isolate voice
+    (window as unknown as { __oeMenu?: unknown }).__oeMenu = {
+      ...registry,
+      getSlot: (name: keyof typeof registry.slots) => registry.slots[name] ?? undefined,
+      noiseProfileReady: np.noiseProfileReady,
     };
   });
   void Promise.all([import('./ui/MemoryReadout'), import('./media/memory')]).then(([readout, memory]) => {

@@ -219,7 +219,7 @@ test('Audio tab: controls drive the preview graph and the exported MP4 measures 
   await page.getByRole('checkbox', { name: 'Enable Reduce noise' }).check();
   expect((await clipAudio(page, ids.nr!)).reduceNoise).toBe(true);
   // AI rows are present but disabled
-  for (const ai of ['enhance', 'isolate']) await expect(page.getByTestId(`audio-ai-${ai}`).getByRole('checkbox')).toBeDisabled();
+  for (const ai of ['enhance']) await expect(page.getByTestId(`audio-ai-${ai}`).getByRole('checkbox')).toBeDisabled();
 
   // ---- Voice changer: Chipmunk at strength 100 (= +12 semitones, pitch ×2)
   await selectClip(page, ids.chip!);

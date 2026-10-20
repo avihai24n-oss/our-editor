@@ -499,7 +499,7 @@ sound adds an **Audio** tab next to Video). Basic, top to bottom (screenshot 03)
 | **Enhance voice** (AI, Pro) | AI | Shown disabled, "AI · Coming soon". |
 | **Video translator** (AI, Pro) | AI, video clips | Shown disabled on video clips only. |
 | **Reduce noise** ☑ (Pro) | AI denoiser | **DSP approximation, labelled "DSP · not AI"**: 80 Hz high-pass + adaptive noise gate (floor = quietest 20 ms block of the last 1.5 s, opens 10 dB above it, clamp −65…−35 dBFS, closes to −30 dB; steady material is never gated). |
-| **Isolate voice** (AI) | AI | Shown disabled. |
+| **Isolate voice** (AI) | AI | ~~Shown disabled.~~ Since 20 Oct: **Voice isolation (DSP)**, see § Voice isolation. |
 | **Fill channel** ☑ ↺ ◇ ▾ | Copy one channel to both ([capcut.com](https://www.capcut.com/resource/normalize-audio-premiere): "filling right with left") | Left channel / Right channel → both, mono upmixed first. |
 
 **Voice changer** — CapCut has *Voice filters* (non-AI presets: Chipmunk, High, Low, Deep, Robot,
@@ -562,6 +562,59 @@ clean; e2e smoke, flows, shortcuts, file-drop, memory, timeline-stability and ta
 Limits: Reduce noise is a gate, so hiss *under* speech stays; the pitch shifter delays the clips that use it by ≈ 21 ms
 (under one frame, preview and export alike); keyframes on Volume / Fill
 channel are shown disabled like everywhere else (v2).
+
+## Voice isolation (DSP) — clip menu "Isolate voice ›" — 2026-10-20
+
+CapCut's right-click **Isolate voice ›** (Free, AI there: keep vocals / remove vocals; research in
+`docs/research/09-isolate-voice.md`) built as a **non-AI** stage, labelled "Voice isolation (DSP)" in
+the menu and "Isolate voice · DSP · not AI" in Audio › Basic (the row is no longer a disabled AI row).
+
+- **Model:** `AudioProps.voiceIsolation: { mode: 'isolate' | 'remove'; strength: 0–100 } | null`
+  (default null; `migrateAudioProps` fills / repairs it). Menu, inspector checkbox, mode select and
+  Strength slider all write through `updateClip(s)` — undoable, a slider drag is one step, a menu
+  pick on several clips is one step.
+- **Menu:** `src/actions/isolateVoice.ts` registers slot `isolateVoice` (`src/timeline/contextMenu/registry.ts`):
+  *Isolate voice* / *Remove vocals · keep background (approx.)* / *Off*, on every selected clip with
+  sound; disabled when none has sound.
+- **DSP:** `src/audio/isolateCore.ts`, one plain-JS source run by the `oe-isolate` AudioWorklet in the
+  preview AudioContext **and** the export OfflineAudioContext (stage after Reduce noise in
+  `buildFxChain`). STFT N 1024 / hop 256 / √Hann; Wiener gain with decision-directed SNR, noise
+  profile = mean spectrum of the clip's quietest 10 % of frames, **measured offline once per
+  (asset, span) from the 48 kHz decode and cached** (`src/audio/noiseProfile.ts`; the export reuses
+  the preview's profile or computes the identical one from its decode); over-subtraction 1 + s,
+  floor −30 dB; 100 Hz–8 kHz emphasis; gate −12 dB · s when fewer than 4 speech-band bins are 10 dB
+  over the noise (53 ms hold). Remove mode: per-bin mid/side, centre −30 dB · s in 150 Hz–6 kHz.
+  All gains ≤ 1; strength 0 is a bit-exact 1024-sample delay. Preview stage `isolate:100:profile`
+  (`noprofile` until the profile is measured, then the chain rebuilds).
+
+### Measured (e2e/isolate-voice.spec.ts → 16 s MP4, ffmpeg astats)
+
+Source: `test-media/a-speech-like.wav` × 0.25 (600 Hz / 1 kHz beeps with pauses) + pink noise at
+**0 dB SNR** (noise RMS = 600 Hz beep RMS). Clips: noisy + Isolate 100 · noisy dry · clean dry ·
+clean + Remove vocals 100. Windows avoid the 21 ms latency edges; per second 1–3.
+
+| Check | Result |
+|---|---|
+| Noise in the pauses (dry → isolated) | −16.40 / −17.15 / −17.04 → −54.86 / −54.26 / −52.74 dB = **−38.5 / −37.1 / −35.7 dB** (needed ≥ 15) |
+| 600 Hz beep vs the clean beep | −16.99 → −17.28 / −17.24 / −17.42 dB = **−0.29 / −0.25 / −0.42 dB** (needed < 2) |
+| 1 kHz beep vs the clean beep | −21.07 → −22.22 / −21.57 / −21.37 dB = **−1.14 / −0.49 / −0.30 dB** |
+| (noisy beep, dry, vs clean) | +3.49 dB — i.e. the noise that was removed |
+| Remove vocals 100 on the mono beeps | −16.99 → −46.99 dB = **−30.0 dB** (the speech-band notch floor) |
+| Preview graph | `input → isolate:100:profile → gain` |
+
+Also checked in the spec: slot label / Free tag, the menu writes the field, the inspector row is
+enabled and checked, Strength 40 then ⌘Z → 100, no console errors. Unit tests
+(`src/audio/isolate.test.ts`, 12): strength 0 = exact delay, 0 dB-SNR synthetic speech → pauses
+≥ 15 dB lower and beeps within 2 dB of clean, reduction grows with strength, no NaN / bounded peak
+on NaN, Infinity, silence and full-scale square input in both modes, band emphasis without a profile,
+remove mode (centre −25 dB+, side and bass kept), profile ≈ noise-only profile, null for silence /
+short spans, export cache, FX config / signature, menu item (one undo step, silent clips skipped,
+strength kept, Off). Totals: `npm test` **1297 / 1297** (47 files); typecheck and build clean;
+e2e isolate-voice and smoke pass (one at a time, port 5304).
+
+Limits: not source separation (music under speech is only reduced where it is below the learned
+floor); a clip without pauses learns from its quietest speech; files > 256 MB are not profiled in
+the preview (band emphasis only there); 21 ms latency on the clip, preview and export alike.
 
 ## Inspector › Video tab — 2026-10-19
 

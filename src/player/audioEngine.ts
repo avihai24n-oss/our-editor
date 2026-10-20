@@ -1,7 +1,7 @@
 /**
  * Preview audio: one hidden media element per audible clip → MediaElementAudioSourceNode →
  * per-clip FX chain (src/audio/dsp.ts — the SAME graph the export builds: fill channel, reduce
- * noise, voice-filter pitch, voice filter) → its output GainNode (volume dB × fades from
+ * noise, voice isolation, voice-filter pitch, voice filter) → its output GainNode (volume dB × fades from
  * AudioOp.gain × normalize gain) → master → speakers.
  * Speed = element.playbackRate; "Change audio pitch" = !preservesPitch.
  * The chain is rebuilt when its signature changes (a filter, its strength, a checkbox).
@@ -11,9 +11,10 @@
  * released MEMORY_LIMITS.idleReleaseMs later by one one-shot timer (an <audio> on a video file
  * holds a demuxer and an audio decoder); `releaseAll()` frees them at once (tab hidden, watchdog).
  */
-import { buildFxChain, fxFromAudio, fxSignature, type FxChain } from '../audio/dsp';
+import { buildFxChain, fxFromAudio, fxSignature, type FxChain, type FxConfig } from '../audio/dsp';
 import { normalizeGainDb } from '../audio/loudness';
 import { loudnessReady, measureSpan, spanKey } from '../audio/measure';
+import { measureNoiseProfile, noiseProfileReady } from '../audio/noiseProfile';
 import { ensureWorklets } from '../audio/worklets';
 import type { AudioOp } from '../engine/frameState';
 import { getAssetBlob, getAssetUrl } from '../media/registry';
@@ -103,8 +104,9 @@ export class AudioEngine {
       live.add(op.clipId);
       v.lastUsed = now;
       if (v.node && ctx && this.master) {
-        const sig = fxSignature(fxFromAudio(op.fx), this.worklets);
-        if (sig !== v.sig || !v.chain) this.rebuild(v, op, sig);
+        const fx = fxFromAudio(op.fx, 1, this.noiseProfile(op));
+        const sig = fxSignature(fx, this.worklets);
+        if (sig !== v.sig || !v.chain) this.rebuild(v, fx, sig);
       }
       v.norm = op.fx.normalize ? this.normalizeGain(op) : 1;
       v.target = op.gain * v.norm;
@@ -301,7 +303,23 @@ export class AudioEngine {
     return Math.pow(10, normalizeGainDb(lufs) / 20);
   }
 
-  private rebuild(v: Voice, op: AudioOp, sig: string): void {
+  /** Voice isolation's noise profile for the op's source span; measured (once, async) when unknown. */
+  private noiseProfile(op: AudioOp): Float32Array | null {
+    if (op.fx.voiceIsolation?.mode !== 'isolate') return null;
+    const inSec = op.spanIn / 1e6;
+    const lenSec = op.spanLength / 1e6;
+    const p = noiseProfileReady(spanKey(op.assetId, inSec, lenSec));
+    if (p !== undefined) return p;
+    void measureNoiseProfile(op.assetId, inSec, lenSec, async (id) => {
+      const b = getAssetBlob(id);
+      if (b) return b;
+      const url = getAssetUrl(id);
+      return url ? (await fetch(url)).blob() : null;
+    });
+    return null;
+  }
+
+  private rebuild(v: Voice, fx: FxConfig, sig: string): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || !v.node) return;
     const old = v.chain;
@@ -310,7 +328,7 @@ export class AudioEngine {
     } catch {
       /* not connected */
     }
-    const chain = buildFxChain(ctx, fxFromAudio(op.fx), { worklets: this.worklets });
+    const chain = buildFxChain(ctx, fx, { worklets: this.worklets });
     chain.output.gain.value = old ? old.output.gain.value : 0;
     v.node.connect(chain.input);
     chain.output.connect(this.master);
