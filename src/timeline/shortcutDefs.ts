@@ -91,6 +91,10 @@ export interface Combo {
   mod?: boolean;
   /** Mac ⌃⌘ combos: both Control AND Command held. */
   ctrl?: boolean;
+  /** Mac Control key alone (⌃, without ⌘), e.g. CapCut's ⇧⌃S. Shown "Ctrl" on Windows. */
+  control?: boolean;
+  /** The combo a context menu shows for this command (CapCut's menus show ⇧⌃S, not ⇧⌘S). */
+  menu?: boolean;
   shift?: boolean | 'any';
   /** Alt on Windows / Option on Mac. */
   alt?: boolean;
@@ -213,7 +217,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Timeline & preview', label: 'Back to Select tool / cancel / deselect / clear area', command: 'escape', status: 'works', combos: [{ keys: ['Escape'], codes: ['Escape'] }] },
 
   // ---------------------------------------------------------------- Audio & speed
-  { group: 'Audio & speed', label: 'Extract / restore audio', command: 'extractAudio', status: 'works', combos: [L('s', { mod: true, shift: true })] },
+  { group: 'Audio & speed', label: 'Extract / restore audio', command: 'extractAudio', status: 'works', combos: [L('s', { mod: true, shift: true }), L('s', { control: true, shift: true, only: 'mac', menu: true })] },
   { group: 'Audio & speed', label: 'Speed', command: 'speedPanel', status: 'works', combos: [L('r', { mod: true })] },
   { group: 'Audio & speed', label: 'Curve speed', command: 'curveSpeed', status: 'works', combos: [L('b', { shift: true })] },
   { group: 'Audio & speed', label: 'Volume up 1 dB', command: 'volumeUp', status: 'works', combos: [{ codes: ['Period'], mod: true }] },
@@ -254,7 +258,9 @@ export interface KeyLike {
 
 export function comboMatches(c: Combo, e: KeyLike): boolean {
   const both = e.metaKey && e.ctrlKey;
-  if (c.ctrl) {
+  if (c.control) {
+    if (!e.ctrlKey || e.metaKey) return false;
+  } else if (c.ctrl) {
     if (!both) return false;
   } else {
     if (both) return false;
@@ -319,6 +325,9 @@ function keyName(c: Combo, platform: Platform): string {
 export function formatCombo(c: Combo, platform: Platform): string {
   const key = keyName(c, platform);
   const shift = c.shift === true;
+  // written the way CapCut's menus write it: ⇧⌃S
+  if (c.control && platform === 'mac') return `${c.alt ? '⌥' : ''}${shift ? '⇧' : ''}⌃${key}`;
+  if (c.control) return ['Ctrl', c.alt ? 'Alt' : '', shift ? 'Shift' : '', key].filter(Boolean).join('+');
   if (platform === 'mac') return `${c.ctrl ? '⌃' : ''}${c.alt ? '⌥' : ''}${shift ? '⇧' : ''}${c.mod || c.ctrl ? '⌘' : ''}${key}`;
   return [c.mod || c.ctrl ? 'Ctrl' : '', c.alt ? 'Alt' : '', shift ? 'Shift' : '', key].filter(Boolean).join('+');
 }
@@ -339,6 +348,15 @@ export function formatDef(d: ShortcutDef, platform: Platform): string {
 export function shortcutLabel(cmd: Command, platform: Platform = detectPlatform()): string {
   const d = defOf(cmd);
   const c = d && visibleCombos(d, platform)[0];
+  return c ? formatCombo(c, platform) : '';
+}
+
+/** The key a context menu shows for a command: the `menu` combo when there is one, else the primary. */
+export function menuShortcutLabel(cmd: Command, platform: Platform = detectPlatform()): string {
+  const d = defOf(cmd);
+  if (!d) return '';
+  const vis = visibleCombos(d, platform);
+  const c = vis.find((x) => x.menu) ?? vis[0];
   return c ? formatCombo(c, platform) : '';
 }
 

@@ -9,7 +9,7 @@
  * Gestures: every edit gesture is one undo step (beginTx → actions → commitTx; Escape → cancelTx).
  * Moves are previewed with a ghost and committed on release; trims are applied live.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as RPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as RPointerEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { findClip, timelineRows } from '../model/project';
 import { clipEnd, formatShort, formatTimecode, projectDuration, pxToUs, snapToFrame, usToPx } from '../model/time';
@@ -19,6 +19,9 @@ import { addTextPreset } from '../panels/TextTab';
 import { TEXT_PRESETS, textPreset } from '../panels/presets';
 import { useEditor } from '../store';
 import { ClipView, type ClipPart } from './ClipView';
+import { buildClipMenu } from './contextMenu/clipMenu';
+import { ContextMenu } from './contextMenu/ContextMenu';
+import type { MenuCtx, MenuItem } from './contextMenu/types';
 import { acceptsDrag, isFileDrag, readPayload } from './dnd';
 import { anchoredScroll, bandHeights, clampZoom, clipsInSpan, DRAG_THRESHOLD_PX, fitZoom, followScroll, HEADER_W, nearestCut, stableContentWidth } from './geometry';
 import {
@@ -32,6 +35,7 @@ import {
   type RowKey,
 } from './gestures';
 import { Ruler } from './Ruler';
+import { detectPlatform } from './shortcutDefs';
 import { useTimelineShortcuts } from './shortcuts';
 import { Toolbar } from './Toolbar';
 import { TrackHeader } from './TrackHeader';
@@ -134,6 +138,7 @@ export function Timeline() {
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [guide, setGuide] = useState<Us | null>(null);
   const [marquee, setMarquee] = useState<Marquee | null>(null);
+  const [clipMenu, setClipMenu] = useState<{ at: { x: number; y: number }; ctx: MenuCtx; groups: MenuItem[][] } | null>(null);
   const [trimTip, setTrimTip] = useState<{ x: number; text: string } | null>(null);
   const [dropHint, setDropHint] = useState<{ at: Us; rowKey: string | null } | null>(null);
   /** Split tool: where the blade would cut the hovered clip (lane time + the clip's box in tl-rows). */
@@ -516,8 +521,40 @@ export function Timeline() {
 
   useTimelineShortcuts(cancelGesture);
 
+  /**
+   * Right-click (or ⌃-click on a Mac) on a clip: an unselected clip becomes the selection, a clip
+   * inside the selection keeps it; then CapCut's clip menu opens at the pointer.
+   */
+  const openClipMenu = useCallback(
+    (clientX: number, clientY: number, clipId: Id) => {
+      const s = useEditor.getState();
+      const f = findClip(s.project, clipId);
+      if (!f || f.track.locked || gesture.current) return;
+      if (!s.selection.clipIds.includes(clipId)) s.select([clipId]);
+      const ctx: MenuCtx = { clipIds: [...useEditor.getState().selection.clipIds], primaryId: clipId, trackId: f.track.id, time: timeAt(clientX) };
+      setClipMenu({ at: { x: clientX, y: clientY }, ctx, groups: buildClipMenu(ctx) });
+    },
+    [timeAt],
+  );
+
+  const onContextMenu = useCallback(
+    (e: ReactMouseEvent) => {
+      e.preventDefault(); // never the browser's menu over the timeline
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-testid="timeline-clip"]');
+      const id = el?.dataset.clipId;
+      if (id) openClipMenu(e.clientX, e.clientY, id);
+    },
+    [openClipMenu],
+  );
+
   const onClipPointerDown = useCallback(
     (e: RPointerEvent, clip: Clip, part: ClipPart) => {
+      if (e.button === 0 && e.ctrlKey && !e.metaKey && detectPlatform() === 'mac') {
+        // ⌃-click is the Mac's right-click: open the menu rather than toggle the selection
+        e.stopPropagation();
+        openClipMenu(e.clientX, e.clientY, clip.id);
+        return;
+      }
       if (e.button !== 0) return;
       e.stopPropagation();
       const s = useEditor.getState();
@@ -577,7 +614,7 @@ export function Timeline() {
         target: { trackId: f.track.id },
       });
     },
-    [beginGesture, timeAt],
+    [beginGesture, timeAt, openClipMenu],
   );
 
   const onLanePointerDown = useCallback(
@@ -802,6 +839,7 @@ export function Timeline() {
       data-tool={tool}
       style={{ ['--tl-tool-cursor' as string]: activeTool.cursor }}
       data-drop-zone="timeline"
+      onContextMenu={onContextMenu}
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <Toolbar />
       <div className="tl-scroller" ref={scrollerRef} onPointerMove={onHover} onPointerLeave={onHoverLeave}>
@@ -963,6 +1001,7 @@ export function Timeline() {
           </div>
         </div>
       </div>
+      {clipMenu && <ContextMenu groups={clipMenu.groups} ctx={clipMenu.ctx} at={clipMenu.at} onClose={() => setClipMenu(null)} />}
     </div>
   );
 }

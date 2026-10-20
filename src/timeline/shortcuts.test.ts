@@ -30,6 +30,7 @@ function eventFor(c: Combo, p: Platform): KeyLike {
   return k(key, code, {
     ...(c.mod ? MOD[p] : {}),
     ...(c.ctrl ? { metaKey: true, ctrlKey: true } : {}),
+    ...(c.control ? { ctrlKey: true } : {}),
     shiftKey: c.shift === true,
     altKey: !!c.alt,
   });

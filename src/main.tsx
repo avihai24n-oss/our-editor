@@ -12,6 +12,8 @@ if (import.meta.env.DEV) {
     const w = window as unknown as Record<string, unknown>;
     w.__oe = useEditor;
     w.__oeUi = useTimelineUi;
+    // the clip menu's slot registry (src/timeline/contextMenu/registry.ts), for e2e checks
+    void import('./timeline/contextMenu/registry').then((r) => (w.__oeMenu = r));
     // model invariants of the current document (empty = healthy), for the e2e audit
     w.__oeCheck = () => {
       const s = useEditor.getState();
