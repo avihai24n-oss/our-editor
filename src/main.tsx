@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { installAssetCleanup } from './media/cleanup';
 import './theme.css';
+import './actions/editMenu'; // registers the clip menu's Edit › submenu
 
 installAssetCleanup();
 

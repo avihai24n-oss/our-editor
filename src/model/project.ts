@@ -195,9 +195,17 @@ const migrateGrade = (c: Clip): Clip => (c.type === 'audio' ? c : migrateVisualC
 
 /**
  * Every clip migration, in the order the features were added: v1 checkboxes, tab-speed,
- * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade), tab-animation.
+ * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade), tab-animation, ctx-edit (reverse).
  */
-const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade, migrateAnimationSlots];
+const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade, migrateAnimationSlots, migrateReverse];
+
+/** ctx-edit: Edit › Reverse — missing or non-boolean → false (forward). */
+function migrateReverse(c: Clip): Clip {
+  if (c.type !== 'video' && c.type !== 'audio') return c;
+  const r = (c as TimedClip & { reversed?: unknown }).reversed;
+  if (typeof r === 'boolean') return c;
+  return { ...c, reversed: r === true } as Clip;
+}
 
 const FILL_CHANNELS: readonly string[] = ['left', 'right'];
 

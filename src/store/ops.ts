@@ -837,6 +837,7 @@ export function extractAudio(p: Project, videoClipId: Id): Id | null {
   clip.speed = v.speed;
   clip.speedCurve = v.speedCurve ? plainCurve(v.speedCurve) : null;
   clip.preservePitch = v.preservePitch;
+  clip.reversed = v.reversed === true;
   clip.disabled = v.disabled;
   clip.audio = { ...v.audio, muted: false };
   clip.audioLink = link;

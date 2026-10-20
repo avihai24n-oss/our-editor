@@ -122,6 +122,33 @@ export function speedAtTime(c: Pick<TimedClip, 'start' | 'duration'> & SpeedFiel
 export const sourceTimeAt = (c: Pick<TimedClip, 'start' | 'inPoint' | 'duration'> & SpeedFields, t: Us): Us =>
   Math.round(c.inPoint + sourceOffsetAt(c, t - c.start));
 
+// ---------------------------------------------------------------- reverse (Edit › Reverse)
+//
+// A reversed clip keeps its `inPoint` in REVERSED media time (measured from the media end), so
+// every timeline op works on it exactly like on a forward clip of a reversed copy of the media.
+// Consumers that read the real media map a reversed-media time back with `mediaTimeOf`.
+
+/**
+ * Real media time for a reversed-media time `r` (D = media duration): the frame covering the
+ * instant just before D − r. REVERSE_EPS_US (> FRAME_LOOKUP_EPS_US in engine/frameState) keeps
+ * the frame lookup strictly below the mirrored instant, so reversed-media time 0 shows the LAST
+ * frame, not the (non-existent) frame starting at D.
+ */
+export const REVERSE_EPS_US = 200;
+export const mirrorMediaTime = (mediaUs: Us, r: number): number => mediaUs - r - REVERSE_EPS_US;
+
+/** Converts an inPoint between forward and reversed media time (an involution, no epsilon). */
+export const mirrorInPoint = (mediaUs: Us, inPoint: Us, span: Us): Us => Math.max(0, Math.round(mediaUs - inPoint - span));
+
+/**
+ * Real media time (µs, not clamped) a timed clip shows at timeline time t, reverse included.
+ * `mediaUs` = the asset duration (only read when the clip is reversed).
+ */
+export function mediaTimeAt(c: Pick<TimedClip, 'start' | 'inPoint' | 'duration'> & SpeedFields & { reversed?: boolean }, t: Us, mediaUs: Us): Us {
+  const r = c.inPoint + sourceOffsetAt(c, t - c.start);
+  return Math.round(c.reversed ? mirrorMediaTime(mediaUs, r) : r);
+}
+
 /** The clip of a track at time t, or undefined. */
 export const clipAtTime = (track: Track, t: Us): Clip | undefined => track.clips.find((c) => clipContains(c, t));
 

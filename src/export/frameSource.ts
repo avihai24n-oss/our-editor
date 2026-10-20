@@ -116,6 +116,77 @@ export class SequentialReader {
   }
 }
 
+/**
+ * Edit › Reverse: frames for a source time that DEcreases frame after frame. Decoders only run
+ * forward, so the reader decodes a short window that ends at the wanted time (from the keyframe
+ * before it, like any seek), keeps at most `windowFrames` decoded frames of it, and serves the
+ * following (earlier) requests from that window; once the time falls before the window, the
+ * window before it is decoded. Memory is bounded by `windowFrames` canvases per reversed clip;
+ * the cost is one keyframe-to-window decode every `windowFrames` output frames. Pure logic, testable.
+ */
+export class ReverseReader {
+  private frames: TimedFrame[] = [];
+  /** Requests in [lo, hi) are served from `frames`; hi = the timestamp of the first frame after them. */
+  private lo = Infinity;
+  private hi = -Infinity;
+  /** Source frame step estimate, seconds (from the decoded timestamps). */
+  private step = 1 / 30;
+  restarts = 0;
+
+  constructor(
+    private open: OpenFrames,
+    private windowFrames = REVERSE_WINDOW_FRAMES,
+    private stallMs: number = DECODE_STALL_MS,
+  ) {}
+
+  async frameAt(t: number): Promise<TimedFrame | null> {
+    if (!(t >= this.lo - EPS && t < this.hi - EPS)) await this.fill(t);
+    let best: TimedFrame | null = this.frames[0] ?? null;
+    for (const f of this.frames) if (f.timestamp <= t + EPS) best = f;
+    return best;
+  }
+
+  private async fill(t: number): Promise<void> {
+    const start = Math.max(0, t - (this.windowFrames - 1) * this.step);
+    const it = this.open(start);
+    this.restarts++;
+    const got: TimedFrame[] = [];
+    let after = Infinity;
+    try {
+      for (;;) {
+        const r = await withTimeout(it.next(), this.stallMs, () => new ExportStalled(`the video decoder stopped delivering frames at ${t.toFixed(3)} s of the source (reversed clip)`));
+        if (r.done) break;
+        if (r.value.timestamp > t + EPS) {
+          after = r.value.timestamp;
+          break;
+        }
+        got.push(r.value);
+        if (got.length > this.windowFrames) got.shift(); // bounded: only the frames nearest t
+      }
+    } finally {
+      void it.return(undefined).catch(() => undefined);
+    }
+    if (got.length >= 2) {
+      const d = (got[got.length - 1]!.timestamp - got[0]!.timestamp) / (got.length - 1);
+      if (d > 1e-4) this.step = d;
+    }
+    this.frames = got;
+    this.lo = got.length ? Math.min(got[0]!.timestamp, start) : t;
+    // nothing decoded at or before t (a stream starting later): serve this t only
+    this.hi = got.length ? after : t + EPS;
+    if (got.length && got[0]!.timestamp > start + EPS) this.lo = got[0]!.timestamp;
+  }
+
+  async close(): Promise<void> {
+    this.frames = [];
+    this.lo = Infinity;
+    this.hi = -Infinity;
+  }
+}
+
+/** Decoded frames a reversed clip keeps (bounded memory: ~8 MB each at 1080×1920). */
+export const REVERSE_WINDOW_FRAMES = 10;
+
 interface VideoAssetDecoder {
   open: OpenFrames;
   dispose: () => void;
@@ -124,6 +195,7 @@ interface VideoAssetDecoder {
 export class ExportFrameSource implements FrameSources {
   private decoders = new Map<Id, Promise<VideoAssetDecoder | null>>();
   private readers = new Map<Id, SequentialReader>();
+  private reverseReaders = new Map<Id, ReverseReader>();
   private images = new Map<Id, Promise<ImageBitmap | null>>();
   private ready = new Map<Id, SourceImage | 'missing'>();
   /** What prepare() is waiting for right now (named in a stall error). */
@@ -149,7 +221,7 @@ export class ExportFrameSource implements FrameSources {
         this.ready.set(`img:${op.assetId}`, bmp ? { image: bmp, width: bmp.width, height: bmp.height } : 'missing');
         continue;
       }
-      const reader = await this.reader(op.clipId, op.assetId);
+      const reader = op.reversed ? await this.reverseReader(op.clipId, op.assetId) : await this.reader(op.clipId, op.assetId);
       if (!reader) {
         this.ready.set(op.clipId, 'missing');
         continue;
@@ -169,6 +241,8 @@ export class ExportFrameSource implements FrameSources {
     this.decoders.clear();
     for (const r of this.readers.values()) await r.close().catch(() => undefined);
     this.readers.clear();
+    for (const r of this.reverseReaders.values()) await r.close();
+    this.reverseReaders.clear();
     for (const p of this.images.values()) (await p.catch(() => null))?.close();
     this.images.clear();
     this.ready.clear();
@@ -198,6 +272,16 @@ export class ExportFrameSource implements FrameSources {
     if (!dec) return null;
     const r = new SequentialReader(dec.open);
     this.readers.set(clipId, r);
+    return r;
+  }
+
+  private async reverseReader(clipId: Id, assetId: Id): Promise<ReverseReader | null> {
+    const existing = this.reverseReaders.get(clipId);
+    if (existing) return existing;
+    const dec = await this.decoder(assetId);
+    if (!dec) return null;
+    const r = new ReverseReader(dec.open);
+    this.reverseReaders.set(clipId, r);
     return r;
   }
 

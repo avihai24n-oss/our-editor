@@ -27,6 +27,11 @@ interface Fixture {
   features: string[];
   project: Project;
 }
+/**
+ * saved-ctx-edit.json is saved-integration.json with the ctx-edit field added (`reversed` on every
+ * timed clip, true on one video), not a document saved through the ctx-edit UI.
+ * The build whose saved document is already in the current shape (migrates to itself). */
+const CURRENT = 'ctx-edit';
 // a deep copy each time: the tests must not share (or freeze) the module's JSON
 const load = (f: string): Fixture => JSON.parse(JSON.stringify(saved[f])) as Fixture;
 
@@ -64,7 +69,7 @@ describe('projects saved by every build load in the integrated build', () => {
   it('has a fixture from the old c339bf3 build and from every branch', () => {
     const builds = files.map((f) => load(f).savedBy).sort();
     expect(builds).toEqual(
-      ['c339bf3', 'integration', 'qa-export', 'qa-library', 'qa-render', 'qa-timeline', 'tab-adjust', 'tab-animation', 'tab-audio', 'tab-speed', 'tab-video'].sort(),
+      ['c339bf3', 'ctx-edit', 'integration', 'qa-export', 'qa-library', 'qa-render', 'qa-timeline', 'tab-adjust', 'tab-animation', 'tab-audio', 'tab-speed', 'tab-video'].sort(),
     );
   });
 
@@ -72,7 +77,7 @@ describe('projects saved by every build load in the integrated build', () => {
     const fx = load(f);
     describe(`saved by ${fx.savedBy}`, () => {
       it('migrates to the full current clip shape, idempotently', () => {
-        if (fx.savedBy !== 'integration') {
+        if (fx.savedBy !== CURRENT) {
           // the saved document really is older: some current field is missing before migration
           const gaps = allClips(fx.project).flatMap((c) => missingKeys(reference[c.type], c));
           expect(gaps.length, `${fx.savedBy} lacks nothing?`).toBeGreaterThan(0);
@@ -81,7 +86,7 @@ describe('projects saved by every build load in the integrated build', () => {
         for (const c of allClips(m)) expect(missingKeys(reference[c.type], c), `${fx.savedBy} ${c.type}`).toEqual([]);
         expect(migrateProject(m)).toBe(m);
         expect(projectViolations(m, { magnet: true })).toEqual([]);
-        if (fx.savedBy === 'integration') expect(m).toBe(fx.project); // already current: untouched
+        if (fx.savedBy === CURRENT) expect(m).toBe(fx.project); // already current: untouched
       });
 
       it('keeps what the build saved (common fields and its own feature)', () => {
@@ -99,6 +104,7 @@ describe('projects saved by every build load in the integrated build', () => {
         if (feats.has('mask'))
           expect(video.some((c) => c.type === 'video' && c.mask.shape === 'circle' && c.transform.uniformScale === false && c.transform.scaleX === 1.2)).toBe(true);
         if (feats.has('grade')) expect(after.some((c) => c.type === 'image' && c.grade.wheels.gain.y === 0.2)).toBe(true);
+        if (feats.has('reverse')) expect(video.some((c) => c.type === 'video' && c.reversed === true)).toBe(true);
         if (feats.has('animation')) {
           expect(after.some((c) => c.type === 'text' && c.animationLoop?.type === 'pulse')).toBe(true);
           expect(video.some((c) => c.type === 'video' && c.animationCombo?.type === 'zoom-in-out')).toBe(true);

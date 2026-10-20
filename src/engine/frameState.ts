@@ -6,7 +6,7 @@
 import { BLEND_MODES, CANVAS_BLUR_PX, filterDef } from '../model/catalog';
 import { defaultAdjust, defaultGrade } from '../model/defaults';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
-import { clamp, clipContains, clipEnd, sourceSpan, sourceTimeAt, speedAtTime } from '../model/time';
+import { clamp, clipContains, clipEnd, mediaTimeAt, mirrorInPoint, sourceSpan, speedAtTime } from '../model/time';
 import { animationFrame, composeFrames, type AnimFrame, type MaskShape } from './animations';
 import type {
   Adjust,
@@ -91,6 +91,8 @@ export interface MediaDrawOp extends DrawOpBase {
   speed?: number;
   /** True when the speed changes over the clip (Speed › Curve). */
   varying?: boolean;
+  /** Edit › Reverse: the source runs backwards (sourceTime decreases; `speed` is negative). */
+  reversed?: boolean;
   /** Size of the media at scale 1 = "contain" fit in the canvas, project px (before crop). */
   fitWidth: number;
   fitHeight: number;
@@ -131,10 +133,14 @@ export interface AudioOp {
   trackId: Id;
   /** Source time to be heard now, µs. */
   sourceTime: Us;
-  /** Instantaneous speed at t (standard speed, or the curve's value at t). */
+  /** Instantaneous speed at t (standard speed, or the curve's value at t). Negative while reversed. */
   speed: number;
   /** True when the speed changes over the clip (Speed › Curve). */
   varying?: boolean;
+  /** Edit › Reverse: the source is heard backwards. */
+  reversed?: boolean;
+  /** Asset duration, µs (the reversal axis of a reversed clip). */
+  mediaDuration?: Us;
   preservePitch: boolean;
   /** Linear gain including volume dB, fades. Track/clip mute already removed these ops. */
   gain: number;
@@ -395,7 +401,15 @@ function clampSource(clip: Clip, project: Project, t: Us): Us {
   if (!isTimedClip(clip)) return 0;
   const asset = project.assets[clip.assetId];
   const max = asset ? Math.max(0, asset.duration - 1) : Number.MAX_SAFE_INTEGER;
-  return clamp(sourceTimeAt(clip, t), 0, max);
+  // Edit › Reverse: inPoint is in reversed media time; mediaTimeAt mirrors it back
+  return clamp(mediaTimeAt(clip, t, asset?.duration ?? 0), 0, max);
+}
+
+/** Signed speed of a timed clip at t: negative while it plays reversed (the source runs backwards). */
+function signedSpeed(clip: Clip, t: Us): number {
+  if (clip.type !== 'video' && clip.type !== 'audio') return 1;
+  const v = speedAtTime(clip, t);
+  return clip.reversed ? -v : v;
 }
 
 function buildVisualOp(
@@ -451,8 +465,9 @@ function buildVisualOp(
     mediaType: clip.type,
     assetId: clip.assetId,
     sourceTime: clampSource(clip, project, t),
-    speed: clip.type === 'video' ? speedAtTime(clip, t) : 1,
+    speed: clip.type === 'video' ? signedSpeed(clip, t) : 1,
     varying: clip.type === 'video' && !!clip.speedCurve,
+    reversed: clip.type === 'video' && clip.reversed === true,
     fitWidth: fit.width,
     fitHeight: fit.height,
     crop: clip.crop,
@@ -582,8 +597,10 @@ export function getFrameState(project: Project, t: Us): FrameState {
         assetId: clip.assetId,
         trackId: track.id,
         sourceTime: clampSource(clip, project, t),
-        speed: speedAtTime(clip, t),
+        speed: signedSpeed(clip, t),
         varying: !!clip.speedCurve,
+        reversed: clip.reversed === true,
+        mediaDuration: asset?.duration ?? 0,
         preservePitch: clip.preservePitch,
         gain,
         fx: {
@@ -592,7 +609,8 @@ export function getFrameState(project: Project, t: Us): FrameState {
           fillChannel: clip.audio.fillChannel ?? null,
           voiceFilter: clip.audio.voiceFilter ?? null,
         },
-        spanIn: clip.inPoint,
+        // real media span (a reversed clip's inPoint is in reversed media time)
+        spanIn: clip.reversed && asset ? mirrorInPoint(asset.duration, clip.inPoint, sourceSpan(clip)) : clip.inPoint,
         spanLength: sourceSpan(clip),
       });
     }

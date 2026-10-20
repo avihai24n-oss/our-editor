@@ -117,6 +117,10 @@ real-time WebM export.
   rotate; magnet, snapping, linkage, preview axis, zoom slider and fit.
 - **Tracks:** main track (magnetic), overlay tracks above it, text tracks above those, audio tracks
   below. Dropping on the empty space above or below the tracks creates a new track.
+- **Clip menu › Edit** (`src/actions/editMenu.ts`, registered in the clip context-menu registry):
+  Mirror, Rotate 90°, Crop (dialog with Free / 16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 4:5), Reverse
+  (preview and export, picture and sound), Freeze (3 s still of the playhead frame, clip split around
+  it) and Replace clip. Each is one undo step. See `docs/research/08-context-edit-menu.md`.
 - **Track headers:** lock, hide, mute and the Cover tile.
 - **Clips:**
   - Filmstrip thumbnails, waveforms, speed badges and animation/fade ramps.
