@@ -1,0 +1,31 @@
+/* Paste attributes dialog: CapCut's small dark checkbox list. */
+.modal.attrs {
+  width: min(300px, calc(100vw - 32px));
+}
+.attrs__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 16px;
+}
+.attrs__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+.attrs__row:hover {
+  background: var(--accent-dim);
+}
+.attrs__all {
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+}
+.attrs .checkbox {
+  accent-color: var(--accent);
+}

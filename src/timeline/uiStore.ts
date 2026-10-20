@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import type { Clip, Us } from '../model/types';
 import { useEditor } from '../store';
+import type { AttributeSnapshot } from '../actions/attributes';
 
 import type { Tool } from './tools';
 
@@ -59,6 +60,8 @@ export interface TimelineUiState extends Persisted {
   hoverTime: Us | null;
   /** Snapshots of the clips copied with ⌘C / cut with ⌘X (survive deleting the sources). */
   clipboard: Clip[];
+  /** Copy attributes (⌥⌘C): the copied clip's attribute groups; null = nothing copied. */
+  attributeClipboard: AttributeSnapshot | null;
   view: TimelineView | null;
   area: TimelineArea;
   /** I: mark in at `t`. An out point at or before it is dropped. */
@@ -74,6 +77,7 @@ export interface TimelineUiState extends Persisted {
   setPreviewAxis: (on: boolean) => void;
   setHoverTime: (t: Us | null) => void;
   setClipboard: (clips: Clip[]) => void;
+  setAttributeClipboard: (snap: AttributeSnapshot | null) => void;
   setView: (v: TimelineView | null) => void;
 }
 
@@ -86,6 +90,7 @@ export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
   tool: 'select',
   hoverTime: null,
   clipboard: [],
+  attributeClipboard: null,
   view: null,
   area: { in: null, out: null },
   setAreaIn: (t) => {
@@ -124,5 +129,6 @@ export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
     ed.setPreviewTime(get().previewAxis && !ed.playing ? hoverTime : null);
   },
   setClipboard: (clipboard) => set({ clipboard }),
+  setAttributeClipboard: (attributeClipboard) => set({ attributeClipboard }),
   setView: (view) => set({ view }),
 }));

@@ -12,6 +12,7 @@ import { useEditor } from '../store';
 import { emitAppEvent, requestImport, showToast } from '../ui/appEvents';
 import { defOf, resolveDef, type Command } from './shortcutDefs';
 import { useTimelineUi } from './uiStore';
+import { copyAttributes, requestPasteAttributes, selectionCtx } from '../actions/attributes';
 
 export type { Command, KeyLike } from './shortcutDefs';
 export { resolveShortcut } from './shortcutDefs';
@@ -236,6 +237,14 @@ export function runCommand(cmd: Command): boolean {
     case 'paste':
       if (!ui.clipboard.length) return false;
       pasteAtPlayhead();
+      return true;
+    case 'copyAttributes': {
+      const ctx = selectionCtx();
+      if (!copyAttributes(ctx.primaryId)) showToast('Select a clip to copy its attributes');
+      return true;
+    }
+    case 'pasteAttributes':
+      requestPasteAttributes(selectionCtx().clipIds);
       return true;
     case 'duplicate':
       s.duplicateSelected();

@@ -74,6 +74,8 @@ export type Command =
   | 'copy'
   | 'cut'
   | 'paste'
+  | 'copyAttributes'
+  | 'pasteAttributes'
   | 'duplicate'
   | 'selectAll'
   | 'libraryNext'
@@ -235,6 +237,15 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Project & clipboard', label: 'Copy', command: 'copy', status: 'works', combos: [L('c', { mod: true })] },
   { group: 'Project & clipboard', label: 'Cut', command: 'cut', status: 'works', combos: [L('x', { mod: true })] },
   { group: 'Project & clipboard', label: 'Paste', command: 'paste', status: 'works', combos: [L('v', { mod: true })] },
+  { group: 'Project & clipboard', label: 'Copy attributes', command: 'copyAttributes', status: 'works', combos: [L('c', { mod: true, alt: true })] },
+  {
+    group: 'Project & clipboard',
+    label: 'Paste attributes',
+    command: 'pasteAttributes',
+    status: 'works',
+    combos: [L('v', { mod: true, alt: true })],
+    note: 'Opens a dialog to choose which attributes to paste onto the selected clips',
+  },
   { group: 'Project & clipboard', label: 'Duplicate', command: 'duplicate', status: 'works', combos: [L('d', { mod: true })] },
   { group: 'Project & clipboard', label: 'Select all', command: 'selectAll', status: 'works', combos: [L('a', { mod: true })] },
   { group: 'Project & clipboard', label: 'Next library tab', command: 'libraryNext', status: 'works', combos: [{ codes: ['Tab'], keys: ['Tab'] }] },
