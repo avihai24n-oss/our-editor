@@ -18,6 +18,7 @@ import { onAppEvent } from '../ui/appEvents';
 import { Icon } from '../ui/Icon';
 import { MaskOverlay } from './MaskOverlay';
 import { PreviewEngine } from './PreviewEngine';
+import { SourcePlayer, useSourcePreview } from './sourcePreview';
 import './player.css';
 
 type ZoomMode = 'fit' | 0.5 | 1.5 | 2;
@@ -44,6 +45,14 @@ export function Player() {
   const selectedId = useEditor((s) => (s.selection.clipIds.length === 1 ? s.selection.clipIds[0]! : null));
   const togglePlay = useEditor((s) => s.togglePlay);
   const setAspectRatio = useEditor((s) => s.setAspectRatio);
+  // source preview (a media-bin item clicked): the canvas shows that file, not the timeline
+  const srcId = useSourcePreview((s) => s.assetId);
+  const srcName = useEditor((s) => (srcId ? s.project.assets[srcId]?.name ?? '' : ''));
+  const srcKind = useEditor((s) => (srcId ? s.project.assets[srcId]?.kind ?? null : null));
+  const srcPlaying = useSourcePreview((s) => s.playing);
+  const srcTime = useSourcePreview((s) => s.time);
+  const srcDuration = useSourcePreview((s) => s.duration);
+  const sourceRef = useRef<SourcePlayer | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -76,7 +85,11 @@ export function Player() {
     });
     engineRef.current = engine;
     engine.start();
+    const source = new SourcePlayer(canvas, (on) => engine.setSuspended(on));
+    sourceRef.current = source;
     return () => {
+      source.dispose();
+      sourceRef.current = null;
       engine.dispose();
       engineRef.current = null;
     };
@@ -106,6 +119,7 @@ export function Player() {
 
   useEffect(() => {
     engineRef.current?.resize(cw, ch, window.devicePixelRatio || 1);
+    sourceRef.current?.redraw();
   }, [cw, ch, settings.width, settings.height]);
 
   // ---- fullscreen
@@ -236,18 +250,26 @@ export function Player() {
   }, []);
 
   // ---- render
-  const total = formatTimecode(duration, settings.fps);
-  const current = formatTimecode(Math.min(playhead, duration), settings.fps);
+  const inSource = srcId !== null;
+  const total = formatTimecode(inSource ? srcDuration : duration, settings.fps);
+  const current = inSource ? formatTimecode(Math.min(srcTime, srcDuration), settings.fps) : formatTimecode(Math.min(playhead, duration), settings.fps);
+  const isPlaying = inSource ? srcPlaying : playing;
+  const onPlay = () => (inSource ? useSourcePreview.getState().togglePlay() : togglePlay());
   const zoomLabel = ZOOMS.find((z) => z.id === zoom)?.label ?? 'Fit';
 
   return (
-    <div className={`player${fullscreen ? ' is-fullscreen' : ''}`} ref={rootRef}>
-      {!fullscreen && <div className="panel__header">Player</div>}
+    <div className={`player${fullscreen ? ' is-fullscreen' : ''}${inSource ? ' is-source' : ''}`} ref={rootRef} data-mode={inSource ? 'source' : 'timeline'}>
+      {!fullscreen && (
+        <div className="panel__header" data-testid="player-header">
+          {inSource ? `Media · ${srcName}` : 'Player'}
+        </div>
+      )}
       <div className={`player__stage${zoom === 'fit' ? '' : ' is-zoomed'}`} ref={stageRef}>
         <div className="player__canvas-wrap" style={{ width: cw, height: ch }}>
           <canvas ref={canvasRef} className="player__canvas" data-testid="player-canvas" />
           <div
             ref={surfaceRef}
+            hidden={inSource}
             className="player__surface"
             onPointerDown={onSurfaceDown}
             onPointerMove={onPointerMove}
@@ -280,6 +302,19 @@ export function Player() {
           </div>
         </div>
       </div>
+      {inSource && srcKind !== 'image' && (
+        <input
+          type="range"
+          className="player__seek"
+          data-testid="source-seek"
+          aria-label="Seek source"
+          min={0}
+          max={Math.max(1, srcDuration)}
+          step={1000}
+          value={Math.min(srcTime, srcDuration)}
+          onChange={(e) => useSourcePreview.getState().seek(Number(e.target.value))}
+        />
+      )}
       <div className="player__bar">
         <span className="player__tc" data-testid="timecode">
           <span className="player__tc-cur">{current}</span>
@@ -288,12 +323,12 @@ export function Player() {
         </span>
         <button
           className="icon-btn player__play"
-          title={playing ? 'Pause (Space)' : 'Play (Space)'}
-          aria-label={playing ? 'Pause' : 'Play'}
+          title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+          aria-label={isPlaying ? 'Pause' : 'Play'}
           data-testid="play-button"
-          onClick={togglePlay}
+          onClick={onPlay}
         >
-          <Icon name={playing ? 'pause' : 'play'} size={18} />
+          <Icon name={isPlaying ? 'pause' : 'play'} size={18} />
         </button>
         <div className="player__right">
           <div className="player__menu-anchor">

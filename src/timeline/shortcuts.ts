@@ -9,6 +9,7 @@ import { findClip } from '../model/project';
 import { clipEnd, projectDuration } from '../model/time';
 import type { Clip, Id } from '../model/types';
 import { createCompoundClip, undoCompoundClips } from '../actions/compound';
+import { sourcePreviewActive, useSourcePreview } from '../player/sourcePreview';
 import { useEditor } from '../store';
 import { emitAppEvent, requestImport, showToast } from '../ui/appEvents';
 import { defOf, resolveDef, type Command } from './shortcutDefs';
@@ -206,7 +207,8 @@ export function runCommand(cmd: Command): boolean {
       emitAppEvent('libraryTab', { dir: -1 });
       return true;
     case 'playPause':
-      s.togglePlay();
+      if (sourcePreviewActive()) useSourcePreview.getState().togglePlay();
+      else s.togglePlay();
       return true;
     case 'split':
       s.splitAtPlayhead();
@@ -316,7 +318,8 @@ export function runCommand(cmd: Command): boolean {
       toggleDisableSelected();
       return true;
     case 'escape':
-      if (ui.tool !== 'select') ui.setTool('select');
+      if (sourcePreviewActive()) useSourcePreview.getState().close();
+      else if (ui.tool !== 'select') ui.setTool('select');
       else if (ui.area.in !== null || ui.area.out !== null) ui.clearArea();
       else if (s.selection.clipIds.length || s.selection.transitionId) s.clearSelection();
       else return false;

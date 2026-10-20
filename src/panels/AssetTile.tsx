@@ -1,6 +1,7 @@
 /**
- * One media-bin item (grid tile or list row). Draggable to the timeline, hover "+" adds it at
- * the playhead, right-click opens a small menu. Carries the e2e ids (media-asset + data-*).
+ * One media-bin item (grid tile or list row). A click selects it and shows it in the player
+ * (source preview); adding to the timeline is the hover "+", a drag, or the right-click menu
+ * (CapCut: double-click and Enter do NOT add). Carries the e2e ids (media-asset + data-*).
  */
 import { memo, useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react';
 import type { MediaAsset } from '../model/types';
@@ -111,7 +112,6 @@ export const AssetTile = memo(function AssetTile({ asset, added, view, selected,
       draggable={!asset.missing}
       onDragStart={onDragStart}
       onClick={() => onSelect(asset.id)}
-      onDoubleClick={add}
       onContextMenu={onContext}
       title={asset.name}
       data-testid="media-asset"
@@ -121,11 +121,11 @@ export const AssetTile = memo(function AssetTile({ asset, added, view, selected,
       tabIndex={0}
       onKeyDown={(e) => {
         // handled here, so the window shortcuts do not also run (Enter = the split-caption toast,
-        // Delete = delete the TIMELINE selection)
+        // Delete = delete the TIMELINE selection). Enter previews the item, it does not add it.
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (!asset.missing) onAdd(asset.id);
+          onSelect(asset.id);
         } else if (e.key === 'Delete' || e.key === 'Backspace') {
           e.preventDefault();
           onRemove(asset.id);

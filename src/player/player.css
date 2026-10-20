@@ -208,3 +208,19 @@
   box-shadow: none;
   cursor: ns-resize;
 }
+
+/* source preview (media-bin item): thin seek bar under the canvas */
+.player__seek {
+  flex: none;
+  display: block;
+  width: calc(100% - 24px);
+  margin: 0 12px;
+  height: 14px;
+  accent-color: var(--accent, #4fd1c5);
+  cursor: pointer;
+}
+.player.is-source .panel__header {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

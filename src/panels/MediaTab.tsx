@@ -15,6 +15,7 @@ import { SubprojectsList } from './SubprojectsPanel';
 import { ComingSoon, GridLabel, LibraryBody, useFlash, type SidebarItem } from './LibraryLayout';
 import { SORT_LABELS, visibleAssets, type AssetKindFilter, type AssetSort } from './libraryLogic';
 import { usePref } from './prefs';
+import { useSourcePreview } from '../player/sourcePreview';
 
 const MEDIA_SIDEBAR: SidebarItem[] = [
   { id: 'import', label: 'Import', group: true },
@@ -129,11 +130,18 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
       if (!a) return;
       const inUse = usedAssetIds(useEditor.getState().project).has(id);
       if (inUse && !window.confirm(`"${a.name}" is used on the timeline. Delete it and its clips?`)) return;
+      if (useSourcePreview.getState().assetId === id) useSourcePreview.getState().close();
       removeAsset(id);
       setSelected((s) => (s === id ? null : s));
     },
     [removeAsset],
   );
+
+  // a click selects the tile and shows the file in the player (source preview)
+  const onSelect = useCallback((id: string) => {
+    setSelected(id);
+    useSourcePreview.getState().open(id);
+  }, []);
 
   const sidebar = mode === 'media' ? MEDIA_SIDEBAR : AUDIO_SIDEBAR;
   const showSfx = mode === 'audio' && category === 'sfx';
@@ -261,7 +269,7 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
                     view={view}
                     selected={selected === a.id}
                     highlighted={highlight.has(a.id)}
-                    onSelect={setSelected}
+                    onSelect={onSelect}
                     onAdd={onAdd}
                     onRemove={onRemove}
                   />

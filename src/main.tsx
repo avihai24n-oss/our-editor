@@ -36,6 +36,9 @@ if (import.meta.env.DEV) {
       noiseProfileReady: np.noiseProfileReady,
     };
   });
+  void import('./player/sourcePreview').then((sp) => {
+    (window as unknown as { __oeSource?: unknown }).__oeSource = { getState: sp.useSourcePreview.getState, elements: sp.sourcePreviewElements };
+  });
   void Promise.all([import('./ui/MemoryReadout'), import('./media/memory')]).then(([readout, memory]) => {
     (window as unknown as { __oeMem?: unknown }).__oeMem = { snapshot: readout.memorySnapshot, flush: memory.flushAllCaches };
   });

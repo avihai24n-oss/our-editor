@@ -184,7 +184,7 @@ test('Media: search, sort, grid/list, categories; view prefs survive a reload', 
   await expect(page.locator('.lib-grid .atile')).toHaveCount(4);
 });
 
-test('Media: hover "+", double-click, Enter and drag add on the right track; "Added" badge', async ({ page }) => {
+test('Media: hover "+" and drag add on the right track, double-click / Enter only preview; "Added" badge', async ({ page }) => {
   const errors = collectConsoleErrors(page);
   await boot(page);
   await importAndWait(page, [MEDIA.vertical, MEDIA.image, MEDIA.tone, MEDIA.landscape, MEDIA.silent].map(mediaPath));
@@ -214,15 +214,25 @@ test('Media: hover "+", double-click, Enter and drag add on the right track; "Ad
   const img = c.find((x) => x.type === 'image')!;
   expect(img).toMatchObject({ trackKind: 'main', start: c.find((x) => x.name === MEDIA.vertical)!.duration });
 
-  // double-click and Enter also add
+  // CapCut: double-click and Enter do NOT add — they show the file in the player (source preview)
+  const before0 = (await clips(page)).length;
   await tile(page, MEDIA.landscape).dblclick();
-  expect((await clips(page)).filter((x) => x.name === MEDIA.landscape)).toHaveLength(1);
+  await page.waitForTimeout(200);
+  expect((await clips(page)).filter((x) => x.name === MEDIA.landscape)).toHaveLength(0);
+  await expect(page.getByTestId('player-header')).toHaveText(`Media · ${MEDIA.landscape}`);
   await tile(page, MEDIA.silent).focus();
   await page.keyboard.press('Enter');
-  expect((await clips(page)).filter((x) => x.name === MEDIA.silent)).toHaveLength(1);
-  // Enter on a tile is the tile's: the window shortcut (split caption → "Coming soon" toast) stays quiet
   await page.waitForTimeout(200);
+  expect((await clips(page)).length).toBe(before0);
+  await expect(page.getByTestId('player-header')).toHaveText(`Media · ${MEDIA.silent}`);
+  // Enter on a tile is the tile's: the window shortcut (split caption → "Coming soon" toast) stays quiet
   await expect(page.getByTestId('toast')).toHaveCount(0);
+  await expect(page.locator('.atile__added')).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('player-header')).toHaveText('Player');
+  // the hover "+" still adds them
+  await plusOn(page, MEDIA.landscape);
+  await plusOn(page, MEDIA.silent);
   await expect(page.locator('.atile__added')).toHaveCount(5);
 
   // drag a tile onto the audio track row → lands on that track at the drop x

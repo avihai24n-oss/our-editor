@@ -53,6 +53,8 @@ export class PreviewEngine {
   private disposed = false;
   /** Target pixels per project pixel. */
   private scale = 1;
+  /** Source preview owns the canvas: no timeline renders, no media elements held. */
+  private suspended = false;
 
   constructor(private canvas: HTMLCanvasElement, private opts: PreviewEngineOptions = {}) {
     this.ctx = canvas.getContext('2d', { alpha: false });
@@ -117,14 +119,32 @@ export class PreviewEngine {
     this.invalidate();
   }
 
+  /**
+   * Source preview (media-bin click) takes the canvas: stop drawing the timeline and free the
+   * pool's elements. Back to false: render the current playhead again.
+   */
+  setSuspended(suspended: boolean): void {
+    if (this.suspended === suspended || this.disposed) return;
+    this.suspended = suspended;
+    if (suspended) {
+      if (this.clock.isRunning) useEditor.getState().pause();
+      cancelAnimationFrame(this.pendingRender);
+      this.pendingRender = 0;
+      this.pool.releaseAll();
+      this.audio.releaseAll();
+    } else {
+      this.invalidate();
+    }
+  }
+
   /** Re-render the current playhead on the next animation frame (paused mode). */
   invalidate(): void {
-    if (this.disposed || this.clock.isRunning || this.pendingRender) return;
+    if (this.disposed || this.suspended || this.clock.isRunning || this.pendingRender) return;
     // a hidden tab draws nothing (and must not recreate decoders); visibilitychange re-renders
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     this.pendingRender = requestAnimationFrame(() => {
       this.pendingRender = 0;
-      if (this.clock.isRunning) return;
+      if (this.clock.isRunning || this.suspended) return;
       const st = useEditor.getState();
       const end = projectDuration(st.project);
       // preview axis: while hovering the timeline, show the hovered frame instead of the playhead's
