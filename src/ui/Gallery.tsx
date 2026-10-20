@@ -47,7 +47,7 @@ export function Gallery() {
           <IconButton icon={Icons.Freeze} label="Freeze frame" />
           <ToolbarDivider />
           <IconButton icon={Icons.Mic} label="Record audio" />
-          <IconButton icon={Icons.Magnet} label="Snap (N)" active={snap} onClick={() => setSnap((v) => !v)} />
+          <IconButton icon={Icons.Snap} label="Snap (N)" active={snap} onClick={() => setSnap((v) => !v)} />
           <IconButton icon={Icons.Link} label="Linkage" active />
           <IconButton icon={Icons.PreviewAxis} label="Preview axis (S)" />
           <IconButton icon={Icons.ZoomOut} label="Zoom out (Ctrl+-)" />

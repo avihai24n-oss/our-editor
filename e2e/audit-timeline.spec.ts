@@ -291,11 +291,11 @@ test('toolbar: every button does what it says, exactly, and undoes exactly', asy
   const mainY = await g.rowY((await tracks(page))[0]!.id);
   await page.mouse.move(g.x(S(3)), mainY);
   await expect(page.getByTestId('timeline-hover')).toBeVisible();
-  await toolbarButton(page, /^Preview axis/).click();
+  await page.getByTestId('timeline-preview-axis').click();
   await page.mouse.move(g.x(S(3.5)), mainY);
   await expect(page.getByTestId('timeline-hover')).toHaveCount(0);
   expect(await ev(page, () => (window as any).__oe.getState().previewTime)).toBeNull();
-  await toolbarButton(page, /^Preview axis/).click();
+  await page.getByTestId('timeline-preview-axis').click();
   await parkMouse(page);
 
   // zoom − / + / slider / fit

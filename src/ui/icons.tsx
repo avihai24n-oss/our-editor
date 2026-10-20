@@ -263,34 +263,53 @@ const Mic = make('Mic', (
   </>
 ));
 
+/**
+ * The four timeline toggles (CapCut screenshot 10). Drawn after CapCut's glyphs: solid blocks
+ * where CapCut fills, `currentColor` so the ON state is just a cyan `color`.
+ */
+const F = { fill: 'currentColor', stroke: 'none' } as const;
+
+/** Main track magnet (P): two solid blocks with a ←→ between them. */
 const Magnet = make('Magnet', (
   <>
-    <path d="M5 4v8a7 7 0 0 0 14 0V4h-4.5v8a2.5 2.5 0 0 1-5 0V4z" />
-    <path d="M5 8h4.5M14.5 8H19" />
+    <rect x="2" y="7.5" width="5" height="9" rx="1.4" {...F} />
+    <rect x="17" y="7.5" width="5" height="9" rx="1.4" {...F} />
+    <path d="M9 12h6M11 9.8 8.9 12l2.1 2.2M13 9.8l2.1 2.2-2.1 2.2" />
   </>
 ));
 
+/** Auto snapping (N): a box split by a dashed line, with spark ticks above and below. */
+const Snap = make('Snap', (
+  <>
+    <rect x="4" y="8.5" width="16" height="7" rx="1.5" />
+    <path d="M12 9.5v1.2M12 12.4v1.2M12 14.8v.2" />
+    <path d="M12 3v2.2M8.2 4.2l1.2 1.6M15.8 4.2l-1.2 1.6M12 18.8V21M8.2 19.8l1.2-1.6M15.8 19.8l-1.2-1.6" />
+  </>
+));
+
+/** Linkage (~): a chain link — two open rounded halves joined by a bar. */
 const Link = make('Link', (
   <>
-    <path d="M10 14a4 4 0 0 0 5.7 0l3.1-3.1a4 4 0 0 0-5.7-5.7L11.6 6.7" />
-    <path d="M14 10a4 4 0 0 0-5.7 0l-3.1 3.1a4 4 0 0 0 5.7 5.7l1.5-1.5" />
+    <path d="M10 7.5H6.5a3.5 3.5 0 0 0-3.5 3.5v2a3.5 3.5 0 0 0 3.5 3.5H10" strokeWidth={2.4} />
+    <path d="M14 7.5h3.5a3.5 3.5 0 0 1 3.5 3.5v2a3.5 3.5 0 0 1-3.5 3.5H14" strokeWidth={2.4} />
+    <path d="M8.5 12h7" strokeWidth={2.4} />
   </>
 ));
 
 const Unlink = make('Unlink', (
   <>
-    <path d="M15.5 12.5l3.3-3.3a4 4 0 0 0-5.7-5.7L9.8 6.8" />
-    <path d="M8.5 11.5l-3.3 3.3a4 4 0 0 0 5.7 5.7l3.3-3.3" />
+    <path d="M10 7.5H7a4.5 4.5 0 0 0 0 9h3" />
+    <path d="M14 7.5h3a4.5 4.5 0 0 1 0 9h-3" />
     <path d="M4 4l16 16" />
   </>
 ));
 
-/** Preview axis: playhead-like vertical line with a skimming cursor. */
+/** Preview axis (S): a split frame (left half solid) with a mouse cursor over the right half. */
 const PreviewAxis = make('PreviewAxis', (
   <>
-    <rect x="3" y="6" width="18" height="12" rx="1.5" />
-    <path d="M12 3v18" />
-    <path d="M10 3h4" />
+    <path d="M10.5 5.5H4.5A1.5 1.5 0 0 0 3 7v10a1.5 1.5 0 0 0 1.5 1.5h6z" {...F} />
+    <path d="M12.5 10V5.5h6A1.5 1.5 0 0 1 20 7v5.5" />
+    <path d="M13 11.5v9l2.4-2.3 1.7 3.3 1.6-.8-1.7-3.2 3.3-.3z" {...F} />
   </>
 ));
 
@@ -586,7 +605,7 @@ export const Icons = {
   // timeline toolbar
   Select, Blade, SelectLeft, SelectRight, Undo, Redo, Split, DeleteLeft, DeleteRight, Trash, Marker, Crop, Mirror, Rotate, Freeze,
   // timeline right side
-  Mic, Magnet, Link, Unlink, PreviewAxis, ZoomOut, ZoomIn, ZoomFit,
+  Mic, Magnet, Snap, Link, Unlink, PreviewAxis, ZoomOut, ZoomIn, ZoomFit,
   // track headers
   VideoTrack, AudioTrack, TextTrack, Lock, Unlock, Eye, EyeOff, Volume, VolumeMute, More,
   // player
@@ -599,7 +618,6 @@ export const Icons = {
   // aliases (names used in the brief / research docs)
   Pointer: Select,
   Delete: Trash,
-  Snap: Magnet,
 } as const;
 
 export type IconName = keyof typeof Icons;

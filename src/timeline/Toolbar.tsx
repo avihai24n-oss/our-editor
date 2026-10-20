@@ -10,7 +10,7 @@ import { clipContains } from '../model/time';
 import { selectCanRedo, selectCanUndo, useEditor } from '../store';
 import { Icon, type IconName } from '../ui/Icon';
 import { SLIDER_MAX, sliderToZoom, zoomToSlider } from './geometry';
-import { shortcutLabel, withShortcut as ws } from './shortcutDefs';
+import { shortcutLabel, withShortcut as ws, type Command } from './shortcutDefs';
 import { TOOLS, toolDef } from './tools';
 import { useTimelineUi } from './uiStore';
 
@@ -39,6 +39,88 @@ function Tool({ icon, title, onClick, disabled, active, testId }: ToolProps) {
     >
       <Icon name={icon} />
     </button>
+  );
+}
+
+interface ToggleProps {
+  icon: IconName;
+  /** Lower-case feature name, as CapCut's tooltip writes it: "Turn off main track magnet(P)". */
+  name: string;
+  command: Command;
+  on: boolean;
+  onChange: (on: boolean) => void;
+  testId: string;
+  /**
+   * When set, a ▾ button is joined on the right (CapCut's linkage and preview-axis toggles).
+   * CapCut's dropdown contents are not documented anywhere we could check, so the menu only
+   * repeats this toggle with a checkmark rather than inventing options.
+   */
+  menuLabel?: string;
+}
+
+/** CapCut toggle tile: ON = cyan glyph on a lighter rounded tile, OFF = plain light glyph. */
+function Toggle({ icon, name, command, on, onChange, testId, menuLabel }: ToggleProps) {
+  const key = shortcutLabel(command);
+  const title = `Turn ${on ? 'off' : 'on'} ${name}${key ? `(${key})` : ''}`;
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [open]);
+  return (
+    <div className={`tl-toggle${on ? ' is-on' : ''}${menuLabel ? ' has-menu' : ''}`} ref={ref} data-testid={`${testId}-group`}>
+      <button
+        type="button"
+        className="tl-toggle__btn"
+        title={title}
+        aria-label={title}
+        aria-pressed={on}
+        onClick={() => onChange(!on)}
+        onMouseDown={(e) => e.preventDefault()}
+        data-testid={testId}
+      >
+        <Icon name={icon} size={20} />
+      </button>
+      {menuLabel && (
+        <button
+          type="button"
+          className="tl-toggle__more"
+          title={`${menuLabel} options`}
+          aria-label={`${menuLabel} options`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          onMouseDown={(e) => e.preventDefault()}
+          data-testid={`${testId}-menu`}
+        >
+          <Icon name="chevron-down" size={12} weight={2} />
+        </button>
+      )}
+      {open && menuLabel && (
+        <div className="menu tl-toggle__menu" role="menu">
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={on}
+            className="menu__item tl-toggle__item"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onChange(!on);
+              setOpen(false);
+            }}
+          >
+            <span className="tl-toggle__check">{on ? <Icon name="check" size={14} /> : null}</span>
+            <span>{menuLabel}</span>
+            {key && <kbd>{key}</kbd>}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -128,10 +210,25 @@ export function Toolbar() {
       </div>
 
       <div className="tl-toolbar__group">
-        <Tool icon="magnet" title={`${ws('Main track magnet', 'toggleMagnet')}: ${magnet ? 'on' : 'off'}`} active={magnet} onClick={() => a().setMagnet(!magnet)} testId="timeline-magnet" />
-        <Tool icon="snap" title={`${ws('Auto snapping', 'toggleSnapping')}: ${snapping ? 'on' : 'off'}`} active={snapping} onClick={() => a().setSnapping(!snapping)} testId="timeline-snapping" />
-        <Tool icon={linkage ? 'link' : 'unlink'} testId="timeline-linkage" title={`${ws('Linkage', 'toggleLinkage')}: ${linkage ? 'on' : 'off'}`} active={linkage} onClick={() => setLinkage(!linkage)} />
-        <Tool icon="preview-axis" title={`${ws('Preview axis', 'togglePreviewAxis')}: ${previewAxis ? 'on' : 'off'}`} active={previewAxis} onClick={() => setPreviewAxis(!previewAxis)} />
+        <Toggle
+          icon="magnet"
+          name="main track magnet"
+          command="toggleMagnet"
+          on={magnet}
+          onChange={(v) => a().setMagnet(v)}
+          testId="timeline-magnet"
+        />
+        <Toggle icon="snap" name="auto snapping" command="toggleSnapping" on={snapping} onChange={(v) => a().setSnapping(v)} testId="timeline-snapping" />
+        <Toggle icon="link" name="linkage" command="toggleLinkage" on={linkage} onChange={setLinkage} testId="timeline-linkage" menuLabel="Linkage" />
+        <Toggle
+          icon="preview-axis"
+          name="preview axis"
+          command="togglePreviewAxis"
+          on={previewAxis}
+          onChange={setPreviewAxis}
+          testId="timeline-preview-axis"
+          menuLabel="Preview axis"
+        />
         <Divider />
         <Tool icon="zoom-out" title={ws('Zoom out', 'zoomOut')} onClick={() => view?.zoomBy(1 / 1.25)} />
         <input

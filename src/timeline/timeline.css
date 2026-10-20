@@ -716,3 +716,72 @@
 .tl-crumbs__sep {
   opacity: 0.6;
 }
+
+/* ------------------------------------------------ right-side toggles (CapCut screenshot 10) */
+.tl-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  margin: 0 2px;
+  border-radius: 6px;
+  color: var(--text);
+}
+.tl-toggle__btn,
+.tl-toggle__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  border-radius: 6px;
+}
+.tl-toggle__btn {
+  width: 34px;
+}
+.tl-toggle__more {
+  width: 18px;
+  color: var(--text);
+}
+.tl-toggle.has-menu .tl-toggle__btn {
+  border-radius: 6px 0 0 6px;
+}
+.tl-toggle.has-menu .tl-toggle__more {
+  border-radius: 0 6px 6px 0;
+  margin-left: 1px;
+}
+.tl-toggle__btn:hover,
+.tl-toggle__more:hover {
+  background: var(--bg-hover);
+}
+/* ON: cyan glyph on a slightly lighter tile; the joined ▾ keeps its white glyph on its own tile */
+.tl-toggle.is-on .tl-toggle__btn {
+  color: var(--accent);
+  background: #2c2c30;
+}
+.tl-toggle.is-on .tl-toggle__more {
+  background: #2c2c30;
+}
+.tl-toggle.is-on .tl-toggle__btn:hover,
+.tl-toggle.is-on .tl-toggle__more:hover {
+  background: #36363b;
+}
+.tl-toggle__menu {
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 190px;
+}
+.tl-toggle__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tl-toggle__item kbd {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+.tl-toggle__check {
+  width: 14px;
+  display: inline-flex;
+  color: var(--accent);
+}
