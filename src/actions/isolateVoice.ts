@@ -68,7 +68,7 @@ const modeOf = (ctx: MenuCtx): VoiceIsolationMode | null | 'mixed' => {
 
 export const isolateVoiceMenuItem: MenuItem = {
   id: 'isolateVoice',
-  label: 'Voice isolation (DSP)',
+  label: 'Isolate voice', // CapCut's row label (contract); the inspector row says it is DSP, not AI
   icon: 'voice',
   tag: 'Free',
   disabled: (ctx) => soundClips(ctx).length === 0,

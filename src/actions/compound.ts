@@ -150,10 +150,11 @@ const currentMenuCtx = (): MenuCtx => {
 export const compoundMenuItem: MenuItem = {
   id: 'compound',
   get label() {
-    return ungroupMode(currentMenuCtx()) ? 'Undo compound clip' : 'Create compound clip';
+    return ungroupMode(currentMenuCtx()) ? 'Undo compound clip' : 'Create compound clip (subproject)';
   },
+  // command ids from shortcutDefs.ts (the menu shows their keys: ⌥G / ⌥⇧G)
   get shortcut() {
-    return ungroupMode(currentMenuCtx()) ? '⌥⇧G' : '⌥G';
+    return ungroupMode(currentMenuCtx()) ? 'undoCompound' : 'compound';
   },
   icon: 'compound',
   disabled: (ctx) => {

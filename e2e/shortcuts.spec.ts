@@ -164,8 +164,14 @@ test('CapCut shortcuts work in the browser', async ({ page }) => {
   await expect(page.getByTestId('toast')).toHaveText('Coming soon: Group');
   await page.keyboard.press(`${MOD}+Shift+KeyG`);
   await expect(page.getByTestId('toast')).toHaveText('Coming soon: Ungroup');
+  // ⌥G works now (compound clips): it groups the selection into one compound clip; ⌘Z undoes it
+  const tracksBefore = await page.evaluate(() => JSON.stringify((window as any).__oe.getState().project.tracks));
   await page.keyboard.press('Alt+KeyG');
-  await expect(page.getByTestId('toast')).toHaveText('Coming soon: Create compound clip');
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__oe.getState().project.tracks.some((t: any) => t.clips.some((c: any) => c.type === 'compound'))))
+    .toBe(true);
+  await page.keyboard.press(`${MOD}+KeyZ`);
+  expect(await page.evaluate(() => JSON.stringify((window as any).__oe.getState().project.tracks))).toBe(tracksBefore);
   await page.keyboard.press(`${MOD}+KeyJ`);
   await expect(page.getByTestId('toast')).toHaveText('Coming soon: Match cut');
   await page.keyboard.press('Alt+KeyK');
@@ -261,7 +267,7 @@ test('keyboard shortcuts panel and tooltips come from the shared table', async (
   await expect(panel.getByRole('heading')).toHaveText(['Essentials', 'Tools', 'Timeline & preview', 'Audio & speed', 'Project & clipboard']);
   expect(await panel.getByTestId('shortcuts-row').count()).toBeGreaterThan(55);
   await expect(panel.getByText(MAC ? '⇧⌘B' : 'Ctrl+Shift+B')).toBeVisible();
-  await expect(panel.locator('[data-status="soon"]')).toHaveCount(7);
+  await expect(panel.locator('[data-status="soon"]')).toHaveCount(5); // ⌥G / ⌥⇧G (compound clips) work now
   await expect(panel.getByText('Coming soon').first()).toBeVisible();
   await screenshot(page, 'shortcuts-04-panel');
   // the panel is modal: B must not switch to the split tool behind it

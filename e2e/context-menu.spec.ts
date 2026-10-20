@@ -81,8 +81,10 @@ test("the clip menu is CapCut's, and its actions work", async ({ page }) => {
 
   // enabled rows, Soon tags, keys
   const enabled = await menu(page).locator('[data-testid="ctx-item"]:not([aria-disabled])').evaluateAll((els) => els.map((e) => e.getAttribute('data-item-id')));
-  expect(enabled).toEqual(['copy', 'cut', 'delete', 'extractAudio', 'toggleDisable']);
-  expect(await menu(page).locator('.ctxm__tag').count()).toBe(18); // 14 later items + the 4 placeholder slots
+  // the four slots are the real modules now (attributes, edit, isolate voice, compound)
+  expect(enabled).toEqual(['copy', 'cut', 'attributes', 'delete', 'edit', 'isolateVoice', 'extractAudio', 'compound', 'toggleDisable']);
+  expect(await menu(page).locator('.ctxm__tag').count()).toBe(15); // 14 later items "Soon" + Isolate voice "Free"
+  await expect(item(page, 'isolateVoice').locator('.ctxm__tag')).toHaveText('Free');
   await expect(item(page, 'group').locator('.ctxm__tag')).toHaveCount(0);
   const MAC = await appIsMac(page);
   const key = (id: string) => item(page, id).locator('.ctxm__key').textContent();
@@ -261,4 +263,62 @@ test('hover submenus, keyboard navigation, outside press and scroll', async ({ p
     expect((await model(page)).selection).toHaveLength(1);
     await page.keyboard.press('Escape');
   }
+});
+
+test('the real menu: Edit › Reverse, Isolate voice › Isolate voice, Create compound clip, then ⌘Z ×3', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await setup(page);
+  const doc = () => page.evaluate(() => JSON.stringify((window as any).__oe.getState().project.tracks));
+  const clipState = (id: string) =>
+    page.evaluate((cid) => {
+      const p = (window as any).__oe.getState().project;
+      const c = p.tracks.flatMap((t: any) => t.clips).find((x: any) => x.id === cid);
+      return c ? { reversed: !!c.reversed, isolation: c.audio?.voiceIsolation?.mode ?? null } : null;
+    }, id);
+  const start = await doc();
+  const [a, b] = (await model(page)).clips.map((c) => c.id) as [string, string];
+  const sub = page.getByTestId('clip-context-submenu');
+
+  // Edit › Reverse (the registered edit slot, not a stub)
+  await openOn(page, 0);
+  await item(page, 'edit').hover();
+  await expect(sub).toBeVisible();
+  await sub.locator('[data-item-id="edit.reverse"]').click();
+  await expect(menu(page)).toHaveCount(0);
+  await expect.poll(() => clipState(a)).toEqual({ reversed: true, isolation: null });
+
+  // Isolate voice › Isolate voice
+  await openOn(page, 0);
+  await expect(item(page, 'isolateVoice').locator('.ctxm__label')).toHaveText('Isolate voice');
+  await item(page, 'isolateVoice').hover();
+  await expect(sub).toBeVisible();
+  await sub.locator('[data-item-id="isolateVoice.isolate"]').click();
+  await expect(menu(page)).toHaveCount(0);
+  await expect.poll(() => clipState(a)).toEqual({ reversed: true, isolation: 'isolate' });
+
+  // select both clips by clicking, right-click → Create compound clip (subproject)
+  await clip(page, 0).click({ position: { x: 30, y: 20 } });
+  await clip(page, 1).click({ position: { x: 30, y: 20 }, modifiers: ['Shift'] });
+  expect((await model(page)).selection.sort()).toEqual([a, b].sort());
+  await openOn(page, 1);
+  expect((await model(page)).selection.sort()).toEqual([a, b].sort());
+  await expect(item(page, 'compound').locator('.ctxm__label')).toHaveText('Create compound clip (subproject)');
+  await item(page, 'compound').click();
+  await expect(menu(page)).toHaveCount(0);
+  await expect.poll(async () => (await model(page)).clips.map((c) => c.type)).toEqual(['compound']);
+  expect(await page.evaluate(() => (window as any).__oeCheck())).toEqual([]);
+
+  // ⌘Z (Ctrl+Z off a Mac) three times: back to the start, step by step
+  const undo = (await appIsMac(page)) ? 'Meta+KeyZ' : 'Control+KeyZ';
+  await page.mouse.click(5, 5);
+  await page.keyboard.press(undo);
+  await expect.poll(async () => (await model(page)).clips.map((c) => c.id)).toEqual([a, b]);
+  expect(await clipState(a)).toEqual({ reversed: true, isolation: 'isolate' });
+  await page.keyboard.press(undo);
+  await expect.poll(() => clipState(a)).toEqual({ reversed: true, isolation: null });
+  await page.keyboard.press(undo);
+  await expect.poll(() => clipState(a)).toEqual({ reversed: false, isolation: null });
+  expect(await doc()).toBe(start);
+  expect(await page.evaluate(() => (window as any).__oeCheck())).toEqual([]);
+  expect(errors.real()).toEqual([]);
 });

@@ -114,12 +114,13 @@ describe('create compound clip (⌥G)', () => {
     const { A, B } = setup();
     expect(slots.compound).toBe(compoundMenuItem);
     st().select([A, B]);
-    expect(compoundMenuItem.label).toBe('Create compound clip');
-    expect(compoundMenuItem.shortcut).toBe('⌥G');
+    expect(compoundMenuItem.label).toBe('Create compound clip (subproject)');
+    expect(compoundMenuItem.shortcut).toBe('compound');
     compoundMenuItem.run!({ clipIds: [A, B], primaryId: A, trackId: '', time: 0 });
     const id = st().selection.clipIds[0]!;
     expect(findClip(proj(), id)?.clip.type).toBe('compound');
     expect(compoundMenuItem.label).toBe('Undo compound clip');
+    expect(compoundMenuItem.shortcut).toBe('undoCompound');
     compoundMenuItem.run!({ clipIds: [id], primaryId: id, trackId: '', time: 0 });
     expect(findClip(proj(), A)).toBeTruthy();
   });

@@ -229,7 +229,7 @@ describe('clip menu: Voice isolation (DSP)', () => {
 
   it('is registered in the isolateVoice slot, labelled DSP, tagged Free', () => {
     expect(slots.isolateVoice).toBe(isolateVoiceMenuItem);
-    expect(isolateVoiceMenuItem.label).toBe('Voice isolation (DSP)');
+    expect(isolateVoiceMenuItem.label).toBe('Isolate voice');
     expect(isolateVoiceMenuItem.tag).toBe('Free');
   });
 

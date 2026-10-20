@@ -108,7 +108,7 @@ test('Voice isolation (DSP): menu + inspector set it, preview runs it, export me
     const it = (window as any).__oeMenu.getSlot('isolateVoice');
     return { label: it.label, tag: it.tag };
   });
-  expect(slot).toEqual({ label: 'Voice isolation (DSP)', tag: 'Free' });
+  expect(slot).toEqual({ label: 'Isolate voice', tag: 'Free' });
   await runMenu(page, [ids.iso!], 0);
   expect((await clipAudio(page, ids.iso!)).voiceIsolation).toEqual({ mode: 'isolate', strength: 100 });
   await runMenu(page, [ids.rem!], 1);
