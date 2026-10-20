@@ -1,0 +1,8 @@
+.modal.capcut-import { width: min(760px, calc(100vw - 32px)); }
+.capcut-import__body { padding: 16px; display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow: auto; }
+.capcut-import__summary { font-weight: 600; margin: 0; }
+.capcut-import__report { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.5; color: var(--text-2, #b8b8bf); background: rgba(255,255,255,0.04); border-radius: 6px; padding: 10px; }
+.capcut-import__bar { height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+.capcut-import__bar > div { height: 100%; background: var(--accent, #22d3ee); transition: width 0.2s; }
+.capcut-import__error { color: #ff6b6b; margin: 0; }
+.capcut-import__foot { display: flex; justify-content: flex-end; gap: 8px; }

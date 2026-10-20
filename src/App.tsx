@@ -22,6 +22,7 @@ import { Toaster } from './ui/Toaster';
 import { startMemoryWatchdog } from './media/watchdog';
 import { showToast } from './ui/appEvents';
 import { debugEnabled, MemoryReadout } from './ui/MemoryReadout';
+import { CapcutImportDialog, DEFAULT_CAPCUT_DRAFT } from './import/capcut/CapcutImportDialog';
 
 interface Sizes {
   left: number; // px
@@ -69,7 +70,7 @@ function useDrag(onMove: (dx: number, dy: number) => void, onEnd: () => void) {
   return { dragging, start };
 }
 
-function TopBar({ onExport, onShortcuts }: { onExport: () => void; onShortcuts: () => void }) {
+function TopBar({ onExport, onShortcuts, onImportCapcut }: { onExport: () => void; onShortcuts: () => void; onImportCapcut: () => void }) {
   const name = useEditor((s) => s.project.name);
   const setProjectName = useEditor((s) => s.setProjectName);
   const saveStatus = useEditor((s) => s.saveStatus);
@@ -85,6 +86,9 @@ function TopBar({ onExport, onShortcuts }: { onExport: () => void; onShortcuts: 
   return (
     <header className="topbar">
       <div className="topbar__left">
+        <button className="btn" onClick={onImportCapcut} onMouseDown={(e) => e.preventDefault()} title={`Import the CapCut draft "${DEFAULT_CAPCUT_DRAFT}" (read-only)`} data-testid="menu-import-capcut">
+          Import CapCut project…
+        </button>
         <span>{saved}</span>
         {showDebug && <MemoryReadout />}
       </div>
@@ -127,6 +131,7 @@ export default function App() {
   const [sizes, setSizes] = useState<Sizes>(loadSizes);
   const [exportOpen, setExportOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [capcutDraft, setCapcutDraft] = useState<string | null>(null);
   const closeShortcuts = useCallback(() => setShortcutsOpen(false), []);
   const bodyRef = useRef<HTMLDivElement>(null);
   const sizesRef = useRef(sizes);
@@ -136,7 +141,16 @@ export default function App() {
     let stop: (() => void) | undefined;
     let cancelled = false;
     void bootProject().finally(() => {
-      if (!cancelled) stop = startAutosave();
+      if (cancelled) return;
+      stop = startAutosave();
+      // /?importCapcut=<CapCut draft folder> runs the CapCut import on load
+      const id = new URLSearchParams(window.location.search).get('importCapcut');
+      if (id) {
+        setCapcutDraft(id);
+        const u = new URL(window.location.href);
+        u.searchParams.delete('importCapcut');
+        window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+      }
     });
     return () => {
       cancelled = true;
@@ -175,7 +189,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopBar onExport={() => setExportOpen(true)} onShortcuts={() => setShortcutsOpen(true)} />
+      <TopBar onExport={() => setExportOpen(true)} onShortcuts={() => setShortcutsOpen(true)} onImportCapcut={() => setCapcutDraft(DEFAULT_CAPCUT_DRAFT)} />
       <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--gutter)' }}>
         <div className="upper" style={{ height: `${sizes.upper * 100}%` }}>
           <section className="panel" style={{ width: sizes.left, flex: 'none' }} aria-label="Library" data-testid="left-panel">
@@ -197,6 +211,7 @@ export default function App() {
       </div>
       {exportOpen && <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />}
       {shortcutsOpen && <ShortcutsPanel onClose={closeShortcuts} />}
+      {capcutDraft && <CapcutImportDialog draftId={capcutDraft} onClose={() => setCapcutDraft(null)} />}
       <FileDropOverlay />
       <AttributesDialog />
       <CropDialogHost />

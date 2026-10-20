@@ -158,6 +158,15 @@ real-time WebM export.
   are ignored while you type in a text field (except ⌘E) and while a dialog is open. ⌘N and ⌘Q
   belong to the browser and cannot be taken by a web page.
 
+**Import a CapCut project** (dev server / `vite preview` only)
+- Top bar › *Import CapCut project…* or open `/?importCapcut=<draft folder>` (e.g. `/?importCapcut=1018`).
+  Reads `~/Movies/CapCut/User Data/Projects/com.lveditor.draft/<folder>/draft_info.json` READ-ONLY,
+  loads the media through the normal import, builds and saves the project, and shows a report of
+  what came over exactly, what was approximated and what was dropped.
+- Converter: `src/import/capcut/convert.ts` (pure, unit-tested on a copy of a real draft). Local
+  file access: `vite-plugins/localFiles.js` (`/__local/capcut/projects`, `/__local/capcut/project?id=`,
+  `/__local/file?path=` with Range; localhost only, only under ~/Movies/CapCut and ~/Desktop/ai/).
+
 **Persistence**
 - The project JSON and the media blobs live in IndexedDB. A media file is written once, at import.
 - The project JSON autosaves 0.8 s after each change (at most one write per 2 s, skipped when
