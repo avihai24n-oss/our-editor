@@ -157,6 +157,12 @@ export interface EditorState {
   setSpeedCurve: (clipId: Id, curve: SpeedCurve | null) => void;
   /** Speed tab Reset: Standard 1x, no curve, original pitch. One undo step. */
   resetSpeed: (clipId: Id) => void;
+  /**
+   * Runs a recipe on the document as ONE undoable edit, with normalize() and linkage like every
+   * built-in action (used by feature modules such as src/actions/editMenu.ts, whose ops live
+   * outside ops.ts). Returns the recipe's result.
+   */
+  editProject: <T>(recipe: (draft: Project, ctx: ops.EditCtx) => T) => T;
   /** Toolbar mirror: toggles transform.flipH on the selected visual clips. */
   mirrorSelected: () => void;
   /** Toolbar rotate: +90° on the selected visual clips. */
@@ -569,6 +575,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
       ops.updateClip(d, clipId, { preservePitch: true });
     });
   },
+  editProject: (recipe) => edit(set, get, recipe),
   mirrorSelected: () => {
     edit(set, get, (d) => {
       for (const id of get().selection.clipIds) {

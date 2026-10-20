@@ -5,7 +5,7 @@
  */
 import { memo, useEffect, useRef, useState } from 'react';
 import { dbToGain } from '../model/project';
-import { clipMeanSpeed, sourceOffsetAt } from '../model/time';
+import { clipMeanSpeed, mirrorMediaTime, sourceOffsetAt } from '../model/time';
 import type { AudioClip, ImageClip, MediaAsset, VideoClip } from '../model/types';
 import { getThumb, peekThumb } from './media/thumbnails';
 import { getPeaks, peaksReady } from './media/waveform';
@@ -59,7 +59,9 @@ export const Filmstrip = memo(function Filmstrip({ clip, asset, width, height, z
   const tiles = [];
   for (let i = first; i <= last; i++) {
     // speed mapping (standard or curve): the frame the clip shows at this tile's left edge
-    const src = (clip.inPoint + sourceOffsetAt(clip, ((i * tileW) / zoom) * 1e6)) / 1e6;
+    const r = clip.inPoint + sourceOffsetAt(clip, ((i * tileW) / zoom) * 1e6);
+    // Edit › Reverse: inPoint is in reversed media time
+    const src = (clip.reversed ? Math.max(0, mirrorMediaTime(asset.duration, r)) : r) / 1e6;
     const t = quantizeTime(src, step, dur);
     tiles.push(<Tile key={i} assetId={asset.id} url={url} time={t} height={height} left={i * tileW} width={tileW} />);
   }
@@ -114,11 +116,16 @@ export const Waveform = memo(function Waveform({ clip, asset, width, height, zoo
     ctx.clearRect(0, 0, w, height);
     ctx.fillStyle = getComputedStyle(cv).color || '#6ea0ff';
     const norm = normGain(peaks) * gain;
-    const srcSec = (px: number) => (clip.inPoint + sourceOffsetAt(clip, (px / zoom) * 1e6)) / 1e6;
+    const D = asset.duration;
+    const srcSec = (px: number) => {
+      const r = clip.inPoint + sourceOffsetAt(clip, (px / zoom) * 1e6);
+      return (clip.reversed ? Math.max(0, D - r) : r) / 1e6; // Edit › Reverse
+    };
     let t0 = srcSec(a);
     for (let x = 0; x < w; x++) {
       const t1 = srcSec(a + x + 1);
-      const v = Math.min(1, peakAt(peaks, t0, Math.max(t1, t0 + 1e-4)) * norm);
+      const lo = Math.min(t0, t1);
+      const v = Math.min(1, peakAt(peaks, lo, Math.max(t0, t1, lo + 1e-4)) * norm);
       t0 = t1;
       const h = Math.max(v > 0 ? 1 : 0, v * (height - 2));
       ctx.fillRect(x, height - h, 1, h);

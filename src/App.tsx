@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AttributesDialog } from './actions/AttributesDialog';
+import { CropDialogHost } from './actions/CropDialog';
 import { ExportDialog } from './export/ExportDialog';
 import { Inspector } from './inspector/Inspector';
 import { LeftPanel } from './panels/LeftPanel';
@@ -198,6 +199,7 @@ export default function App() {
       {shortcutsOpen && <ShortcutsPanel onClose={closeShortcuts} />}
       <FileDropOverlay />
       <AttributesDialog />
+      <CropDialogHost />
       <Toaster />
     </div>
   );

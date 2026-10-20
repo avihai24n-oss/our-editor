@@ -476,6 +476,15 @@ export interface TimedMediaFields {
   speedCurve: SpeedCurve | null;
   /** CapCut "Change audio pitch" = !preservePitch. Default true (pitch preserved). */
   preservePitch: boolean;
+  /**
+   * Edit › Reverse: the clip plays its source backwards. While true, `inPoint` is measured in the
+   * REVERSED media (from its end): the clip reads reversed-media time [inPoint, inPoint + span],
+   * i.e. real media time (D − inPoint − span, D − inPoint], D = asset.duration. Every timeline op
+   * (trim, split, speed, fit-to-media) therefore works unchanged; only the consumers that read
+   * media time map back through `mediaTimeOf` (model/time.ts). Added after v1 (migrateProject
+   * fills false).
+   */
+  reversed: boolean;
 }
 
 /** Video-tab fields of clips that show a media picture (video, image). */

@@ -65,7 +65,7 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   report({ phase: 'audio', fraction: 0.01, frame: 0, frames: 0 });
   const audio = await renderMix(project, durationUs, createDecoder(loadBlob), o.signal, {
     // the same span as the preview (AudioOp.spanLength = sourceSpan: curve-aware)
-    loudness: (c) => measureSpan(c.assetId, c.inSec, sourceSpan({ duration: c.durationUs, speed: c.speed, speedCurve: c.speedCurve }) / 1e6, loadBlob),
+    loudness: (c) => measureSpan(c.assetId, c.realInSec, sourceSpan({ duration: c.durationUs, speed: c.speed, speedCurve: c.speedCurve }) / 1e6, loadBlob),
   });
   if (o.signal?.aborted) throw new ExportCanceled();
 

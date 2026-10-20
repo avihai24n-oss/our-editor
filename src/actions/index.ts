@@ -4,7 +4,7 @@
  * The integrator un-comments each line once its module is merged.
  */
 import './attributes';
-// import './editMenu';
+import './editMenu';
 // import './isolateVoice';
 // import './compound';
 export {};

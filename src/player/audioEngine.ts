@@ -20,6 +20,7 @@ import { getAssetBlob, getAssetUrl } from '../media/registry';
 import { MEMORY_LIMITS } from '../media/memory';
 import type { Id } from '../model/types';
 import { decideSync, MAX_RATE } from './sync';
+import { reverseBuffer } from '../audio/reverse';
 
 interface Voice {
   el: HTMLAudioElement;
@@ -37,6 +38,8 @@ interface Voice {
 
 const EVICT_AFTER_MS = MEMORY_LIMITS.idleReleaseMs;
 const MAX_VOICES = MEMORY_LIMITS.previewVoices;
+/** Decoded, reversed assets kept for reversed clips (each ~23 MB per stereo minute at 48 kHz). */
+const MAX_REVERSED_BUFFERS = 2;
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -92,7 +95,9 @@ export class AudioEngine {
     const ctx = this.ctx;
     const now = performance.now();
     const live = new Set<Id>();
+    this.syncReversed(ops.filter((o) => o.reversed));
     for (const op of ops) {
+      if (op.reversed) continue; // Edit › Reverse: played from a reversed buffer (syncReversed)
       const v = this.voice(op.clipId, op.assetId);
       if (!v) continue;
       live.add(op.clipId);
@@ -141,8 +146,106 @@ export class AudioEngine {
     }
   }
 
+  // ---------------------------------------------------------------- Edit › Reverse
+  //
+  // A media element cannot play backwards, so a reversed clip is heard from the asset's audio,
+  // decoded once and time-reversed (src/audio/reverse.ts — the same buffer the export mix uses),
+  // through an AudioBufferSourceNode → gain (volume × fades) → master. At most
+  // MAX_REVERSED_BUFFERS decoded assets are kept (LRU); releaseAll() frees them.
+  // Not carried here (yet): the FX chain (voice filter, reduce noise) and pitch-kept speed.
+
+  private reversedBuffers = new Map<string, { p: Promise<AudioBuffer | null>; buf?: AudioBuffer | null; lastUsed: number }>();
+  private reversedNodes = new Map<Id, { src: AudioBufferSourceNode; gain: GainNode; startCtx: number; startPos: number; rate: number }>();
+
+  private reversedBuffer(assetId: Id, mediaSec: number): Promise<AudioBuffer | null> {
+    const key = `${assetId}@${mediaSec}`;
+    const hit = this.reversedBuffers.get(key);
+    if (hit) {
+      hit.lastUsed = performance.now();
+      return hit.p;
+    }
+    const ctx = this.ctx;
+    const p = (async () => {
+      if (!ctx) return null;
+      const blob = getAssetBlob(assetId) ?? (getAssetUrl(assetId) ? await (await fetch(getAssetUrl(assetId)!)).blob() : null);
+      if (!blob) return null;
+      try {
+        const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+        return reverseBuffer(ctx, buf, mediaSec);
+      } catch {
+        return null;
+      }
+    })();
+    const entry: { p: Promise<AudioBuffer | null>; buf?: AudioBuffer | null; lastUsed: number } = { p, lastUsed: performance.now() };
+    void p.then((b) => (entry.buf = b));
+    this.reversedBuffers.set(key, entry);
+    if (this.reversedBuffers.size > MAX_REVERSED_BUFFERS) {
+      const oldest = [...this.reversedBuffers.entries()].sort((a, b) => a[1].lastUsed - b[1].lastUsed)[0];
+      if (oldest) this.reversedBuffers.delete(oldest[0]);
+    }
+    return p;
+  }
+
+  private syncReversed(ops: readonly AudioOp[]): void {
+    const ctx = this.ctx;
+    const live = new Set<Id>();
+    if (ctx && this.master) {
+      for (const op of ops) {
+        live.add(op.clipId);
+        const mediaSec = (op.mediaDuration ?? 0) / 1e6;
+        const speed = Math.abs(op.speed);
+        // reversed-media position now: D − real media time (sourceTime is already mirrored)
+        const pos = Math.max(0, mediaSec - op.sourceTime / 1e6);
+        let n = this.reversedNodes.get(op.clipId);
+        if (n) {
+          const at = n.startPos + (ctx.currentTime - n.startCtx) * n.rate;
+          if (Math.abs(at - pos) > 0.12 || Math.abs(n.rate - speed) > 0.01) {
+            this.stopReversed(op.clipId);
+            n = undefined;
+          }
+        }
+        if (!n) {
+          void this.reversedBuffer(op.assetId, mediaSec);
+          const ready = this.reversedBuffers.get(`${op.assetId}@${mediaSec}`)?.buf;
+          if (!ready || speed <= 0 || speed > MAX_RATE) continue;
+          const src = ctx.createBufferSource();
+          src.buffer = ready;
+          src.playbackRate.value = speed;
+          const gain = ctx.createGain();
+          gain.gain.value = op.gain;
+          src.connect(gain);
+          gain.connect(this.master);
+          src.start(0, Math.min(pos, Math.max(0, ready.duration - 1e-3)));
+          n = { src, gain, startCtx: ctx.currentTime, startPos: pos, rate: speed };
+          this.reversedNodes.set(op.clipId, n);
+        }
+        n.gain.gain.setTargetAtTime(op.gain, ctx.currentTime, 0.015);
+      }
+    }
+    for (const id of [...this.reversedNodes.keys()]) if (!live.has(id)) this.stopReversed(id);
+  }
+
+  private stopReversed(clipId: Id): void {
+    const n = this.reversedNodes.get(clipId);
+    if (!n) return;
+    try {
+      n.src.stop();
+    } catch {
+      /* not started */
+    }
+    n.src.disconnect();
+    n.gain.disconnect();
+    this.reversedNodes.delete(clipId);
+  }
+
+  /** Reversed clips currently sounding (e2e / debug). */
+  get reversedVoiceCount(): number {
+    return this.reversedNodes.size;
+  }
+
   /** Pause everything; the voices are freed a moment later unless playback resumes. */
   stopAll(): void {
+    for (const id of [...this.reversedNodes.keys()]) this.stopReversed(id);
     for (const v of this.voices.values()) if (!v.el.paused) v.el.pause();
     this.cancelRelease();
     if (!this.voices.size) return;
@@ -155,6 +258,8 @@ export class AudioEngine {
   /** Frees every voice now (tab hidden, memory pressure). The AudioContext is suspended. */
   releaseAll(): void {
     this.cancelRelease();
+    for (const id of [...this.reversedNodes.keys()]) this.stopReversed(id);
+    this.reversedBuffers.clear();
     for (const [id, v] of [...this.voices]) this.release(id, v);
     if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend().catch(() => undefined);
   }
@@ -170,6 +275,8 @@ export class AudioEngine {
 
   dispose(): void {
     this.cancelRelease();
+    for (const id of [...this.reversedNodes.keys()]) this.stopReversed(id);
+    this.reversedBuffers.clear();
     for (const [id, v] of [...this.voices]) this.release(id, v);
     void this.ctx?.close().catch(() => undefined);
     this.ctx = null;

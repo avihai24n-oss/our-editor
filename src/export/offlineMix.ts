@@ -22,7 +22,8 @@ import { measureAudioBuffer } from '../audio/measure';
 import { ensureWorklets } from '../audio/worklets';
 import { dbToGain } from '../model/project';
 import type { SpeedCurve } from '../model/speedCurve';
-import { sourceOffsetAt } from '../model/time';
+import { mirrorInPoint, sourceOffsetAt, sourceSpan } from '../model/time';
+import { reverseBuffer } from '../audio/reverse';
 import type { AudioProps, Id, Project, Us } from '../model/types';
 import { limitPeaks } from './audioDsp';
 import { resampleMapped, sampledMap, stretchMapped } from './timeStretch';
@@ -48,6 +49,15 @@ export interface MixClip {
   volume: number;
   fadeInSec: number;
   fadeOutSec: number;
+  /**
+   * Edit › Reverse: the clip reads the time-reversed media (src/audio/reverse.ts); `inSec` /
+   * `inPointUs` are then in reversed media time and `realInSec` is the real span start.
+   */
+  reversed: boolean;
+  /** Media (asset) duration, seconds — the reversal axis. */
+  mediaSec: number;
+  /** Real media time where the heard span starts, seconds (= inSec unless reversed). */
+  realInSec: number;
   /** Audio › Basic / Voice changer settings. */
   fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'>;
 }
@@ -84,6 +94,9 @@ export function planMix(project: Project): MixClip[] {
         durationUs: clip.duration,
         inPointUs: clip.inPoint,
         preservePitch: clip.preservePitch !== false,
+        reversed: clip.reversed === true,
+        mediaSec: asset.duration / 1e6,
+        realInSec: (clip.reversed === true ? mirrorInPoint(asset.duration, clip.inPoint, sourceSpan(clip)) : clip.inPoint) / 1e6,
         volume,
         fadeInSec: Math.min(clip.audio.fadeIn, clip.duration) / 1e6,
         fadeOutSec: Math.min(clip.audio.fadeOut, clip.duration) / 1e6,
@@ -145,10 +158,18 @@ export async function renderMix(project: Project, durationUs: number, decode: De
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(durSec * MIX_SAMPLE_RATE)), MIX_SAMPLE_RATE);
   const worklets = await ensureWorklets(ctx);
   let any = false;
+  const reversed = new Map<Id, AudioBuffer>();
   for (const c of plan) {
     if (signal?.aborted) return null;
-    const buf = await decode(c.assetId);
-    if (!buf) continue;
+    const decoded = await decode(c.assetId);
+    if (!decoded) continue;
+    // Edit › Reverse: read the time-reversed media forward (inPoint is in reversed media time)
+    let buf = decoded;
+    if (c.reversed) {
+      const key = `${c.assetId}@${c.mediaSec}`;
+      buf = reversed.get(key) ?? reverseBuffer(ctx, decoded, c.mediaSec);
+      reversed.set(key, buf);
+    }
     const src = ctx.createBufferSource();
     if (!c.speedCurve && c.speed === 1) {
       src.buffer = buf;
