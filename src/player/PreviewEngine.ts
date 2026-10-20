@@ -12,7 +12,7 @@
  * elements that frame needs come back. Registered as the "preview" cache so the memory watchdog
  * can flush it.
  */
-import { getFrameState, type MediaDrawOp } from '../engine/frameState';
+import { getFrameState, mediaOpsDeep } from '../engine/frameState';
 import { createColorGrader, onLutsChange, type ColorGrader } from '../engine/color';
 import { createLayerProvider, renderFrame, type DrawnBox } from '../engine/render';
 import { registerCache } from '../media/memory';
@@ -260,7 +260,7 @@ export class PreviewEngine {
     const project = useEditor.getState().project;
     const fps = project.settings.fps;
     const fs = getFrameState(project, t);
-    const media = fs.ops.filter((o): o is MediaDrawOp => o.kind === 'media');
+    const media = mediaOpsDeep(fs.ops); // compound clips: their nested media too
     this.pool.sync(media, t, playing, fps);
 
     const keep = new Set<Id>(media.map((o) => o.clipId));
@@ -269,7 +269,7 @@ export class PreviewEngine {
       const now = performance.now();
       if (now - this.lastPreloadAt > 200) {
         this.lastPreloadAt = now;
-        const ahead = getFrameState(project, t + PRELOAD_AHEAD_US).ops.filter((o): o is MediaDrawOp => o.kind === 'media');
+        const ahead = mediaOpsDeep(getFrameState(project, t + PRELOAD_AHEAD_US).ops);
         const upcoming = ahead.filter((o) => !keep.has(o.clipId));
         this.pool.preload(upcoming, t);
         upcoming.forEach((o) => keep.add(o.clipId));

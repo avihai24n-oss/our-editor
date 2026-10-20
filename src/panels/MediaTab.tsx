@@ -11,6 +11,7 @@ import { consumeAssetHighlight, consumeImportRequest, onAppEvent, requestAssetHi
 import { importSummary } from '../media/dropFiles';
 import { Icon } from '../ui/Icon';
 import { AssetTile } from './AssetTile';
+import { SubprojectsList } from './SubprojectsPanel';
 import { ComingSoon, GridLabel, LibraryBody, useFlash, type SidebarItem } from './LibraryLayout';
 import { SORT_LABELS, visibleAssets, type AssetKindFilter, type AssetSort } from './libraryLogic';
 import { usePref } from './prefs';
@@ -21,6 +22,7 @@ const MEDIA_SIDEBAR: SidebarItem[] = [
   { id: 'video', label: 'Videos', child: true },
   { id: 'image', label: 'Images', child: true },
   { id: 'audio', label: 'Audio', child: true },
+  { id: 'subprojects', label: 'Subprojects' },
   { id: 'library', label: 'Library', disabled: true },
 ];
 
@@ -232,7 +234,9 @@ export function MediaTab({ mode }: { mode: 'media' | 'audio' }) {
           </div>
         </div>
 
-        {showSfx ? (
+        {mode === 'media' && category === 'subprojects' ? (
+          <SubprojectsList />
+        ) : showSfx ? (
           <ComingSoon label="Sound effects" icon="audio" note="A sound-effects library is coming soon. Import your own sound files for now." />
         ) : (
           <div className="lib__scroll" ref={scrollRef}>

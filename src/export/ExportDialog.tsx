@@ -5,6 +5,7 @@
  * Interface fixed by the shell: { open, onClose }.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { rootProject } from '../model/compound';
 import { formatTimecode, projectDuration } from '../model/time';
 import { useEditor } from '../store';
 import { Icon } from '../ui/Icon';
@@ -46,7 +47,7 @@ const PHASE_LABEL: Record<ExportProgress['phase'], string> = {
 
 export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const project = useEditor((s) => s.project);
-  const duration = projectDuration(project);
+  const duration = projectDuration(rootProject(project)); // the main timeline, even inside a compound clip
   const [settings, setSettings] = useState<ExportSettings>(() => defaultExportSettings(project.name, project.settings.fps));
   const [stage, setStage] = useState<Stage>({ kind: 'form' });
   const abortRef = useRef<AbortController | null>(null);

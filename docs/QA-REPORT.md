@@ -857,3 +857,36 @@ transition. 9 undo steps all undone with ⌘Z (back to the empty timeline) and r
 sides of the cut, next clip): MAD 0.8–2.2 / 255, and every preview frame matches its own export
 frame better than frames n ± 1, 2; after a reload the document is identical and the frame is
 pixel-identical (MAD 0).
+
+## Compound clips (⌥G / ⌥⇧G, subprojects) — 2026-10-20
+
+Branch `agent/ctx-compound`. Research and behaviour: docs/research/10-compound-clips.md.
+
+- **Unit tests** (src/store/compound.test.ts, 12 tests):
+  - Create puts the compound clip in the main-track slot and leaves the magnet packed. It is one
+    undo step, and undo / redo are exact.
+  - Create + undo compound gives the same project JSON: main + overlay + audio + text, and an
+    overlay-only selection.
+  - Selections that break the magnet are refused. The menu slot `compound` is registered, and its
+    label and action follow the selection.
+  - Nested frame state: at 7 chosen times, the media ops and audio ops equal the pre-compound ones.
+    The compound transform and in-point wrap the nested result.
+  - `planMix` with a compound equals the plan without one.
+  - Cycle guard: a sequence holding itself draws once and does not hang; the invariants flag it.
+  - Nested editing: open shows the breadcrumb and maps the playhead; the media panel cannot nest
+    the open sequence; undo inside stays inside; on close the duration follows and both instances
+    change.
+  - Save, load and export close an open compound.
+  - Ungrouping a trimmed instance restores only its window, as copies, and keeps the sequence.
+- **e2e** (e2e/compound.spec.ts):
+  - Two clips (a main video and a rotated, screen-blended image overlay) are selected with
+    click + ⇧click, then ⌥G is pressed.
+  - Preview PNG before vs after at 0.5 / 1.5 / 2.5 / 4.2 s: MAD 0.
+  - Double-click opens the breadcrumb, which contains the overlay; Back returns.
+  - Media › Subprojects lists the compound.
+  - 720p export vs preview at frames 45 / 75: MAD 3.7, PSNR 25.4, the same level as the combined
+    spec's codec error.
+  - ⌘Z gives the exact pre-compound JSON; redo + ⌥⇧G gives the same.
+  - `__oeCheck` is clean throughout.
+- smoke, flows and timeline-stability pass; `npm run typecheck`, `npm test` (1296) and
+  `npm run build` pass.

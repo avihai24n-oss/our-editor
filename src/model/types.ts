@@ -58,6 +58,40 @@ export interface Project {
    */
   tracks: Track[];
   markers: Marker[];
+  /**
+   * Compound clips / subprojects (CapCut ⌥G): nested timelines referenced by `compound` clips.
+   * Optional and additive (older projects simply lack it). See src/model/compound.ts.
+   */
+  sequences?: Record<Id, Sequence>;
+  /**
+   * Nested editing (double-click a compound clip): the stack of opened sequences, outermost first.
+   * While it is non-empty, `tracks` holds the tracks of the innermost opened sequence and each
+   * entry keeps the tracks of the timeline it was opened from. Empty / absent = the main timeline.
+   */
+  focus?: SequenceFocus[];
+}
+
+/** A nested timeline (CapCut "subproject"): tracks with the same rules as the project's. */
+export interface Sequence {
+  id: Id;
+  name: string;
+  /**
+   * Same rules as Project.tracks (one main track, first visual track = main). While the sequence
+   * is opened for editing this is an empty placeholder: its live tracks are elsewhere (see
+   * `sequenceTracks` in src/model/compound.ts).
+   */
+  tracks: Track[];
+  /** Content length (end of the last clip), µs. Kept up to date by create / close. */
+  duration: Us;
+  createdAt: number;
+  /** Array index each track had in the timeline it came from (ungroup restores them there). */
+  origin?: Record<Id, number>;
+}
+
+export interface SequenceFocus {
+  sequenceId: Id;
+  /** The tracks of the timeline this sequence was opened from (restored on close). */
+  parentTracks: Track[];
 }
 
 // ---------------------------------------------------------------- media
@@ -422,7 +456,7 @@ export interface TextStyle {
 
 // ---------------------------------------------------------------- clips
 
-export type ClipType = 'video' | 'image' | 'audio' | 'text';
+export type ClipType = 'video' | 'image' | 'audio' | 'text' | 'compound';
 
 interface ClipBase {
   id: Id;
@@ -515,8 +549,20 @@ export interface TextClip extends ClipBase, VisualFields {
   text: TextStyle;
 }
 
-export type Clip = VideoClip | ImageClip | AudioClip | TextClip;
-export type VisualClip = VideoClip | ImageClip | TextClip;
+/**
+ * Compound clip (CapCut "Create compound clip", ⌥G): shows the sequence `sequenceId` from
+ * `inPoint` on, for `duration`. Its transform / opacity / blend / animations / colour wrap the
+ * nested picture as one layer; the nested audio plays as if the clips were on the timeline.
+ */
+export interface CompoundClip extends ClipBase, VisualFields {
+  type: 'compound';
+  sequenceId: Id;
+  /** Offset into the sequence, µs (trimming the clip's start moves it). */
+  inPoint: Us;
+}
+
+export type Clip = VideoClip | ImageClip | AudioClip | TextClip | CompoundClip;
+export type VisualClip = VideoClip | ImageClip | TextClip | CompoundClip;
 export type MediaClip = VideoClip | ImageClip | AudioClip;
 export type TimedClip = VideoClip | AudioClip;
 

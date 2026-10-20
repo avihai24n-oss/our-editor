@@ -123,6 +123,16 @@ real-time WebM export.
   - Trim with the edge handles. Move with snapping (Alt turns snapping off).
   - Moving a clip that is part of a multi-selection moves the whole selection.
   - Marquee selection.
+- **Compound clips (subprojects):** select clips, even across tracks, then press ⌥G or right-click
+  › *Create compound clip*. They become one clip, striped purple with a stack icon, in their
+  main-track slot.
+  - Double-click opens it as a nested timeline, with a breadcrumb "Main › Compound 1" to get back.
+    Edits inside show in every instance.
+  - ⌥⇧G puts the clips back exactly.
+  - Media › Subprojects lists every compound clip; drag one to the timeline for another instance.
+  - The compound clip's transform, opacity, blend, animations and adjust apply to the nested
+    picture as a whole.
+  - See docs/research/10-compound-clips.md.
 - **Shortcuts:** CapCut desktop's set. The keyboard icon next to **Export** opens the full list,
   grouped like CapCut's panel. Mac shows ⌘ ⇧ ⌥ and Windows shows Ctrl / Shift / Alt. The list, the key
   handler and the toolbar tooltips all come from one table, `src/timeline/shortcutDefs.ts`.
@@ -134,7 +144,8 @@ real-time WebM export.
   | Timeline & preview | ⇧← / ⇧→ 10 frames · Home / End · ⌘= / ⌘− zoom · ⌃⌘F or ⇧⌘F full-screen preview (Esc exits) · ⌥⇧Z fit preview to window · S preview axis · Esc cancel / clear area / deselect |
   | Audio & speed | ⇧⌘S extract / restore audio · ⌘R Speed tab · ⇧B Speed › Curve · ⌘. / ⌘, volume ±1 dB · P magnet · N snapping · ~ linkage |
   | Project & clipboard | ⌘I import · ⌘Z / ⇧⌘Z undo / redo · ⌘C / ⌘X / ⌘V copy / cut / paste at the playhead · ⌘D duplicate · ⌘A select all · Tab / ⇧Tab next / previous library tab |
-  | Coming soon (toast) | ⌘G / ⇧⌘G group / ungroup · ⌥G / ⌥⇧G compound clip · ⌘J match cut · ⌥K keyframes · Return split caption |
+  | Compound clips | ⌥G create compound clip · ⌥⇧G undo compound clip |
+  | Coming soon (toast) | ⌘G / ⇧⌘G group / ungroup · ⌘J match cut · ⌥K keyframes · Return split caption |
 
   Shortcuts match the physical key, so they also work on a Hebrew keyboard and with ⌥ combos. They
   are ignored while you type in a text field (except ⌘E) and while a dialog is open. ⌘N and ⌘Q

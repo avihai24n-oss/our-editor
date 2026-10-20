@@ -34,6 +34,8 @@ import {
 import { Ruler } from './Ruler';
 import { useTimelineShortcuts } from './shortcuts';
 import { Toolbar } from './Toolbar';
+import { CompoundBreadcrumb } from './CompoundBreadcrumb';
+import { addSubproject } from '../actions/compound';
 import { TrackHeader } from './TrackHeader';
 import { bladeTime, clipsOnSide, toolDef, toolSide } from './tools';
 import { useTimelineUi } from './uiStore';
@@ -746,6 +748,9 @@ export function Timeline() {
       if (payload.kind === 'asset') {
         const a = s.project.assets[payload.assetId];
         if (a) s.addClip(a.id, assetDropOptions(s.project, a.kind, row, at));
+      } else if (payload.kind === 'sequence') {
+        const rowTrack = row?.type === 'track' ? s.project.tracks.find((t) => t.id === row.trackId) : undefined;
+        addSubproject(payload.sequenceId, { at, trackId: rowTrack && (rowTrack.kind === 'main' || rowTrack.kind === 'overlay') ? rowTrack.id : undefined, kind: rowTrack?.kind === 'overlay' ? 'overlay' : undefined });
       } else if (payload.kind === 'text') {
         // a styled preset from the Text tab lands styled, in one undo step
         const preset = payload.preset ? textPreset(payload.preset) : undefined;
@@ -804,6 +809,7 @@ export function Timeline() {
       data-drop-zone="timeline"
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <Toolbar />
+      <CompoundBreadcrumb />
       <div className="tl-scroller" ref={scrollerRef} onPointerMove={onHover} onPointerLeave={onHoverLeave}>
         <div className="tl-content" style={{ width: HEADER_W + contentW }}>
           <div className="tl-ruler-row" style={{ height: RULER_H }}>
@@ -878,7 +884,7 @@ export function Timeline() {
                         <ClipView
                           key={c.id}
                           clip={c}
-                          asset={c.type === 'text' ? undefined : project.assets[c.assetId]}
+                          asset={c.type === 'text' || c.type === 'compound' ? undefined : project.assets[c.assetId]}
                           zoom={zoom}
                           height={h}
                           selected={selectedSet.has(c.id)}

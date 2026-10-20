@@ -5,7 +5,7 @@
  * Mediabunny (packets copied, not re-encoded), which writes both.
  * Pictures come from <video> elements seeked frame by frame (ElementFrameSource).
  */
-import { frameLookupSec, type FrameState, type MediaDrawOp } from '../engine/frameState';
+import { frameLookupSec, mediaOpsDeep, type FrameState, type MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
 import { getAssetUrl } from '../media/registry';
 import type { Id, Project, Us } from '../model/types';
@@ -124,8 +124,7 @@ export class ElementFrameSource implements FrameSources {
 
   async prepare(fs: FrameState): Promise<void> {
     this.ready.clear();
-    for (const op of fs.ops) {
-      if (op.kind !== 'media') continue;
+    for (const op of mediaOpsDeep(fs.ops)) {
       const key = op.mediaType === 'image' ? `img:${op.assetId}` : op.clipId;
       const url = getAssetUrl(op.assetId);
       if (!url || this.project.assets[op.assetId]?.missing) {

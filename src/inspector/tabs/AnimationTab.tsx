@@ -92,7 +92,8 @@ function Tile(props: { def: AnimDef; kind: 'media' | 'text'; active: boolean; fa
 // ---------------------------------------------------------------- tab
 
 export function AnimationTab({ clip }: { clip: VisualClip }) {
-  const slots = phasesFor(clip.type);
+  const animType = clip.type === 'compound' ? 'video' : clip.type; // a compound animates like a video clip
+  const slots = phasesFor(animType);
   const [slotPref, setSlotPref] = usePref<string>('animation-slot', 'in');
   const slot: AnimationSlot = (slots as string[]).includes(slotPref) ? (slotPref as AnimationSlot) : 'in';
   const [chip, setChip] = useState<Chip>('trending');
@@ -104,7 +105,7 @@ export function AnimationTab({ clip }: { clip: VisualClip }) {
   const current = slotValue(clip, slot);
   const currentDef = current ? findAnimation(slot, current.type) : undefined;
 
-  const all = useMemo(() => animationsFor(slot, clip.type), [slot, clip.type]);
+  const all = useMemo(() => animationsFor(slot, animType), [slot, animType]);
   const favSet = useMemo(() => new Set(Array.isArray(favs) ? favs : []), [favs]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

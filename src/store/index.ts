@@ -222,6 +222,12 @@ export interface EditorState {
   setSnapping: (on: boolean) => void;
   setLinkage: (on: boolean) => void;
 
+  /**
+   * Runs any ops recipe on the document as ONE undo step (normalize included), like the built-in
+   * actions. For feature modules (e.g. src/actions/compound.ts) that bring their own ops.
+   */
+  applyEdit: <T>(recipe: (draft: Project, ctx: ops.EditCtx) => T) => T;
+
   // ---- history
   undo: () => void;
   redo: () => void;
@@ -757,6 +763,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
   },
   setSnapping: (on) => set({ snapping: on }),
   setLinkage: (on) => set({ linkage: on }),
+
+  applyEdit: (recipe) => edit(set, get, recipe),
 
   // ---- history
   undo: () => {

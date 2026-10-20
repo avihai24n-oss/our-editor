@@ -20,7 +20,7 @@ const proj = () => st().project;
 const video = (name: string, sec: number, size = 100): MediaAsset =>
   createAsset({ kind: 'video', name, mime: 'video/mp4', size, duration: S(sec), width: 1080, height: 1920, hasAudio: true });
 const orphanClips = () =>
-  proj().tracks.flatMap((t) => t.clips).filter((c) => c.type !== 'text' && !proj().assets[c.assetId]).length;
+  proj().tracks.flatMap((t) => t.clips).filter((c) => c.type !== 'text' && c.type !== 'compound' && !proj().assets[c.assetId]).length;
 
 beforeAll(() => {
   // node has no object URLs

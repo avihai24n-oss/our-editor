@@ -168,8 +168,8 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Tools', label: 'Clear area', command: 'clearArea', status: 'works', combos: [L('x', { alt: true })] },
   { group: 'Tools', label: 'Group', command: 'group', status: 'soon', combos: [L('g', { mod: true })] },
   { group: 'Tools', label: 'Ungroup', command: 'ungroup', status: 'soon', combos: [L('g', { mod: true, shift: true })] },
-  { group: 'Tools', label: 'Create compound clip', command: 'compound', status: 'soon', combos: [L('g', { alt: true })] },
-  { group: 'Tools', label: 'Undo compound clip', command: 'undoCompound', status: 'soon', combos: [L('g', { alt: true, shift: true })] },
+  { group: 'Tools', label: 'Create compound clip', command: 'compound', status: 'works', combos: [L('g', { alt: true })] },
+  { group: 'Tools', label: 'Undo compound clip', command: 'undoCompound', status: 'works', combos: [L('g', { alt: true, shift: true })] },
   { group: 'Tools', label: 'Match cut', command: 'matchCut', status: 'soon', combos: [L('j', { mod: true })] },
 
   // ---------------------------------------------------------------- Timeline & preview

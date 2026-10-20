@@ -31,6 +31,9 @@ export function clipTabs(clip: Pick<Clip, 'type'>, asset?: Pick<MediaAsset, 'has
       return ['audio', 'speed'];
     case 'text':
       return ['text', 'animation', 'adjust'];
+    case 'compound':
+      // compound clip (⌥G): its transform / blend, animations and colour wrap the nested picture
+      return ['video', 'animation', 'adjust'];
   }
 }
 

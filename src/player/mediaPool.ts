@@ -199,7 +199,7 @@ export class MediaPool implements FrameSources {
       const speed = op.speed ?? (clip && (clip.type === 'video' || clip.type === 'audio') ? clip.speed : 1);
       // running = the source actually advances at t (not a held edge frame of a transition)
       const atEnd = asset ? op.sourceTime >= asset.duration - 1e6 / fps : false;
-      const running = playing && !!clip && clipContains(clip, t) && !atEnd;
+      const running = playing && (op.active ?? (!!clip && clipContains(clip, t))) && !atEnd;
       // Paused (or a held / stepped frame): the element must sit exactly on the target, not within
       // half a frame of it — "half a frame" in time still straddles a frame boundary half the time
       // (measured: paused on frame 74, element left on 75). After one seek currentTime == target.

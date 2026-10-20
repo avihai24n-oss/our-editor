@@ -40,7 +40,7 @@ function boxFor(clip: VisualClip, asset: MediaAsset | undefined, settings: Proje
 export function TransformSection({ clip }: { clip: VisualClip }) {
   const updateClip = useEditor((s) => s.updateClip);
   const settings = useEditor((s) => s.project.settings);
-  const asset = useEditor((s) => (clip.type === 'text' ? undefined : s.project.assets[clip.assetId]));
+  const asset = useEditor((s) => (clip.type === 'text' || clip.type === 'compound' ? undefined : s.project.assets[clip.assetId]));
   const t = clip.transform;
   const set = (patch: Partial<typeof t>) => updateClip(clip.id, { transform: patch });
   const halfW = settings.width;

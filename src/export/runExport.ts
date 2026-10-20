@@ -6,6 +6,7 @@
 import { measureSpan } from '../audio/measure';
 import { createColorGrader, ensureLuts, getLoadedLut } from '../engine/color';
 import { getFrameState } from '../engine/frameState';
+import { allClipsDeep, rootProject } from '../model/compound';
 import { createLayerProvider, renderFrame } from '../engine/render';
 import { projectDuration, sourceSpan } from '../model/time';
 import type { Id, Project } from '../model/types';
@@ -44,7 +45,9 @@ export interface RunExportResult extends EncodeResult {
 }
 
 export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
-  const { project, settings } = o;
+  const { settings } = o;
+  // export is always the main timeline, even while a compound clip is open for editing
+  const project = rootProject(o.project);
   const durationUs = projectDuration(project);
   if (durationUs <= 0) throw new Error('The timeline is empty — add media before exporting.');
   const { width, height } = outputSize(project.settings.width, project.settings.height, settings.resolution);
@@ -79,7 +82,7 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   const layers = createLayerProvider();
   // the colour pass needs every LUT the timeline uses in memory before frame 0
   await ensureLuts(
-    project.tracks.flatMap((t) => t.clips).flatMap((c) => (c.type !== 'audio' && c.grade?.lut.enabled && c.grade.lut.lutId ? [c.grade.lut.lutId] : [])),
+    allClipsDeep(project).flatMap((c) => (c.type !== 'audio' && c.grade?.lut.enabled && c.grade.lut.lutId ? [c.grade.lut.lutId] : [])),
   );
   const grader = createColorGrader();
   const lutReady = (id: string) => !!getLoadedLut(id);

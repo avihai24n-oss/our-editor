@@ -23,7 +23,8 @@ import { ensureWorklets } from '../audio/worklets';
 import { dbToGain } from '../model/project';
 import type { SpeedCurve } from '../model/speedCurve';
 import { sourceOffsetAt } from '../model/time';
-import type { AudioProps, Id, Project, Us } from '../model/types';
+import { MAX_COMPOUND_DEPTH, sequenceTracks } from '../model/compound';
+import type { AudioProps, Id, Project, Track, Us } from '../model/types';
 import { limitPeaks } from './audioDsp';
 import { resampleMapped, sampledMap, stretchMapped } from './timeStretch';
 
@@ -50,6 +51,11 @@ export interface MixClip {
   fadeOutSec: number;
   /** Audio › Basic / Voice changer settings. */
   fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'>;
+  /**
+   * Compound clips (⌥G): the part of the timeline where this nested clip is heard, seconds (the
+   * compound clip's window). Absent = the whole clip.
+   */
+  windowSec?: [number, number];
 }
 
 /**
@@ -59,13 +65,33 @@ export interface MixClip {
  */
 export const mixFx = (c: Pick<MixClip, 'fx'>): FxConfig => fxFromAudio(c.fx, 1);
 
-/** Which clips are heard in the export, in project order. Pure. */
+/** Which clips are heard in the export, in project order (clips nested in compound clips included). Pure. */
 export function planMix(project: Project): MixClip[] {
   const out: MixClip[] = [];
-  for (const track of project.tracks) {
+  planTracks(project, project.tracks, 0, null, [], '', out);
+  return out;
+}
+
+/**
+ * Plans one track list. `shiftUs` maps its times to the timeline; `win` (timeline µs) is where it
+ * can be heard (the enclosing compound clips' windows); `stack` guards against cycles.
+ */
+function planTracks(project: Project, tracks: readonly Track[], shiftUs: Us, win: [Us, Us] | null, stack: readonly Id[], prefix: string, out: MixClip[]): void {
+  for (const track of tracks) {
     if (track.muted) continue;
     for (const clip of track.clips) {
       if (clip.disabled) continue;
+      if (clip.type === 'compound') {
+        if (stack.length >= MAX_COMPOUND_DEPTH || stack.includes(clip.sequenceId)) continue;
+        const inner = sequenceTracks(project, clip.sequenceId);
+        if (!inner) continue;
+        const a = clip.start + shiftUs;
+        const b = a + clip.duration;
+        const w: [Us, Us] = win ? [Math.max(win[0], a), Math.min(win[1], b)] : [a, b];
+        if (w[1] <= w[0]) continue;
+        planTracks(project, inner, a - clip.inPoint, w, [...stack, clip.sequenceId], `${prefix}${clip.id}/`, out);
+        continue;
+      }
       if (clip.type !== 'video' && clip.type !== 'audio') continue;
       if (clip.audio.muted) continue;
       const asset = project.assets[clip.assetId];
@@ -73,10 +99,12 @@ export function planMix(project: Project): MixClip[] {
       if (clip.type === 'video' && asset.hasAudio === false) continue;
       const volume = dbToGain(clip.audio.volumeDb);
       if (volume <= 0 || clip.duration <= 0) continue;
+      const start = clip.start + shiftUs;
+      if (win && (start + clip.duration <= win[0] || start >= win[1])) continue;
       out.push({
-        clipId: clip.id,
+        clipId: prefix + clip.id,
         assetId: clip.assetId,
-        startSec: clip.start / 1e6,
+        startSec: start / 1e6,
         durationSec: clip.duration / 1e6,
         inSec: clip.inPoint / 1e6,
         speed: clip.speed,
@@ -93,10 +121,31 @@ export function planMix(project: Project): MixClip[] {
           fillChannel: clip.audio.fillChannel ?? null,
           voiceFilter: clip.audio.voiceFilter ?? null,
         },
+        ...(win && (start < win[0] || start + clip.duration > win[1]) ? { windowSec: [win[0] / 1e6, win[1] / 1e6] as [number, number] } : {}),
       });
     }
   }
-  return out;
+}
+
+/** The part of a planned clip that is heard: [from, to) seconds on the timeline. */
+export function heardRange(c: Pick<MixClip, 'startSec' | 'durationSec' | 'windowSec'>): [number, number] {
+  const a = c.startSec;
+  const b = c.startSec + c.durationSec;
+  return c.windowSec ? [Math.max(a, c.windowSec[0]), Math.min(b, c.windowSec[1])] : [a, b];
+}
+
+/** Gain points cut to [from, to]: the envelope's value at both edges, the points in between. */
+export function clipGainPoints(pts: [number, number][], from: number, to: number): [number, number][] {
+  const at = (x: number): number => {
+    if (x <= pts[0]![0]) return pts[0]![1];
+    for (let i = 1; i < pts.length; i++) {
+      const [t1, v1] = pts[i]!;
+      const [t0, v0] = pts[i - 1]!;
+      if (x <= t1) return t1 === t0 ? v1 : v0 + ((v1 - v0) * (x - t0)) / (t1 - t0);
+    }
+    return pts[pts.length - 1]![1];
+  };
+  return [[from, at(from)], ...pts.filter(([t]) => t > from && t < to), [to, at(to)]];
 }
 
 /** Gain automation points (time sec, value) for one clip: 0→vol over fade-in, vol→0 over fade-out. */
@@ -161,20 +210,25 @@ export async function renderMix(project: Project, durationUs: number, decode: De
     const chain = buildFxChain(ctx, mixFx(c), { worklets });
     const g = chain.output;
     const k = await normalizeGainFor(c, buf, o);
-    const pts = gainPoints({ ...c, volume: c.volume * k });
+    // a clip nested in a compound clip is heard only inside the compound's window
+    const [from, to] = heardRange(c);
+    if (to <= from) continue;
+    const full = gainPoints({ ...c, volume: c.volume * k });
+    const pts = c.windowSec ? clipGainPoints(full, from, to) : full;
     g.gain.setValueAtTime(pts[0]![1], pts[0]![0]);
     for (const [t, v] of pts.slice(1)) g.gain.linearRampToValueAtTime(v, t);
     // the clip ends here: cut effect tails (echo, reverb) like the preview does
-    g.gain.setValueAtTime(0, c.startSec + c.durationSec);
+    g.gain.setValueAtTime(0, to);
     src.connect(chain.input);
     g.connect(ctx.destination); // → bus
+    const skip = from - c.startSec; // seconds of the clip cut off by the window
     if (src.buffer === buf) {
-      const offset = Math.min(c.inSec, Math.max(0, buf.duration - 1e-3));
-      src.start(c.startSec, offset, c.durationSec);
+      const offset = Math.min(c.inSec + skip, Math.max(0, buf.duration - 1e-3));
+      src.start(from, offset, to - from);
     } else {
-      src.start(c.startSec);
+      src.start(from, skip);
     }
-    src.stop(c.startSec + c.durationSec);
+    src.stop(to);
     any = true;
   }
   if (!any) return null;
