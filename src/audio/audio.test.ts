@@ -159,13 +159,20 @@ describe('FX chain config', () => {
 describe('migration of the new audio fields', () => {
   it('fills defaults on old clips and leaves current ones untouched', () => {
     const old = { volumeDb: -3, fadeIn: 0, fadeOut: 0, muted: false } as unknown as AudioProps;
-    expect(migrateAudioProps(old)).toEqual({ ...old, normalize: false, reduceNoise: false, fillChannel: null, voiceFilter: null });
+    expect(migrateAudioProps(old)).toEqual({ ...old, normalize: false, reduceNoise: false, fillChannel: null, voiceFilter: null, voiceIsolation: null });
     const cur = defaultAudio();
     expect(migrateAudioProps(cur)).toBe(cur);
     const bad = { ...cur, fillChannel: 'middle', voiceFilter: 'robot' } as unknown as AudioProps;
     expect(migrateAudioProps(bad)).toMatchObject({ fillChannel: null, voiceFilter: null });
     const kept = { ...cur, fillChannel: 'right' as const, voiceFilter: { id: 'echo' as const, strength: 30 } };
     expect(migrateAudioProps(kept)).toBe(kept);
+    // voice isolation (20 Oct 2026): missing → null, malformed → null, valid kept
+    const noIso = { ...cur } as Partial<AudioProps>;
+    delete noIso.voiceIsolation;
+    expect(migrateAudioProps(noIso as AudioProps).voiceIsolation).toBeNull();
+    expect(migrateAudioProps({ ...cur, voiceIsolation: { mode: 'karaoke', strength: 5 } } as unknown as AudioProps).voiceIsolation).toBeNull();
+    const iso = { ...cur, voiceIsolation: { mode: 'remove' as const, strength: 40 } };
+    expect(migrateAudioProps(iso)).toBe(iso);
   });
 
   it('migrateProject upgrades video and audio clips of an old saved project', () => {
@@ -178,7 +185,7 @@ describe('migration of the new audio fields', () => {
     const m = migrateProject(saved);
     expect(m).not.toBe(saved);
     const c = m.tracks[1]!.clips[0]!;
-    expect(c.type === 'audio' && c.audio).toEqual({ ...oldAudio, normalize: false, reduceNoise: false, fillChannel: null, voiceFilter: null });
+    expect(c.type === 'audio' && c.audio).toEqual({ ...oldAudio, normalize: false, reduceNoise: false, fillChannel: null, voiceFilter: null, voiceIsolation: null });
     expect(migrateProject(m)).toBe(m);
   });
 });

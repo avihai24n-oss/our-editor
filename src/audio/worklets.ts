@@ -10,9 +10,15 @@
  *   and closes to −30 dB. Steady material (less than 15 dB between floor and the 4 s peak) is
  *   never gated. Attack 3 ms, hold 60 ms, release 150 ms. Not AI.
  *
+ * - `oe-isolate`: Voice isolation (DSP, not AI) — STFT noise-profile Wiener suppression, speech-band
+ *   emphasis and a gentle gate, or the approximate "remove vocals" centre cancellation. The DSP is
+ *   src/audio/isolateCore.ts, inlined here.
+ *
  * The source is a string so it can be loaded from a Blob URL in any context (no bundler magic).
  */
-export const WORKLET_SOURCE = String.raw`
+import { ISOLATE_CORE_SOURCE } from './isolateCore';
+
+export const WORKLET_SOURCE = ISOLATE_CORE_SOURCE + String.raw`
 class OePitch extends AudioWorkletProcessor {
   constructor(o) {
     super();
@@ -117,6 +123,20 @@ class OeGate extends AudioWorkletProcessor {
   }
 }
 registerProcessor('oe-gate', OeGate);
+
+class OeIsolate extends AudioWorkletProcessor {
+  constructor(o) {
+    super();
+    const opt = (o && o.processorOptions) || {};
+    this.core = new OeIsolateCore({ sampleRate, mode: opt.mode, strength: opt.strength, profile: opt.profile || null, profileRate: opt.profileRate || 48000 });
+  }
+  process(inputs, outputs) {
+    const out = outputs[0];
+    this.core.process(inputs[0] || [], out, out[0].length);
+    return true;
+  }
+}
+registerProcessor('oe-isolate', OeIsolate);
 `;
 
 let blobUrl: string | null = null;

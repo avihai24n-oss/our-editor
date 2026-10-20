@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { installAssetCleanup } from './media/cleanup';
 import './theme.css';
+// clip right-click menu slots (registered on import)
+import './actions/isolateVoice';
 
 installAssetCleanup();
 
@@ -25,6 +27,10 @@ if (import.meta.env.DEV) {
       loudnessReady: measure.loudnessReady,
       spanKey: measure.spanKey,
     };
+  });
+  void Promise.all([import('./timeline/contextMenu/registry'), import('./audio/noiseProfile')]).then(([registry, np]) => {
+    // e2e: run a registered menu slot without the menu UI; read the cached noise profiles
+    (window as unknown as { __oeMenu?: unknown }).__oeMenu = { getSlot: registry.getSlot, noiseProfileReady: np.noiseProfileReady };
   });
   void Promise.all([import('./ui/MemoryReadout'), import('./media/memory')]).then(([readout, memory]) => {
     (window as unknown as { __oeMem?: unknown }).__oeMem = { snapshot: readout.memorySnapshot, flush: memory.flushAllCaches };

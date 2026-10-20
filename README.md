@@ -77,8 +77,11 @@ real-time WebM export.
   - **Mask:** None, Linear, Mirror, Circle, Rectangle, Heart, Star with position, rotate, size,
     feather, round corners and invert, plus on-canvas handles (move, size, rotate, feather).
 - **Audio › Basic:** Volume (dB), fade in, fade out, Normalize loudness (−23 LUFS, BS.1770),
-  Reduce noise (DSP high-pass + noise gate, not AI) and Fill channel (left / right → both). Enhance
-  voice, Video translator and Isolate voice are shown disabled (AI, coming soon).
+  Reduce noise (DSP high-pass + noise gate, not AI), **Isolate voice (DSP, not AI)** — keep the
+  voice (noise-profile Wiener suppression + 100 Hz–8 kHz emphasis + gentle gate) or keep the
+  background (approximate centre-channel cut), Strength 0–100, also on the clip right-click menu as
+  "Voice isolation (DSP)" — and Fill channel (left / right → both). Enhance voice and Video
+  translator are shown disabled (AI, coming soon).
 - **Audio › Voice changer:** 11 DSP voice filters (Chipmunk, High, Low, Deep, Robot, Electronic,
   Echo, Megaphone, Distorted, Vinyl, Big hall) with a Strength slider; AI voice characters and
   Speech to song are disabled. Preview and export run the same Web Audio graph.

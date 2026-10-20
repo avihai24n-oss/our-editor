@@ -12,14 +12,14 @@
  * with the project. A video clip whose sound was extracted shows the link instead of controls.
  */
 import { useEffect, useState } from 'react';
-import { DEFAULT_VOICE_STRENGTH, VOICE_FILTERS } from '../../audio/dsp';
+import { DEFAULT_ISOLATION_STRENGTH, DEFAULT_VOICE_STRENGTH, VOICE_FILTERS } from '../../audio/dsp';
 import { NORMALIZE_TARGET_LUFS, normalizeGainDb } from '../../audio/loudness';
 import { loudnessReady, measureSpan, onLoudness, spanKey } from '../../audio/measure';
 import { getAssetBlob, getAssetUrl } from '../../media/registry';
 import { LIMITS } from '../../model/catalog';
 import { audioLinked } from '../../model/project';
 import { secToUs, sourceSpan, usToSec } from '../../model/time';
-import type { AudioClip, AudioProps, FillChannel, VideoClip, VoiceFilterId } from '../../model/types';
+import type { AudioClip, AudioProps, FillChannel, VideoClip, VoiceFilterId, VoiceIsolationMode } from '../../model/types';
 import { usePref } from '../../panels/prefs';
 import { useEditor } from '../../store';
 import { SegmentedTabs, Section, SliderRow } from '../controls';
@@ -139,7 +139,7 @@ function BasicPane({ clip }: { clip: VideoClip | AudioClip }) {
         </p>
       </Section>
 
-      <AiRow id="isolate" title="Isolate voice" />
+      <IsolateSection clip={clip} />
 
       <Section
         id="audio-fill"
@@ -174,6 +174,66 @@ function BasicPane({ clip }: { clip: VideoClip | AudioClip }) {
         <p className="iaudio__desc">Copies the chosen channel to both speakers (for a mic recorded on one side only).</p>
       </Section>
     </>
+  );
+}
+
+/** Isolate voice — DSP, not AI (src/audio/isolateCore.ts). Same field as the clip menu item. */
+function IsolateSection({ clip }: { clip: VideoClip | AudioClip }) {
+  const updateClip = useEditor((s) => s.updateClip);
+  const vi = clip.audio.voiceIsolation ?? null;
+  // the dropdown remembers the mode even while the section is off
+  const [mode, setMode] = useState<VoiceIsolationMode>(vi?.mode ?? 'isolate');
+  useEffect(() => {
+    if (vi) setMode(vi.mode);
+  }, [vi]);
+  const set = (v: AudioProps['voiceIsolation']) => updateClip(clip.id, { audio: { voiceIsolation: v } });
+  return (
+    <Section
+      id="audio-isolate"
+      title="Isolate voice"
+      note="DSP · not AI"
+      checked={vi !== null}
+      onCheck={(on) => set(on ? { mode, strength: DEFAULT_ISOLATION_STRENGTH } : null)}
+      resetDisabled={!vi || vi.strength === DEFAULT_ISOLATION_STRENGTH}
+      onReset={() => vi && set({ mode: vi.mode, strength: DEFAULT_ISOLATION_STRENGTH })}
+    >
+      <div className="frow">
+        <span className="frow__label">Keep</span>
+        <div className="frow__ctl">
+          <select
+            value={mode}
+            aria-label="Voice isolation mode"
+            data-testid="isolate-mode-select"
+            disabled={!vi}
+            onChange={(e) => {
+              const m = e.target.value as VoiceIsolationMode;
+              setMode(m);
+              if (vi) set({ mode: m, strength: vi.strength });
+            }}
+          >
+            <option value="isolate">Voice (isolate voice)</option>
+            <option value="remove">Background (remove vocals, approx.)</option>
+          </select>
+        </div>
+      </div>
+      <SliderRow
+        label="Strength"
+        value={vi?.strength ?? DEFAULT_ISOLATION_STRENGTH}
+        min={0}
+        max={100}
+        step={1}
+        digits={0}
+        keyframe={false}
+        disabled={!vi}
+        onChange={(v) => vi && set({ mode: vi.mode, strength: Math.round(v) })}
+        testId="isolate-strength-row"
+      />
+      <p className="iaudio__desc">
+        {mode === 'remove'
+          ? 'Voice isolation (DSP): cuts the centre channel in the 150 Hz–6 kHz speech band. An approximation — stereo music keeps its sides; on mono it is a speech-band notch.'
+          : 'Voice isolation (DSP): learns the noise from the quietest moments of the clip, subtracts it (Wiener filter), emphasises 100 Hz–8 kHz and gently gates the pauses. Signal processing, not AI.'}
+      </p>
+    </Section>
   );
 }
 

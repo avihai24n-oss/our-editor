@@ -72,16 +72,14 @@ describe('projects saved by every build load in the integrated build', () => {
     const fx = load(f);
     describe(`saved by ${fx.savedBy}`, () => {
       it('migrates to the full current clip shape, idempotently', () => {
-        if (fx.savedBy !== 'integration') {
-          // the saved document really is older: some current field is missing before migration
-          const gaps = allClips(fx.project).flatMap((c) => missingKeys(reference[c.type], c));
-          expect(gaps.length, `${fx.savedBy} lacks nothing?`).toBeGreaterThan(0);
-        }
+        // every saved document really is older (even 'integration' predates audio.voiceIsolation):
+        // some current field is missing before migration
+        const gaps = allClips(fx.project).flatMap((c) => missingKeys(reference[c.type], c));
+        expect(gaps.length, `${fx.savedBy} lacks nothing?`).toBeGreaterThan(0);
         const m = migrateProject(fx.project);
         for (const c of allClips(m)) expect(missingKeys(reference[c.type], c), `${fx.savedBy} ${c.type}`).toEqual([]);
         expect(migrateProject(m)).toBe(m);
         expect(projectViolations(m, { magnet: true })).toEqual([]);
-        if (fx.savedBy === 'integration') expect(m).toBe(fx.project); // already current: untouched
       });
 
       it('keeps what the build saved (common fields and its own feature)', () => {

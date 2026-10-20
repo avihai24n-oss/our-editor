@@ -142,7 +142,7 @@ export interface AudioOp {
    * Audio FX (Audio › Basic / Voice changer). `normalize` is applied by the audio engine with the
    * loudness measured over the source span below (src/audio/measure.ts).
    */
-  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'>;
+  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter' | 'voiceIsolation'>;
   /** Source span heard by the clip, µs: [inPoint, inPoint + spanLength). */
   spanIn: Us;
   spanLength: Us;
@@ -591,6 +591,7 @@ export function getFrameState(project: Project, t: Us): FrameState {
           reduceNoise: !!clip.audio.reduceNoise,
           fillChannel: clip.audio.fillChannel ?? null,
           voiceFilter: clip.audio.voiceFilter ?? null,
+          voiceIsolation: clip.audio.voiceIsolation ?? null,
         },
         spanIn: clip.inPoint,
         spanLength: sourceSpan(clip),

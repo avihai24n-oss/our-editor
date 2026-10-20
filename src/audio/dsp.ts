@@ -5,18 +5,22 @@
  *   source → input (forced stereo, mono is upmixed L=R)
  *          → Fill channel (splitter → merger, chosen side to both)
  *          → Reduce noise (80 Hz high-pass → oe-gate worklet)
+ *          → Voice isolation (DSP, oe-isolate worklet — see ./isolateCore.ts)
  *          → pitch (oe-pitch worklet: voice-filter pitch × export speed compensation)
  *          → voice filter (native nodes: delay/feedback, ring-mod, wave-shaper, convolver…)
  *          → output GainNode (volume dB × normalize × fades — automated by the caller)
  *
  * Nodes that need a worklet are skipped when worklets are unavailable (`worklets: false`).
  */
-import type { AudioProps, FillChannel, VoiceFilter, VoiceFilterId } from '../model/types';
+import type { AudioProps, FillChannel, VoiceFilter, VoiceFilterId, VoiceIsolationMode } from '../model/types';
+import { PROFILE_RATE } from './noiseProfile';
 
 export interface FxConfig {
   fillChannel: FillChannel | null;
   reduceNoise: boolean;
   voiceFilter: VoiceFilter | null;
+  /** Voice isolation; `profile` = the clip's noise profile (null while not measured). */
+  isolation: { mode: VoiceIsolationMode; strength: number; profile: Float32Array | null } | null;
   /**
    * Extra pitch ratio applied on top of the voice filter. Export: 1/speed when the clip keeps its
    * pitch ("Change audio pitch" off), because an AudioBufferSourceNode's playbackRate shifts pitch.
@@ -25,12 +29,26 @@ export interface FxConfig {
   extraPitch: number;
 }
 
-export const fxFromAudio = (a: Pick<AudioProps, 'fillChannel' | 'reduceNoise' | 'voiceFilter'>, extraPitch = 1): FxConfig => ({
+export const fxFromAudio = (
+  a: Pick<AudioProps, 'fillChannel' | 'reduceNoise' | 'voiceFilter'> & Partial<Pick<AudioProps, 'voiceIsolation'>>,
+  extraPitch = 1,
+  noiseProfile: Float32Array | null = null,
+): FxConfig => ({
   fillChannel: a.fillChannel ?? null,
   reduceNoise: !!a.reduceNoise,
   voiceFilter: a.voiceFilter ?? null,
+  isolation: a.voiceIsolation ? { mode: a.voiceIsolation.mode, strength: clamp(a.voiceIsolation.strength, 0, 100), profile: a.voiceIsolation.mode === 'isolate' ? noiseProfile : null } : null,
   extraPitch,
 });
+
+/** Default Strength of Voice isolation (the menu applies it; the inspector slider edits it). */
+export const DEFAULT_ISOLATION_STRENGTH = 100;
+
+/** Stage name of the isolation node ("isolate:100:profile", "remove:80"). */
+export function isolationStage(iso: NonNullable<FxConfig['isolation']>): string {
+  const s = Math.round(iso.strength);
+  return iso.mode === 'remove' ? `remove:${s}` : `isolate:${s}:${iso.profile ? 'profile' : 'noprofile'}`;
+}
 
 // ---------------------------------------------------------------- voice filter catalogue
 
@@ -62,7 +80,9 @@ export const DEFAULT_VOICE_STRENGTH = 50;
 
 export const voiceFilterDef = (id: VoiceFilterId): VoiceFilterDef | undefined => VOICE_FILTERS.find((f) => f.id === id);
 
-const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+function clamp(v: number, a: number, b: number): number {
+  return Math.min(b, Math.max(a, Number.isFinite(v) ? v : a));
+}
 export const PITCH_RATIO_MIN = 0.25;
 export const PITCH_RATIO_MAX = 4;
 
@@ -77,7 +97,7 @@ export function pitchRatio(cfg: FxConfig): number {
 /** Stable signature: equal signatures build identical graphs (the preview rebuilds on change). */
 export function fxSignature(cfg: FxConfig, worklets: boolean): string {
   const r = pitchRatio(cfg);
-  return [cfg.fillChannel ?? '-', cfg.reduceNoise ? 'nr' : '-', cfg.voiceFilter ? `${cfg.voiceFilter.id}:${Math.round(cfg.voiceFilter.strength)}` : '-', Math.abs(r - 1) < 1e-4 ? '1' : r.toFixed(4), worklets ? 'w' : 'nw'].join('|');
+  return [cfg.fillChannel ?? '-', cfg.reduceNoise ? 'nr' : '-', cfg.isolation ? isolationStage(cfg.isolation) : '-', cfg.voiceFilter ? `${cfg.voiceFilter.id}:${Math.round(cfg.voiceFilter.strength)}` : '-', Math.abs(r - 1) < 1e-4 ? '1' : r.toFixed(4), worklets ? 'w' : 'nw'].join('|');
 }
 
 /** tanh soft-clip curve (drive k ≥ 1), normalised so ±1 maps to ±1. */
@@ -170,6 +190,34 @@ export function buildFxChain(ctx: BaseAudioContext, cfg: FxConfig, opts: { workl
       tail.connect(gate);
       tail = gate;
       stages.push('gate');
+    }
+  }
+
+  if (cfg.isolation && cfg.isolation.strength > 0) {
+    const iso = cfg.isolation;
+    if (opts.worklets) {
+      const node = add(
+        new AudioWorkletNode(ctx, 'oe-isolate', {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [2],
+          processorOptions: { mode: iso.mode, strength: iso.strength, profile: iso.profile, profileRate: PROFILE_RATE },
+        }),
+      );
+      tail.connect(node);
+      tail = node;
+      stages.push(isolationStage(iso));
+    } else if (iso.mode === 'isolate') {
+      // no worklets: the speech-band emphasis alone
+      const hp = add(ctx.createBiquadFilter());
+      hp.type = 'highpass';
+      hp.frequency.value = 100;
+      const lp = add(ctx.createBiquadFilter());
+      lp.type = 'lowpass';
+      lp.frequency.value = 8000;
+      tail.connect(hp).connect(lp);
+      tail = lp;
+      stages.push('band:100-8000');
     }
   }
 

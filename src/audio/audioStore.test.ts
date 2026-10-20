@@ -24,7 +24,7 @@ describe('Audio tab fields in the store', () => {
 
   it('new clips start with every audio effect off', () => {
     const id = setup();
-    expect(audioOf(id)).toEqual({ volumeDb: 0, fadeIn: 0, fadeOut: 0, muted: false, normalize: false, reduceNoise: false, fillChannel: null, voiceFilter: null });
+    expect(audioOf(id)).toEqual({ volumeDb: 0, fadeIn: 0, fadeOut: 0, muted: false, normalize: false, reduceNoise: false, fillChannel: null, voiceFilter: null, voiceIsolation: null });
   });
 
   it('every control is one undo step and redoes', () => {
@@ -68,7 +68,7 @@ describe('Audio tab fields in the store', () => {
     // the muted video is silent; the extracted clip carries the effects into preview + export
     const ops = getFrameState(st().project, S(1)).audio;
     expect(ops.map((o) => o.clipId)).toEqual([extracted[0]]);
-    expect(ops[0]!.fx).toEqual({ normalize: true, reduceNoise: false, fillChannel: 'left', voiceFilter: { id: 'deep', strength: 40 } });
+    expect(ops[0]!.fx).toEqual({ normalize: true, reduceNoise: false, fillChannel: 'left', voiceFilter: { id: 'deep', strength: 40 }, voiceIsolation: null });
     expect(planMix(st().project).find((c) => c.clipId === extracted[0])!.fx.fillChannel).toBe('left');
     expect(st().toggleExtractAudio([id]).restored).toBe(1);
     expect(audioOf(id).muted).toBe(false);

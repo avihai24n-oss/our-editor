@@ -10,7 +10,7 @@
  *     a rate-1 buffer: "Change audio pitch" on → resampled (pitch follows speed); off (default,
  *     like the preview's `preservesPitch`) → WSOLA time-stretch, pitch preserved
  *     (./audioDsp.ts stretchMapped — the one stretcher for standard speed and curves);
- *  2. the FX chain (src/audio/dsp.ts): fill channel, reduce noise, voice filter — its pitch
+ *  2. the FX chain (src/audio/dsp.ts): fill channel, reduce noise, voice isolation, voice filter — its pitch
  *     shifter only carries the voice filter now (no speed compensation needed after 1.);
  *  3. the gain stage: volume × normalize × fades;
  * then every clip sums on the bus (the context destination) and the finished mix goes through
@@ -19,10 +19,11 @@
 import { buildFxChain, fxFromAudio, type FxConfig } from '../audio/dsp';
 import { normalizeGainDb } from '../audio/loudness';
 import { measureAudioBuffer } from '../audio/measure';
+import { profileForBuffer } from '../audio/noiseProfile';
 import { ensureWorklets } from '../audio/worklets';
 import { dbToGain } from '../model/project';
 import type { SpeedCurve } from '../model/speedCurve';
-import { sourceOffsetAt } from '../model/time';
+import { sourceOffsetAt, sourceSpan } from '../model/time';
 import type { AudioProps, Id, Project, Us } from '../model/types';
 import { limitPeaks } from './audioDsp';
 import { resampleMapped, sampledMap, stretchMapped } from './timeStretch';
@@ -49,7 +50,7 @@ export interface MixClip {
   fadeInSec: number;
   fadeOutSec: number;
   /** Audio › Basic / Voice changer settings. */
-  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'>;
+  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'> & Partial<Pick<AudioProps, 'voiceIsolation'>>;
 }
 
 /**
@@ -57,7 +58,7 @@ export interface MixClip {
  * renders the clip at rate 1 with its pitch kept (WSOLA) or deliberately changed (resample), so
  * the chain's pitch shifter only carries the voice filter — the same chain as the preview.
  */
-export const mixFx = (c: Pick<MixClip, 'fx'>): FxConfig => fxFromAudio(c.fx, 1);
+export const mixFx = (c: Pick<MixClip, 'fx'>, noiseProfile: Float32Array | null = null): FxConfig => fxFromAudio(c.fx, 1, noiseProfile);
 
 /** Which clips are heard in the export, in project order. Pure. */
 export function planMix(project: Project): MixClip[] {
@@ -92,6 +93,7 @@ export function planMix(project: Project): MixClip[] {
           reduceNoise: !!clip.audio.reduceNoise,
           fillChannel: clip.audio.fillChannel ?? null,
           voiceFilter: clip.audio.voiceFilter ?? null,
+          voiceIsolation: clip.audio.voiceIsolation ?? null,
         },
       });
     }
@@ -158,7 +160,10 @@ export async function renderMix(project: Project, durationUs: number, decode: De
       src.buffer = speedMappedBuffer(ctx, buf, c, frames);
     }
     // 2. fx chain, 3. gain stage (volume × normalize × fades)
-    const chain = buildFxChain(ctx, mixFx(c), { worklets });
+    // Voice isolation: the clip's noise profile — the preview's cached one, or measured now from
+    // the same 48 kHz decode (identical numbers either way)
+    const profile = c.fx.voiceIsolation?.mode === 'isolate' ? profileForBuffer(c.assetId, c.inSec, sourceSpanSec(c), buf) : null;
+    const chain = buildFxChain(ctx, mixFx(c, profile), { worklets });
     const g = chain.output;
     const k = await normalizeGainFor(c, buf, o);
     const pts = gainPoints({ ...c, volume: c.volume * k });
@@ -182,6 +187,9 @@ export async function renderMix(project: Project, durationUs: number, decode: De
   limitPeaks(Array.from({ length: mix.numberOfChannels }, (_, i) => mix.getChannelData(i)), mix.sampleRate);
   return mix;
 }
+
+/** Source span heard by a planned clip, seconds (= sourceSpan(clip), the preview's span). */
+const sourceSpanSec = (c: MixClip): number => sourceSpan({ duration: c.durationUs, speed: c.speed, speedCurve: c.speedCurve }) / 1e6;
 
 /** Source time (seconds) heard at output sample n of the clip. */
 export function mixSourceMap(c: Pick<MixClip, 'inPointUs' | 'durationUs' | 'speed' | 'speedCurve'>, sampleRate: number): (n: number) => number {

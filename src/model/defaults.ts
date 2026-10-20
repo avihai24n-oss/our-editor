@@ -171,6 +171,7 @@ export const defaultAudio = (): AudioProps => ({
   reduceNoise: false,
   fillChannel: null,
   voiceFilter: null,
+  voiceIsolation: null,
 });
 
 export const defaultTextStyle = (content = 'Default text'): TextStyle => ({
