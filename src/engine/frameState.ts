@@ -5,6 +5,7 @@
  */
 import { BLEND_MODES, CANVAS_BLUR_PX, filterDef } from '../model/catalog';
 import { defaultAdjust, defaultGrade } from '../model/defaults';
+import { MAX_COMPOUND_DEPTH, sequenceTracks } from '../model/compound';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
 import { clamp, clipContains, clipEnd, mediaTimeAt, mirrorInPoint, sourceSpan, speedAtTime } from '../model/time';
 import { animationFrame, composeFrames, type AnimFrame, type MaskShape } from './animations';
@@ -107,6 +108,23 @@ export interface MediaDrawOp extends DrawOpBase {
    * clip or a chosen image, cover-fitted). Not hit-testable. Absent = the clip itself.
    */
   role?: 'background';
+  /**
+   * Compound clip (⌥G): the nested sequence's frame. The renderer draws these ops onto an
+   * offscreen layer of the canvas size and then draws that layer like an image op (fitWidth ×
+   * fitHeight = the canvas), so the compound clip's transform / opacity / blend / animations /
+   * colour wrap the nested picture. Media sources: use `mediaOpsDeep`, never this op itself.
+   */
+  nested?: NestedFrame;
+  /** The clip shows a running (not held) frame at t: false while a transition holds its edge frame. */
+  active?: boolean;
+}
+
+/** What a compound clip shows at t: the nested sequence's draw ops (bottom → top). */
+export interface NestedFrame {
+  sequenceId: Id;
+  /** Local time inside the sequence. */
+  t: Us;
+  ops: DrawOp[];
 }
 
 export interface TextDrawOp extends DrawOpBase {
@@ -420,6 +438,7 @@ function buildVisualOp(
   t: Us,
   extra: (Effect & { clipRect: DrawOpBase['clipRect'] }) | null,
   transitionInfo: DrawOpBase['transition'],
+  nest: NestCtx = ROOT_NEST,
 ): MediaDrawOp | TextDrawOp {
   const { width: W, height: H } = project.settings;
   const resolved = clipContains(clip, t) ? resolveAnimation(clip, t, W, H) : null;
@@ -457,6 +476,28 @@ function buildVisualOp(
   if (clip.type === 'text') {
     return { ...base, kind: 'text', style: clip.text, lines: clip.text.content.split('\n') };
   }
+  if (clip.type === 'compound') {
+    // a held edge frame (transition) shows the sequence's first / last frame of the window
+    const local = clamp(clip.inPoint + (t - clip.start), clip.inPoint, clip.inPoint + clip.duration - 1);
+    const active = clipContains(clip, t) && nest.active;
+    const inner = nestedFrame(project, clip, local, { ...nest, active }, false);
+    return {
+      ...base,
+      kind: 'media',
+      mediaType: 'image',
+      assetId: `seq:${clip.sequenceId}`,
+      sourceTime: 0,
+      speed: 1,
+      varying: false,
+      fitWidth: W,
+      fitHeight: H,
+      crop: clip.crop,
+      mask: null,
+      chroma: null,
+      nested: { sequenceId: clip.sequenceId, t: local, ops: inner.ops },
+      active,
+    };
+  }
   const asset = project.assets[clip.assetId];
   const fit = fitSize(asset, W, H);
   return {
@@ -473,7 +514,45 @@ function buildVisualOp(
     crop: clip.crop,
     mask: clip.mask && clip.mask.shape !== 'none' ? clip.mask : null,
     chroma: clip.chroma && clip.chroma.enabled ? clip.chroma : null,
+    active: clipContains(clip, t) && nest.active,
   };
+}
+
+// ---------------------------------------------------------------- compound clips
+
+/** Where a frame is being built: the sequences it is nested in (cycle guard) and the id prefix. */
+interface NestCtx {
+  /** Sequence ids from the outermost frame down to this one. */
+  stack: readonly Id[];
+  /** Prefix of op clip ids (`compoundId/`): one compound instance's nested clips stay apart from another's. */
+  prefix: string;
+  /** False when an enclosing compound only holds an edge frame. */
+  active: boolean;
+}
+const ROOT_NEST: NestCtx = { stack: [], prefix: '', active: true };
+
+/**
+ * The nested sequence of a compound clip at local time `local`: its draw ops and audio, built by
+ * the same code as the timeline (so the nested clips draw and sound exactly as if they were on
+ * the timeline). Depth-limited (MAX_COMPOUND_DEPTH) and cycle-guarded: a sequence already being
+ * built higher up the stack, a missing sequence or too deep a nesting give an empty frame.
+ */
+function nestedFrame(project: Project, clip: Extract<Clip, { type: 'compound' }>, local: Us, nest: NestCtx, withAudio: boolean): { ops: DrawOp[]; audio: AudioOp[] } {
+  if (nest.stack.length >= MAX_COMPOUND_DEPTH || nest.stack.includes(clip.sequenceId)) return { ops: [], audio: [] };
+  const tracks = sequenceTracks(project, clip.sequenceId);
+  if (!tracks) return { ops: [], audio: [] };
+  return buildFrame(project, tracks, local, { stack: [...nest.stack, clip.sequenceId], prefix: `${nest.prefix}${clip.id}/`, active: nest.active }, withAudio);
+}
+
+/** Every media op of a frame, the ones nested in compound clips included (what the media sources must load). */
+export function mediaOpsDeep(ops: readonly DrawOp[]): MediaDrawOp[] {
+  const out: MediaDrawOp[] = [];
+  for (const o of ops) {
+    if (o.kind !== 'media') continue;
+    if (o.nested) out.push(...mediaOpsDeep(o.nested.ops));
+    else out.push(o);
+  }
+  return out;
 }
 
 /** Axis scales of a transform before animations (Uniform scale on → scale on both axes). */
@@ -554,15 +633,24 @@ export function canvasBackgroundOp(
  */
 export function getFrameState(project: Project, t: Us): FrameState {
   const { width: W, height: H, background } = project.settings;
+  const { ops, audio } = buildFrame(project, project.tracks, t, ROOT_NEST, true);
+  return { t, width: W, height: H, background, ops, audio };
+}
+
+/** The ops and audio of one track list at time t (the timeline, or a sequence inside a compound clip). */
+function buildFrame(project: Project, tracks: readonly Track[], t: Us, nest: NestCtx, withAudio: boolean): { ops: DrawOp[]; audio: AudioOp[] } {
+  const { width: W, height: H } = project.settings;
   const ops: DrawOp[] = [];
   const audio: AudioOp[] = [];
+  const id = (clipId: Id) => nest.prefix + clipId;
 
-  project.tracks.forEach((track, layer) => {
+  tracks.forEach((track, layer) => {
     // ---- pictures
     const pushClip = (clip: VisualClip, extra: Parameters<typeof buildVisualOp>[5], info: DrawOpBase['transition']) => {
       const bg = canvasBackgroundOp(project, track, layer, clip, t, extra);
-      if (bg) ops.push(bg);
-      ops.push(buildVisualOp(project, track, layer, clip, t, extra, info));
+      if (bg) ops.push(nest.prefix ? { ...bg, ...(bg.kind === 'media' ? { clipId: id(bg.clipId) } : {}) } : bg);
+      const op = buildVisualOp(project, track, layer, clip, t, extra, info, nest);
+      ops.push(nest.prefix ? { ...op, clipId: id(op.clipId) } : op);
     };
     if (track.kind !== 'audio' && !track.hidden) {
       const active = track.transitions
@@ -584,16 +672,21 @@ export function getFrameState(project: Project, t: Us): FrameState {
     }
 
     // ---- sound
-    if (track.muted) return;
+    if (!withAudio || track.muted) return;
     for (const clip of track.clips) {
       if (!clipContains(clip, t) || clip.disabled) continue;
+      if (clip.type === 'compound') {
+        // the nested clips sound exactly as on the timeline, at the sequence's local time
+        audio.push(...nestedFrame(project, clip, clip.inPoint + (t - clip.start), nest, true).audio);
+        continue;
+      }
       if (clip.type !== 'video' && clip.type !== 'audio') continue;
       if (clip.audio.muted) continue;
       const asset = project.assets[clip.assetId];
       if (clip.type === 'video' && asset?.hasAudio === false) continue;
       const gain = dbToGain(clip.audio.volumeDb) * fadeEnvelope(clip, t);
       audio.push({
-        clipId: clip.id,
+        clipId: id(clip.id),
         assetId: clip.assetId,
         trackId: track.id,
         sourceTime: clampSource(clip, project, t),
@@ -617,5 +710,5 @@ export function getFrameState(project: Project, t: Us): FrameState {
     }
   });
 
-  return { t, width: W, height: H, background, ops, audio };
+  return { ops, audio };
 }

@@ -157,7 +157,7 @@ export class AudioEngine {
   // Not carried here (yet): the FX chain (voice filter, reduce noise) and pitch-kept speed.
 
   private reversedBuffers = new Map<string, { p: Promise<AudioBuffer | null>; buf?: AudioBuffer | null; lastUsed: number }>();
-  private reversedNodes = new Map<Id, { src: AudioBufferSourceNode; gain: GainNode; startCtx: number; startPos: number; rate: number }>();
+  private reversedNodes = new Map<Id, { src: AudioBufferSourceNode; chain: FxChain; sig: string; startCtx: number; startPos: number; rate: number }>();
 
   private reversedBuffer(assetId: Id, mediaSec: number): Promise<AudioBuffer | null> {
     const key = `${assetId}@${mediaSec}`;
@@ -198,10 +198,14 @@ export class AudioEngine {
         const speed = Math.abs(op.speed);
         // reversed-media position now: D − real media time (sourceTime is already mirrored)
         const pos = Math.max(0, mediaSec - op.sourceTime / 1e6);
+        // the same chain as a forward clip: reverse → isolate → fx → volume / normalize / fades
+        const fx = fxFromAudio(op.fx, 1, this.noiseProfile(op));
+        const sig = fxSignature(fx, this.worklets);
+        const target = op.gain * (op.fx.normalize ? this.normalizeGain(op) : 1);
         let n = this.reversedNodes.get(op.clipId);
         if (n) {
           const at = n.startPos + (ctx.currentTime - n.startCtx) * n.rate;
-          if (Math.abs(at - pos) > 0.12 || Math.abs(n.rate - speed) > 0.01) {
+          if (Math.abs(at - pos) > 0.12 || Math.abs(n.rate - speed) > 0.01 || n.sig !== sig) {
             this.stopReversed(op.clipId);
             n = undefined;
           }
@@ -213,15 +217,15 @@ export class AudioEngine {
           const src = ctx.createBufferSource();
           src.buffer = ready;
           src.playbackRate.value = speed;
-          const gain = ctx.createGain();
-          gain.gain.value = op.gain;
-          src.connect(gain);
-          gain.connect(this.master);
+          const chain = buildFxChain(ctx, fx, { worklets: this.worklets });
+          chain.output.gain.value = target;
+          src.connect(chain.input);
+          chain.output.connect(this.master);
           src.start(0, Math.min(pos, Math.max(0, ready.duration - 1e-3)));
-          n = { src, gain, startCtx: ctx.currentTime, startPos: pos, rate: speed };
+          n = { src, chain, sig, startCtx: ctx.currentTime, startPos: pos, rate: speed };
           this.reversedNodes.set(op.clipId, n);
         }
-        n.gain.gain.setTargetAtTime(op.gain, ctx.currentTime, 0.015);
+        n.chain.output.gain.setTargetAtTime(target, ctx.currentTime, 0.015);
       }
     }
     for (const id of [...this.reversedNodes.keys()]) if (!live.has(id)) this.stopReversed(id);
@@ -236,7 +240,8 @@ export class AudioEngine {
       /* not started */
     }
     n.src.disconnect();
-    n.gain.disconnect();
+    n.chain.output.disconnect();
+    n.chain.dispose();
     this.reversedNodes.delete(clipId);
   }
 

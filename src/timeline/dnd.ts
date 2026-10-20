@@ -15,7 +15,9 @@ export const DND_ASSET_MIME = 'application/x-our-editor-asset';
 export type LibraryPayload =
   | { kind: 'asset'; assetId: Id }
   | { kind: 'text'; preset?: string }
-  | { kind: 'transition'; type: TransitionType };
+  | { kind: 'transition'; type: TransitionType }
+  /** Media › Subprojects: another instance of a compound clip's sequence. */
+  | { kind: 'sequence'; sequenceId: Id };
 
 const TRANSITION_TYPES = new Set<string>(TRANSITIONS.map((t) => t.id));
 
@@ -39,6 +41,7 @@ export function parsePayloadJson(raw: string): LibraryPayload | null {
   const o = v as Record<string, unknown>;
   if (o.kind === 'asset' && typeof o.assetId === 'string' && o.assetId) return { kind: 'asset', assetId: o.assetId };
   if (o.kind === 'text') return typeof o.preset === 'string' && o.preset ? { kind: 'text', preset: o.preset } : { kind: 'text' };
+  if (o.kind === 'sequence' && typeof o.sequenceId === 'string' && o.sequenceId) return { kind: 'sequence', sequenceId: o.sequenceId };
   if (o.kind === 'transition' && typeof o.type === 'string' && TRANSITION_TYPES.has(o.type)) {
     return { kind: 'transition', type: o.type as TransitionType };
   }

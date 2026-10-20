@@ -17,6 +17,7 @@ import { AudioTab, SpeedTab } from './tabs/AudioSpeedTabs';
 import { MultiPanel, ProjectPanel, TransitionPanel } from './tabs/OtherPanels';
 import { TextTab } from './tabs/TextTab';
 import { VideoTab } from './tabs/VideoTab';
+import { CompoundVideoTab } from './tabs/CompoundVideoTab';
 import './inspector.css';
 
 function Shell(props: { tabs: { id: string; label: string }[]; value: string; onChange: (id: string) => void; children: React.ReactNode; testId: string }) {
@@ -32,7 +33,7 @@ export function Inspector() {
   const clip = useEditor(selectSelectedClip);
   const transition = useEditor(selectSelectedTransition);
   const count = useEditor((s) => s.selection.clipIds.length);
-  const asset = useEditor((s) => (clip && clip.type !== 'text' ? s.project.assets[clip.assetId] : undefined));
+  const asset = useEditor((s) => (clip && clip.type !== 'text' && clip.type !== 'compound' ? s.project.assets[clip.assetId] : undefined));
   // The chosen tab is remembered per clip type (CapCut keeps e.g. "Adjust" while hopping clips).
   const [wanted, setWanted] = usePref<string>(`insp.tab.${clip?.type ?? 'none'}`, '');
   // Speed › Standard | Curve. ⌘R / ⇧B (shortcut table) open the Speed tab on one of them.
@@ -59,7 +60,9 @@ export function Inspector() {
     const tabs = clipTabs(clip, asset);
     const tab = pickTab(tabs, wanted as InspectorTab);
     let body: React.ReactNode = null;
-    if (tab === 'video' && clip.type !== 'audio' && clip.type !== 'text') {
+    if (tab === 'video' && clip.type === 'compound') {
+      body = <CompoundVideoTab clip={clip} />;
+    } else if (tab === 'video' && clip.type !== 'audio' && clip.type !== 'text' && clip.type !== 'compound') {
       body = <VideoTab clip={clip} />;
     } else if (tab === 'audio' && (clip.type === 'video' || clip.type === 'audio')) body = <AudioTab clip={clip} />;
     else if (tab === 'speed' && (clip.type === 'video' || clip.type === 'audio')) body = <SpeedTab clip={clip} sub={speedSub ?? (clip.speedCurve ? 'curve' : 'standard')} onSubChange={setSpeedSub} />;

@@ -12,6 +12,7 @@
  */
 import { blobsBeingWritten, restoreAssetUrls } from '../media/import';
 import { MEMORY_LIMITS } from '../media/memory';
+import { rootProject } from '../model/compound';
 import type { Project } from '../model/types';
 import { useEditor } from './index';
 import { deleteBlob, listBlobKeys, loadLastProject, referencedBlobKeys, saveProject } from './persistence';
@@ -47,7 +48,7 @@ export async function saveNow(force = false): Promise<boolean> {
   try {
     lastWriteAt = Date.now();
     writes++;
-    await saveProject(project);
+    await saveProject(rootProject(project)); // an open compound clip is saved closed
     lastWritten = fp;
     setSaveStatus({ saving: false, lastSavedAt: Date.now(), error: null });
     return true;

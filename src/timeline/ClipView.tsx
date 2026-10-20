@@ -7,10 +7,30 @@ import { memo, type PointerEvent as RPointerEvent } from 'react';
 import { usToPx } from '../model/time';
 import type { Clip, MediaAsset } from '../model/types';
 import { Icon } from '../ui/Icon';
+import { openCompound } from '../actions/compound';
 import { Filmstrip, ImageStrip, Waveform } from './ClipContent';
+
+/** Stacked-frames glyph of a compound clip (CapCut draws its compound clips with a stack icon). */
+export function CompoundGlyph({ size = 14 }: { size?: number }) {
+  return (
+    <svg className="tl-clip__compound-icon" width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      <rect x="1.5" y="5.5" width="9" height="9" rx="1.5" />
+      <path d="M4.5 3.5V3a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 14.5 3v7a1.5 1.5 0 0 1-1.5 1.5h-.5" />
+    </svg>
+  );
+}
 import { curveBadge, speedBadge } from './geometry';
 
 export type ClipPart = 'body' | 'left' | 'right';
+
+const DOUBLE_PRESS_MS = 400;
+let lastPress: { id: string; at: number } | null = null;
+/** True when this press on the clip follows a press on the same clip within the double-click time. */
+function isSecondPress(id: string, at: number): boolean {
+  const hit = !!lastPress && lastPress.id === id && at - lastPress.at < DOUBLE_PRESS_MS;
+  lastPress = hit ? null : { id, at };
+  return hit;
+}
 
 export interface ClipViewProps {
   clip: Clip;
@@ -71,8 +91,18 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
       data-clip-type={clip.type}
       data-selected={selected ? 'true' : 'false'}
       data-animations={animSlots.join(',')}
-      onPointerDown={(e) => onPointerDown(e, clip, 'body')}
-      title={`${clip.name}${clip.disabled ? ' (disabled)' : ''}`}
+      onPointerDown={(e) => {
+        // compound clip: a second press within the double-click time opens it (the timeline's drag
+        // gesture captures the pointer, so the browser's own dblclick never reaches the clip)
+        if (clip.type === 'compound' && e.button === 0 && isSecondPress(clip.id, e.timeStamp)) {
+          e.preventDefault();
+          e.stopPropagation();
+          openCompound(clip.id);
+          return;
+        }
+        onPointerDown(e, clip, 'body');
+      }}
+      title={`${clip.name}${clip.disabled ? ' (disabled)' : ''}${clip.type === 'compound' ? ' — double-click to edit' : ''}`}
     >
       <div className="tl-clip__content">
         {clip.type === 'video' && asset && (
@@ -81,6 +111,11 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
         {clip.type === 'image' && asset && <ImageStrip clip={clip} asset={asset} />}
         {clip.type === 'audio' && asset && (
           <Waveform clip={clip} asset={asset} width={width} height={contentH} zoom={zoom} fromPx={fromPx} toPx={toPx} />
+        )}
+        {clip.type === 'compound' && (
+          <div className="tl-clip__compound" data-testid="compound-clip-body">
+            <CompoundGlyph />
+          </div>
         )}
         {clip.type === 'text' && <div className="tl-clip__text">{clip.text.content.replace(/\n/g, ' ') || 'Text'}</div>}
         {missing && <div className="tl-clip__lost">Media lost</div>}

@@ -1,6 +1,7 @@
 /**
  * Pure read-only helpers over a Project (no React, no DOM). Safe to call from anywhere.
  */
+import { allClipsDeep, rootProject } from './compound';
 import { defaultAdjust, defaultCanvasBackground, defaultChroma, defaultGrade, defaultMask } from './defaults';
 import type { SpeedCurve } from './speedCurve';
 import { clipEnd } from './time';
@@ -56,7 +57,7 @@ export function trackAccepts(kind: TrackKind, clip: Pick<Clip, 'type'>): boolean
   switch (kind) {
     case 'main':
     case 'overlay':
-      return clip.type === 'video' || clip.type === 'image';
+      return clip.type === 'video' || clip.type === 'image' || clip.type === 'compound';
     case 'audio':
       return clip.type === 'audio';
     case 'text':
@@ -77,7 +78,7 @@ export function timelineRows(p: Project): Track[] {
 /** Asset ids used by at least one clip ("Added" badge in the media bin). */
 export function usedAssetIds(p: Project): Set<Id> {
   const s = new Set<Id>();
-  for (const c of allClips(p)) if (c.type !== 'text') s.add(c.assetId);
+  for (const c of allClipsDeep(p)) if (c.type !== 'text' && c.type !== 'compound') s.add(c.assetId);
   return s;
 }
 
@@ -126,9 +127,40 @@ export function fadeEnvelope(clip: Pick<Clip, 'start' | 'duration'> & { audio: P
  * CLIP_MIGRATIONS; migrateProject runs all of them on every clip, in order. Each step returns the
  * SAME object when it has nothing to do, so an up-to-date project comes back unchanged (===).
  */
-export function migrateProject(p: Project): Project {
+export function migrateProject(p0: Project): Project {
+  // a document saved with a compound clip open for editing loads on the main timeline
+  const p = rootProject(p0);
+  let out = p;
+  const tracks = migrateTracks(p.tracks);
+  if (tracks !== p.tracks) out = { ...out, tracks };
+  // compound clips (⌥G): the clips of every nested sequence and of the focus stack get the same steps
+  if (p.sequences) {
+    let sChanged = false;
+    const sequences: NonNullable<Project['sequences']> = {};
+    for (const [id, sq] of Object.entries(p.sequences)) {
+      const t = migrateTracks(sq.tracks);
+      sequences[id] = t === sq.tracks ? sq : { ...sq, tracks: t };
+      if (t !== sq.tracks) sChanged = true;
+    }
+    if (sChanged) out = { ...out, sequences };
+  }
+  if (p.focus && p.focus.length) {
+    let fChanged = false;
+    const focus = p.focus.map((f) => {
+      const t = migrateTracks(f.parentTracks);
+      if (t === f.parentTracks) return f;
+      fChanged = true;
+      return { ...f, parentTracks: t };
+    });
+    if (fChanged) out = { ...out, focus };
+  }
+  return out;
+}
+
+/** Runs the clip migrations over a track list; the same array when nothing changed. */
+function migrateTracks(list: Track[]): Track[] {
   let changed = false;
-  const tracks = p.tracks.map((t) => {
+  const tracks = list.map((t) => {
     let tChanged = false;
     const clips = t.clips.map((c) => {
       const out = migrateClip(c);
@@ -139,7 +171,7 @@ export function migrateProject(p: Project): Project {
     changed = true;
     return { ...t, clips };
   });
-  return changed ? { ...p, tracks } : p;
+  return changed ? tracks : list;
 }
 
 /** Runs every clip migration in order. */
@@ -195,9 +227,10 @@ const migrateGrade = (c: Clip): Clip => (c.type === 'audio' ? c : migrateVisualC
 
 /**
  * Every clip migration, in the order the features were added: v1 checkboxes, tab-speed,
- * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade), tab-animation, ctx-edit (reverse).
+ * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade), tab-animation, ctx-edit (reverse),
+ * ctx-compound. (ctx-isolate's voiceIsolation is filled by migrateAudio.)
  */
-const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade, migrateAnimationSlots, migrateReverse];
+const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade, migrateAnimationSlots, migrateReverse, migrateCompound];
 
 /** ctx-edit: Edit › Reverse — missing or non-boolean → false (forward). */
 function migrateReverse(c: Clip): Clip {
@@ -205,6 +238,13 @@ function migrateReverse(c: Clip): Clip {
   const r = (c as TimedClip & { reversed?: unknown }).reversed;
   if (typeof r === 'boolean') return c;
   return { ...c, reversed: r === true } as Clip;
+}
+
+/** ctx-compound: a compound clip's in-point must be a non-negative integer. */
+function migrateCompound(c: Clip): Clip {
+  if (c.type !== 'compound') return c;
+  const ok = Number.isInteger(c.inPoint) && c.inPoint >= 0;
+  return ok ? c : { ...c, inPoint: Math.max(0, Math.round(Number(c.inPoint) || 0)) };
 }
 
 const FILL_CHANNELS: readonly string[] = ['left', 'right'];

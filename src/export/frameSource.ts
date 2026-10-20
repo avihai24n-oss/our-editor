@@ -7,7 +7,7 @@
  * - Image: ImageBitmap per asset.
  * - `prepare(fs)` is the only async step; `get(op)` is synchronous for renderFrame.
  */
-import { frameLookupSec, type FrameState, type MediaDrawOp } from '../engine/frameState';
+import { frameLookupSec, mediaOpsDeep, type FrameState, type MediaDrawOp } from '../engine/frameState';
 import type { FrameSources, SourceImage } from '../engine/render';
 import { intendedMatrix, webCodecsMatrix, type Matrix } from '../media/colorMatrix';
 import type { Id, Project } from '../model/types';
@@ -209,8 +209,7 @@ export class ExportFrameSource implements FrameSources {
 
   async prepare(fs: FrameState): Promise<void> {
     this.ready.clear();
-    for (const op of fs.ops) {
-      if (op.kind !== 'media') continue;
+    for (const op of mediaOpsDeep(fs.ops)) {
       const asset = this.project.assets[op.assetId];
       if (!asset || asset.missing) {
         this.ready.set(op.mediaType === 'image' ? `img:${op.assetId}` : op.clipId, 'missing');

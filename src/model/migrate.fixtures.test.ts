@@ -30,8 +30,11 @@ interface Fixture {
 /**
  * saved-ctx-edit.json is saved-integration.json with the ctx-edit field added (`reversed` on every
  * timed clip, true on one video), not a document saved through the ctx-edit UI.
+ * saved-integration2.json was written by the integrated store (ctx-menu + attributes + edit +
+ * isolate + compound): saved-ctx-edit.json loaded, voice isolation set on the audio clip, and two
+ * extra text clips grouped into a compound clip — so it also carries `sequences`.
  * The build whose saved document is already in the current shape (migrates to itself). */
-const CURRENT = 'ctx-edit';
+const CURRENT = 'integration2';
 // a deep copy each time: the tests must not share (or freeze) the module's JSON
 const load = (f: string): Fixture => JSON.parse(JSON.stringify(saved[f])) as Fixture;
 
@@ -69,7 +72,7 @@ describe('projects saved by every build load in the integrated build', () => {
   it('has a fixture from the old c339bf3 build and from every branch', () => {
     const builds = files.map((f) => load(f).savedBy).sort();
     expect(builds).toEqual(
-      ['c339bf3', 'ctx-edit', 'integration', 'qa-export', 'qa-library', 'qa-render', 'qa-timeline', 'tab-adjust', 'tab-animation', 'tab-audio', 'tab-speed', 'tab-video'].sort(),
+      ['c339bf3', 'ctx-edit', 'integration', 'integration2', 'qa-export', 'qa-library', 'qa-render', 'qa-timeline', 'tab-adjust', 'tab-animation', 'tab-audio', 'tab-speed', 'tab-video'].sort(),
     );
   });
 
@@ -105,6 +108,11 @@ describe('projects saved by every build load in the integrated build', () => {
           expect(video.some((c) => c.type === 'video' && c.mask.shape === 'circle' && c.transform.uniformScale === false && c.transform.scaleX === 1.2)).toBe(true);
         if (feats.has('grade')) expect(after.some((c) => c.type === 'image' && c.grade.wheels.gain.y === 0.2)).toBe(true);
         if (feats.has('reverse')) expect(video.some((c) => c.type === 'video' && c.reversed === true)).toBe(true);
+        if (feats.has('voiceIsolation')) expect(audio.type === 'audio' && audio.audio.voiceIsolation).toEqual({ mode: 'isolate', strength: 80 });
+        if (feats.has('compound')) {
+          const comp = after.find((c) => c.type === 'compound');
+          expect(comp && comp.type === 'compound' && m.sequences?.[comp.sequenceId]?.tracks.flatMap((t) => t.clips).length).toBe(2);
+        }
         if (feats.has('animation')) {
           expect(after.some((c) => c.type === 'text' && c.animationLoop?.type === 'pulse')).toBe(true);
           expect(video.some((c) => c.type === 'video' && c.animationCombo?.type === 'zoom-in-out')).toBe(true);

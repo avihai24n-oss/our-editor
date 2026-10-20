@@ -159,7 +159,7 @@ export const EDIT_ITEMS: MenuItem[] = [
     id: 'edit.replace',
     label: 'Replace clip',
     icon: 'replace',
-    disabled: (c) => !primaryType(c) || primaryType(c) === 'text',
+    disabled: (c) => !primaryType(c) || primaryType(c) === 'text' || primaryType(c) === 'compound',
     run: (c) => pickReplacement(c.primaryId),
   },
 ];

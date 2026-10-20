@@ -12,6 +12,7 @@ import {
   createTransition,
   newId,
 } from '../model/defaults';
+import { sequenceDuration } from '../model/compound';
 import { adjacentNext, audioLinked, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
 import { curveIntegral, curveMean, extendCurve, normalizeCurve, sliceCurve, type SpeedCurve } from '../model/speedCurve';
 import { clamp, clipContains, clipEnd, clipMeanSpeed, durationForSpan, frameUs, sourceOffsetAt, sourceSpan } from '../model/time';
@@ -23,6 +24,12 @@ export interface EditCtx {
 }
 
 export const minClipUs = (p: Project): Us => Math.ceil(frameUs(p.settings.fps));
+
+/** Length of a compound clip's sequence (null = unknown sequence, or it is open for editing right now). */
+function compoundAvailable(p: Project, c: Extract<Clip, { type: 'compound' }>): Us | null {
+  if (!p.sequences?.[c.sequenceId] || (p.focus ?? []).some((f) => f.sequenceId === c.sequenceId)) return null;
+  return sequenceDuration(p, c.sequenceId);
+}
 
 /** Deep copy that works on immer drafts and plain objects. */
 const cloneClip = (c: Clip): Clip => structuredClone(isDraft(c) ? current(c) : c);
@@ -57,6 +64,15 @@ export function normalize(p: Project, ctx: EditCtx): void {
         c.inPoint = Math.max(0, Math.round(c.inPoint));
         const asset = p.assets[c.assetId];
         if (asset) fitToMedia(c, asset.duration, min);
+      }
+      if (c.type === 'compound') {
+        // a compound clip never shows past the end of its sequence
+        c.inPoint = Math.max(0, Math.round(c.inPoint));
+        const avail = compoundAvailable(p, c);
+        if (avail !== null) {
+          if (c.inPoint > avail - min) c.inPoint = Math.max(0, avail - min);
+          c.duration = Math.max(min, Math.min(c.duration, avail - c.inPoint));
+        }
       }
       if (c.type !== 'audio') {
         if (c.animationIn) c.animationIn.duration = clamp(Math.round(c.animationIn.duration), 0, c.duration);
@@ -365,7 +381,7 @@ export function moveClips(p: Project, ids: readonly Id[], deltaUs: Us, trackDelt
  * asset is gone are skipped. Returns the new ids.
  */
 export function insertClips(p: Project, clips: readonly Clip[], at: Us, ctx: EditCtx): Id[] {
-  const usable = clips.filter((c) => c.type === 'text' || p.assets[c.assetId]);
+  const usable = clips.filter((c) => c.type === 'text' || (c.type === 'compound' ? !!p.sequences?.[c.sequenceId] : p.assets[c.assetId]));
   if (!usable.length) return [];
   const minStart = Math.min(...usable.map((c) => c.start));
   const base = Math.max(0, Math.round(at));
@@ -413,6 +429,10 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
       c.inPoint = Math.max(0, Math.floor(c.inPoint + (s - c.start) * c.speed + 1e-6));
     }
   }
+  if (c.type === 'compound') {
+    s = Math.max(s, c.start - c.inPoint);
+    c.inPoint = Math.max(0, c.inPoint + (s - c.start));
+  }
   c.duration = end - s;
   c.start = s;
   return true;
@@ -435,6 +455,10 @@ export function trimEnd(p: Project, clipId: Id, newEnd: Us, ctx: EditCtx): boole
   if (isTimedClip(c)) {
     const asset = p.assets[c.assetId];
     if (asset) e = Math.min(e, c.start + Math.floor((asset.duration - c.inPoint) / c.speed));
+  }
+  if (c.type === 'compound') {
+    const avail = compoundAvailable(p, c);
+    if (avail !== null) e = Math.min(e, c.start + avail - c.inPoint);
   }
   c.duration = Math.max(minClipUs(p), e - c.start);
   return true;
@@ -547,6 +571,7 @@ export function splitClip(p: Project, clipId: Id, t: Us): Id | null {
       b.speedCurve = sliceCurve(curve, x, 1);
     }
   }
+  if (a.type === 'compound' && b.type === 'compound') b.inPoint = a.inPoint + (t - a.start);
   a.duration = t - a.start;
   if (a.type !== 'audio' && b.type !== 'audio') {
     a.animationOut = null;
@@ -583,7 +608,7 @@ export function deleteClips(p: Project, ids: readonly Id[]): number {
 export function removeAssetClips(p: Project, assetId: Id): number {
   let n = 0;
   for (const track of p.tracks) {
-    const gone = new Set(track.clips.filter((c) => c.type !== 'text' && c.assetId === assetId).map((c) => c.id));
+    const gone = new Set(track.clips.filter((c) => c.type !== 'text' && c.type !== 'compound' && c.assetId === assetId).map((c) => c.id));
     if (!gone.size) continue;
     track.clips = track.clips.filter((c) => !gone.has(c.id));
     track.transitions = track.transitions.filter((t) => !gone.has(t.fromClipId) && !gone.has(t.toClipId));

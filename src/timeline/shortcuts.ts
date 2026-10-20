@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import { findClip } from '../model/project';
 import { clipEnd, projectDuration } from '../model/time';
 import type { Clip, Id } from '../model/types';
+import { createCompoundClip, undoCompoundClips } from '../actions/compound';
 import { useEditor } from '../store';
 import { emitAppEvent, requestImport, showToast } from '../ui/appEvents';
 import { defOf, resolveDef, type Command } from './shortcutDefs';
@@ -162,10 +163,14 @@ export function runCommand(cmd: Command): boolean {
     case 'clearArea':
       ui.clearArea();
       return true;
+    case 'compound':
+      createCompoundClip();
+      return true;
+    case 'undoCompound':
+      undoCompoundClips();
+      return true;
     case 'group':
     case 'ungroup':
-    case 'compound':
-    case 'undoCompound':
     case 'matchCut':
     case 'splitCaption':
       return comingSoon(cmd);

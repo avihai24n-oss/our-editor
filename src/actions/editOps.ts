@@ -171,6 +171,7 @@ export function replaceClip(p: Project, clipId: Id, assetId: Id): ReplaceResult 
   if (!asset) return { ok: false, reason: 'Unknown media.' };
   const c = f.clip;
   if (c.type === 'text') return { ok: false, reason: 'Text clips cannot be replaced with media.' };
+  if (c.type === 'compound') return { ok: false, reason: 'Compound clips cannot be replaced with media.' };
   if (c.type === 'audio' && asset.kind !== 'audio' && !(asset.kind === 'video' && asset.hasAudio !== false)) return { ok: false, reason: 'Pick an audio file to replace an audio clip.' };
   if (c.type !== 'audio' && asset.kind === 'audio') return { ok: false, reason: 'Pick a video or an image to replace this clip.' };
   if (c.type === 'audio' || (c.type === 'video' && asset.kind === 'video')) {

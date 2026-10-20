@@ -159,8 +159,8 @@ export interface EditorState {
   resetSpeed: (clipId: Id) => void;
   /**
    * Runs a recipe on the document as ONE undoable edit, with normalize() and linkage like every
-   * built-in action (used by feature modules such as src/actions/editMenu.ts, whose ops live
-   * outside ops.ts). Returns the recipe's result.
+   * built-in action (used by feature modules such as src/actions/editMenu.ts and
+   * src/actions/compound.ts, whose ops live outside ops.ts). Returns the recipe's result.
    */
   editProject: <T>(recipe: (draft: Project, ctx: ops.EditCtx) => T) => T;
   /** Toolbar mirror: toggles transform.flipH on the selected visual clips. */

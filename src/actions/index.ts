@@ -6,5 +6,5 @@
 import './attributes';
 import './editMenu';
 import './isolateVoice';
-// import './compound';
+import './compound';
 export {};

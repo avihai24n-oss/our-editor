@@ -382,6 +382,42 @@ function gradeMedia(op: MediaDrawOp, src: SourceImage, box: LocalBox, k: number,
  * Returns the box of every visual op in draw order (project px), for hit testing.
  */
 export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): DrawnBox[] {
+  const k = opts.scale;
+  ctx.save();
+  resetCtx(ctx);
+  ctx.fillStyle = fs.background || '#000000';
+  ctx.fillRect(0, 0, fs.width * k, fs.height * k);
+  ctx.restore();
+  return drawOps(ctx, fs.ops, fs, opts, 0);
+}
+
+/** Offscreen layers for compound clips, one per nesting depth (a nested frame is drawn before its parent op uses it). */
+const nestedLayers: { get(width: number, height: number): Ctx2D | null }[] = [];
+
+/**
+ * Compound clip (⌥G): draws the nested sequence's ops onto a transparent offscreen layer of the
+ * target size. The caller then draws the layer like an image covering the canvas, through the
+ * compound clip's own transform / opacity / blend / colour.
+ */
+function renderNested(op: MediaDrawOp, fs: FrameState, opts: RenderOptions, depth: number): SourceImage | null {
+  const nested = op.nested;
+  if (!nested) return null;
+  const k = opts.scale;
+  const tw = Math.max(1, Math.round(fs.width * k));
+  const th = Math.max(1, Math.round(fs.height * k));
+  const provider = (nestedLayers[depth] ??= createLayerProvider());
+  const layer = provider.get(tw, th);
+  if (!layer) return null;
+  layer.save();
+  resetCtx(layer);
+  layer.clearRect(0, 0, tw, th);
+  layer.restore();
+  drawOps(layer, nested.ops, { ...fs, t: nested.t }, opts, depth + 1);
+  return { image: layer.canvas as CanvasImageSource, width: tw, height: th };
+}
+
+/** Draws ops onto ctx (no background). Returns the boxes of the visual ops, for hit testing. */
+function drawOps(ctx: Ctx2D, list: readonly DrawOp[], fs: FrameState, opts: RenderOptions, depth: number): DrawnBox[] {
   const { width: W, height: H } = fs;
   const k = opts.scale;
   const tw = W * k;
@@ -390,10 +426,8 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
 
   ctx.save();
   resetCtx(ctx);
-  ctx.fillStyle = fs.background || '#000000';
-  ctx.fillRect(0, 0, tw, th);
 
-  for (const op of fs.ops as DrawOp[]) {
+  for (const op of list) {
     if (op.kind === 'fill') {
       resetCtx(ctx);
       ctx.globalAlpha = Math.min(1, Math.max(0, op.opacity));
@@ -408,7 +442,7 @@ export function renderFrame(ctx: Ctx2D, fs: FrameState, opts: RenderOptions): Dr
     let src: SourceImage | 'missing' | null = null;
     if (op.kind === 'media') {
       local = mediaLocalBox(op);
-      src = opts.sources.get(op);
+      src = op.nested ? renderNested(op, fs, opts, depth) : opts.sources.get(op);
     } else {
       resetCtx(ctx);
       textLayout = layoutTextOp(ctx, op, W);
