@@ -126,6 +126,10 @@ real-time WebM export.
     warmth (saturation), delay, reverb (decay, pre-delay, damping, mix), output; each section has its
     own switch; presets Clean voice-over / Warm narrator / Documentary / Epic trailer. Same graph in
     preview and export. Measured in e2e/voice-fx.spec.ts (OfflineAudioContext renders).
+  - **Auto-play on change** (switch at the top, on by default, remembered): picking a filter tile
+    (None too), a Mixer preset or the Mixer box auditions the clip — from its start (a clip over 20 s:
+    from the playhead if it's inside), stopping at the clip end; the next pick restarts from the same
+    point. Slider drags keep playing live. Space / Play are unchanged (src/player/audition.ts).
 - **Speed › Standard:** 0.1×–100× on CapCut's six-tick slider, editable duration, "Change audio
   pitch", Reset. **Speed › Curve:** None, Custom, Montage, Hero, Bullet, Jump cut, Flash in and
   Flash out, with a graph editor (drag points between 0.1× and 10× on a log axis, add / delete a

@@ -9,6 +9,10 @@
  * Character / Pitch & effects; Mixer (a channel strip: cuts, EQ, compressor, warmth, delay,
  * reverb, output — with starting presets); Voice characters and Speech to song (AI, coming soon).
  *
+ * Auto-play on change (header switch, remembered): picking a voice filter, a Mixer preset or the
+ * Mixer box auditions the clip — from its start (or the playhead, on a clip over 20 s) to its
+ * end (src/player/audition.ts); slider drags don't restart, the preview follows them live.
+ *
  * Every control writes through updateClip (undoable; slider drags are one step) and is saved
  * with the project. A video clip whose sound was extracted shows the link instead of controls.
  */
@@ -23,8 +27,9 @@ import { clipVolumeDbAt, hasVolumeKeys, keyIndexAt, keyTimes, shiftKeys, withKey
 import { secToUs, sourceSpan, usToSec } from '../../model/time';
 import type { AudioClip, AudioProps, FillChannel, VideoClip, VoiceFilterId, VoiceIsolationMode, VoiceMixer } from '../../model/types';
 import { usePref } from '../../panels/prefs';
+import { auditionClip } from '../../player/audition';
 import { useEditor } from '../../store';
-import { KeyframeNav, SegmentedTabs, Section, SliderRow } from '../controls';
+import { KeyframeNav, SegmentedTabs, Section, SliderRow, ToggleRow } from '../controls';
 import { fadeMax, formatDb } from '../inspectorLogic';
 
 type Sub = 'basic' | 'voice';
@@ -340,11 +345,27 @@ function AiRow({ id, title }: { id: string; title: string }) {
 
 function VoicePane({ clip }: { clip: VideoClip | AudioClip }) {
   const updateClip = useEditor((s) => s.updateClip);
+  const [autoPlay, setAutoPlay] = usePref('insp.audio.autoplay', true);
   const vf = clip.audio.voiceFilter;
-  const pick = (id: VoiceFilterId | null) =>
+  // hear the change from the top of the clip (the graph switches on the same tick as the seek)
+  const audition = () => {
+    if (autoPlay) auditionClip(clip.id);
+  };
+  const pick = (id: VoiceFilterId | null) => {
     updateClip(clip.id, { audio: { voiceFilter: id ? { id, strength: vf?.id === id ? vf.strength : DEFAULT_VOICE_STRENGTH } : null } });
+    audition();
+  };
   return (
     <>
+      <div className="iaudio__autoplay" data-testid="voice-autoplay">
+        <ToggleRow
+          label="Auto-play on change"
+          hint="Plays the clip after you pick a voice or preset"
+          on={autoPlay}
+          onChange={setAutoPlay}
+          title="Restart the clip every time you pick a voice filter or Mixer preset"
+        />
+      </div>
       <Section id="audio-voice-filters" title="Voice filters" note="DSP · not AI" resetDisabled={!vf} onReset={() => pick(null)}>
         <button
           className={`iaudio__tile iaudio__tile--none${!vf ? ' is-active' : ''}`}
@@ -391,7 +412,7 @@ function VoicePane({ clip }: { clip: VideoClip | AudioClip }) {
           />
         )}
       </Section>
-      <MixerPane clip={clip} />
+      <MixerPane clip={clip} onPick={audition} />
       <AiRow id="characters" title="Voice characters" />
       <AiRow id="speech-to-song" title="Speech to song" />
     </>
@@ -401,7 +422,7 @@ function VoicePane({ clip }: { clip: VideoClip | AudioClip }) {
 // ---------------------------------------------------------------- Mixer
 
 /** Voice changer › Mixer: a channel strip on the clip (after the voice filter). */
-function MixerPane({ clip }: { clip: VideoClip | AudioClip }) {
+function MixerPane({ clip, onPick }: { clip: VideoClip | AudioClip; onPick: () => void }) {
   const updateClip = useEditor((s) => s.updateClip);
   const m: VoiceMixer = clip.audio.mixer ?? DEFAULT_MIXER;
   const active = !!clip.audio.mixer;
@@ -416,10 +437,33 @@ function MixerPane({ clip }: { clip: VideoClip | AudioClip }) {
 
   return (
     <>
-      <Section id="audio-mixer" title="Mixer" note="Channel strip" checked={active} onCheck={(on) => put(on ? { ...DEFAULT_MIXER } : null)} resetDisabled={!active} onReset={() => put(null)}>
+      <Section
+        id="audio-mixer"
+        title="Mixer"
+        note="Channel strip"
+        checked={active}
+        onCheck={(on) => {
+          put(on ? { ...DEFAULT_MIXER } : null);
+          onPick();
+        }}
+        resetDisabled={!active}
+        onReset={() => {
+          put(null);
+          onPick();
+        }}
+      >
         <div className="iaudio__presets" data-testid="mixer-presets">
           {MIXER_PRESETS.map((p) => (
-            <button key={p.id} className="btn iaudio__preset" title={p.hint} onClick={() => put(structuredClone(p.mixer))} data-testid={`mixer-preset-${p.id}`}>
+            <button
+              key={p.id}
+              className="btn iaudio__preset"
+              title={p.hint}
+              onClick={() => {
+                put(structuredClone(p.mixer));
+                onPick();
+              }}
+              data-testid={`mixer-preset-${p.id}`}
+            >
               {p.label}
             </button>
           ))}

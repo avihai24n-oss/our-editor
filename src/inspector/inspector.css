@@ -1133,6 +1133,10 @@
 }
 
 /* Voice changer groups + Mixer (AudioTab.tsx) */
+.iaudio__autoplay {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+}
 .iaudio__tile--none {
   flex-direction: row;
   justify-content: center;

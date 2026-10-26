@@ -127,6 +127,45 @@ describe('Audio tab', () => {
     expect(audioOf(id).voiceFilter).toBeNull();
   });
 
+  it('Voice changer: picking a filter or preset auditions the clip; the switch turns it off', () => {
+    const id = addVideo();
+    act(() => st().setPlayhead(S(2)));
+    openAudio();
+    fireEvent.click(screen.getByRole('tab', { name: 'Voice changer' }));
+    const sw = screen.getByRole('switch', { name: 'Auto-play on change' });
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    act(() => {
+      fireEvent.click(screen.getByTestId('voice-filter-robot'));
+    });
+    expect(st().playing).toBe(true);
+    expect(st().playhead).toBe(findClip(st().project, id)!.clip.start);
+    // a Strength drag does not restart
+    act(() => st().setPlayhead(S(1)));
+    const slider = within(screen.getByTestId('voice-strength-row')).getByRole('slider');
+    act(() => {
+      fireEvent.pointerDown(slider);
+      fireEvent.change(slider, { target: { value: '70' } });
+      fireEvent.pointerUp(window);
+    });
+    expect(st().playhead).toBe(S(1));
+    act(() => st().pause());
+    act(() => {
+      fireEvent.click(screen.getByTestId('mixer-preset-clean-vo'));
+    });
+    expect(st().playing).toBe(true);
+    act(() => st().pause());
+    act(() => {
+      fireEvent.click(sw);
+    });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    act(() => st().setPlayhead(S(3)));
+    act(() => {
+      fireEvent.click(screen.getByTestId('voice-filter-none'));
+    });
+    expect(st().playing).toBe(false);
+    expect(st().playhead).toBe(S(3));
+  });
+
   it('Isolate voice (DSP): checkbox, mode, strength (one undo step), off', () => {
     const id = addVideo();
     openAudio();

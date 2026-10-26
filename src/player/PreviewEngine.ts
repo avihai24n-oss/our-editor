@@ -21,6 +21,7 @@ import { projectDuration } from '../model/time';
 import type { Id, Us } from '../model/types';
 import { useEditor, type EditorState } from '../store';
 import { AudioEngine } from './audioEngine';
+import { auditionSeek, auditionStopAt, endAudition } from './audition';
 import { PlaybackClock, perfNow } from './clock';
 import { MediaPool } from './mediaPool';
 import { afterPreviewRender } from './color/colorView';
@@ -204,7 +205,10 @@ export class PreviewEngine {
     }
     if (s.playing && this.clock.isRunning) {
       // someone else moved the playhead while playing → seek
-      if (s.playhead !== prev.playhead && s.playhead !== this.lastWritten) this.clock.seek(s.playhead);
+      if (s.playhead !== prev.playhead && s.playhead !== this.lastWritten) {
+        auditionSeek(s.playhead); // a seek out of an auditioned clip = normal playback
+        this.clock.seek(s.playhead);
+      }
       return;
     }
     if (
@@ -239,20 +243,29 @@ export class PreviewEngine {
       // The store playhead is written at most every 33 ms, so it lags the frame on screen by up
       // to a frame or two. Pausing must keep the picture the user stopped on, not jump back.
       if (!keepStorePlayhead) {
-        const end = projectDuration(useEditor.getState().project);
+        const end = this.playEnd();
         this.lastWritten = Math.max(0, Math.min(Math.round(t), end));
         useEditor.getState().setPlayhead(this.lastWritten);
       }
     }
+    // Voice changer audition (src/player/audition.ts): it ends with every pause
+    endAudition(useEditor.getState().playhead);
     this.audio.stopAll();
     this.pool.pauseAll();
     this.invalidate();
   }
 
+  /** Where playback stops: the project end, or the end of the clip being auditioned. */
+  private playEnd(): Us {
+    const end = projectDuration(useEditor.getState().project);
+    const stop = auditionStopAt();
+    return stop === null ? end : Math.min(end, stop);
+  }
+
   private tick = (): void => {
     if (this.disposed || !this.clock.isRunning) return;
     const s = useEditor.getState();
-    const end = projectDuration(s.project);
+    const end = this.playEnd();
     let t = this.clock.time();
     if (t >= end) {
       t = end;
