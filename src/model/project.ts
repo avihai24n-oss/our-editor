@@ -2,7 +2,7 @@
  * Pure read-only helpers over a Project (no React, no DOM). Safe to call from anywhere.
  */
 import { migrateColorPage } from './colorPage';
-import { allClipsDeep, rootProject } from './compound';
+import { allClipsDeep, isAudioCompound, rootProject } from './compound';
 import { defaultAdjust, defaultCanvasBackground, defaultChroma, defaultGrade, defaultMask } from './defaults';
 import type { SpeedCurve } from './speedCurve';
 import { clipEnd } from './time';
@@ -54,7 +54,9 @@ export function findTransition(p: Project, transitionId: Id) {
 export const allClips = (p: Project): Clip[] => p.tracks.flatMap((t) => t.clips);
 
 /** Which clip kinds a track kind accepts. */
-export function trackAccepts(kind: TrackKind, clip: Pick<Clip, 'type'>): boolean {
+export function trackAccepts(kind: TrackKind, clip: Pick<Clip, 'type'> & { sequenceId?: Id }, p?: Project): boolean {
+  // an audio-only compound clip is a sound clip: audio tracks only (needs the project to tell)
+  if (p && isAudioCompound(p, clip)) return kind === 'audio';
   switch (kind) {
     case 'main':
     case 'overlay':

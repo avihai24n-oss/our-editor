@@ -39,6 +39,16 @@ export function sequenceTracks(p: Project, sequenceId: Id): Track[] | undefined 
   return p.sequences?.[sequenceId]?.tracks;
 }
 
+/**
+ * A compound clip whose sequence holds only sound (audio clips, or audio-only compounds): it is an
+ * AUDIO clip — it lives on audio tracks, like CapCut's audio compound clips. An empty sequence is not.
+ */
+export function isAudioCompound(p: Project, clip: Pick<Clip, 'type'> & { sequenceId?: Id }, depth = 0): boolean {
+  if (clip.type !== 'compound' || !clip.sequenceId || depth > 8) return false;
+  const clips = (sequenceTracks(p, clip.sequenceId) ?? []).flatMap((t) => t.clips);
+  return clips.length > 0 && clips.every((c) => c.type === 'audio' || (c.type === 'compound' && isAudioCompound(p, c, depth + 1)));
+}
+
 /** The main (root) timeline's tracks, wherever they are right now. */
 export const rootTracks = (p: Project): Track[] => (p.focus && p.focus.length ? p.focus[0]!.parentTracks : p.tracks);
 

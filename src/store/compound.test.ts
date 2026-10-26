@@ -258,3 +258,68 @@ describe('nested editing', () => {
     clean();
   });
 });
+
+describe('audio compound clips (sound only)', () => {
+  const twoSounds = () => {
+    const a = audio(20);
+    st().addAssets([a]);
+    const M1 = st().addClip(a.id, { at: 0 })!;
+    st().trimEnd(M1, S(2));
+    const M2 = st().addClip(a.id, { at: S(2) })!;
+    st().trimEnd(M2, S(4));
+    return { M1, M2 };
+  };
+  const trackOf = (id: string) => findClip(proj(), id)!.track;
+
+  it('stays on the audio track it came from (was: moved up to a new video track)', () => {
+    const { M1, M2 } = twoSounds();
+    const audioTrack = trackOf(M1).id;
+    const id = createCompoundClip([M1, M2])!;
+    expect(trackOf(id).kind).toBe('audio');
+    expect(trackOf(id).id).toBe(audioTrack);
+    expect(proj().tracks.some((t) => t.kind === 'overlay')).toBe(false);
+    clean();
+    // it still sounds, exactly where the clips were
+    expect(getFrameState(proj(), S(1)).audio).toHaveLength(1);
+    expect(planMix(proj()).length).toBe(2);
+  });
+
+  it('cannot be moved onto a video track; can move between audio tracks', () => {
+    const { M1, M2 } = twoSounds();
+    const id = createCompoundClip([M1, M2])!;
+    const v = video('v.mp4', 10);
+    st().addAssets([v]);
+    const O = st().addClip(v.id, { at: S(10), kind: 'overlay' })!;
+    expect(st().moveClip(id, { start: 0, trackId: trackOf(O).id })).toBe(false);
+    expect(trackOf(id).kind).toBe('audio');
+    clean();
+  });
+
+  it('an old project with a sound-only compound on a video track: the next edit puts it on an audio track', () => {
+    const { M1, M2 } = twoSounds();
+    const id = createCompoundClip([M1, M2])!;
+    // build the legacy layout by hand: the compound on an overlay track
+    st().editProject((d) => {
+      const c = d.tracks.flatMap((t) => t.clips).find((x) => x.id === id)!;
+      for (const t of d.tracks) t.clips = t.clips.filter((x) => x.id !== id);
+      const t = { id: 'trk_legacy', kind: 'overlay' as const, name: '', locked: false, hidden: false, muted: false, clips: [c], transitions: [] };
+      c.trackId = t.id;
+      d.tracks.push(t);
+    });
+    expect(trackOf(id).kind).toBe('audio'); // that very edit's normalize already moved it
+    clean();
+  });
+
+  it('a compound that gains a picture inside moves to a video track', () => {
+    const { M1, M2 } = twoSounds();
+    const id = createCompoundClip([M1, M2])!;
+    const v = video('v.mp4', 10);
+    st().addAssets([v]);
+    const seq = (findClip(proj(), id)!.clip as CompoundClip).sequenceId;
+    st().editProject((d) => {
+      const tr = d.sequences![seq]!.tracks.find((t) => t.kind === 'main')!;
+      tr.clips.push({ ...(JSON.parse(JSON.stringify(findClip(proj(), id)!.clip)) as CompoundClip), id: 'clp_vid', type: 'video', assetId: v.id } as never);
+    });
+    expect(trackOf(id).kind).not.toBe('audio');
+  });
+});

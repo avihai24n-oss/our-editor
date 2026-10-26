@@ -93,7 +93,7 @@ function checkTracks(p: Project, tracks: readonly Track[], ctx: InvariantCtx, id
       if (ids.has(c.id)) bad(`duplicate clip id ${c.id}`);
       ids.add(c.id);
       if (c.trackId !== t.id) bad(`${tag}: trackId ${c.trackId} != ${t.id}`);
-      if (!trackAccepts(t.kind, c)) bad(`${tag}: a ${c.type} clip on a ${t.kind} track`);
+      if (!trackAccepts(t.kind, c, p)) bad(`${tag}: a ${c.type} clip on a ${t.kind} track`);
       if (!Number.isInteger(c.start) || !Number.isInteger(c.duration)) bad(`${tag}: non-integer time ${c.start}/${c.duration}`);
       if (c.start < 0) bad(`${tag}: negative start ${c.start}`);
       if (c.duration < minUs) bad(`${tag}: duration ${c.duration} < one frame`);

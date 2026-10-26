@@ -5,7 +5,7 @@
  */
 import { current, isDraft } from 'immer';
 import { createTrack, defaultAdjust, defaultCrop, defaultGrade, defaultTransform, newId } from '../model/defaults';
-import { canPlaceSequence, nextCompoundName, sequenceDuration, sequencesOf, sequenceTracks, tracksEnd, instancesOf } from '../model/compound';
+import { canPlaceSequence, isAudioCompound, nextCompoundName, sequenceDuration, sequencesOf, sequenceTracks, tracksEnd, instancesOf } from '../model/compound';
 import { audioLinked, findClip, isRangeFree, mainTrack } from '../model/project';
 import { clipEnd } from '../model/time';
 import type { Clip, CompoundClip, Id, Project, Track, TrackKind, Us } from '../model/types';
@@ -77,7 +77,9 @@ export function compoundBlocker(p: Project, clipIds: readonly Id[]): string | nu
  * ⌥G: moves the clips (and the audio linked to them) into a new sequence, relative timing kept,
  * and puts ONE compound clip at the earliest start: on the main track when main-track clips are
  * selected (in their slot, so the magnetic main track stays packed), else on the topmost selected
- * visual track when it is free there, else on a new overlay track right above it. Transitions
+ * visual track when it is free there, else on a new overlay track right above it. Only sound
+ * selected: an AUDIO compound clip, on the first selected audio track when free there, else on a
+ * new audio track right below it (it never moves up into the video tracks). Transitions
  * between two selected clips go along; the others are dropped. Returns the compound clip id.
  */
 export function createCompound(p: Project, clipIds: readonly Id[], _ctx: EditCtx): Id | null {
@@ -109,11 +111,21 @@ export function createCompound(p: Project, clipIds: readonly Id[], _ctx: EditCtx
 
   // where the compound goes (decided before the clips leave: z-order of the topmost selected track)
   let target: Track | null = null;
+  const freeAfter = (t: Track) => t.clips.every((c) => ids.has(c.id) || clipEnd(c) <= E || c.start >= L);
+  const soundOnly = found.every((f) => f.clip.type === 'audio' || (f.clip.type === 'compound' && isAudioCompound(p, f.clip)));
   if (hasMain) target = main;
-  else {
+  else if (soundOnly) {
+    const audioIdx = found.map((f) => p.tracks.indexOf(f.track)).filter((i) => p.tracks[i]!.kind === 'audio');
+    const first = p.tracks[Math.min(...audioIdx)]!;
+    if (freeAfter(first)) target = first;
+    else {
+      const t = createTrack('audio');
+      p.tracks.splice(p.tracks.indexOf(first) + 1, 0, t);
+      target = t;
+    }
+  } else {
     const visualIdx = found.filter((f) => f.track.kind !== 'audio').map((f) => p.tracks.indexOf(f.track));
     const top = visualIdx.length ? p.tracks[Math.max(...visualIdx)]! : null;
-    const freeAfter = (t: Track) => t.clips.every((c) => ids.has(c.id) || clipEnd(c) <= E || c.start >= L);
     if (top && top.kind === 'overlay' && freeAfter(top)) target = top;
     else {
       const t = createTrack('overlay');
@@ -256,6 +268,17 @@ export function addSequenceInstance(p: Project, sequenceId: Id, opts: { at: Us; 
   const duration = Math.max(minClipUs(p), sequenceDuration(p, sequenceId) || tracksEnd(s.tracks));
   const explicit = opts.trackId ? p.tracks.find((t) => t.id === opts.trackId && !t.locked && (t.kind === 'main' || t.kind === 'overlay')) : undefined;
   const clip = createCompoundClip(sequenceId, s.name, '', at, duration);
+  if (isAudioCompound(p, clip)) {
+    // a sound-only sequence goes on an audio track (the given one, a free one, or a new one)
+    const audio =
+      p.tracks.find((t) => t.id === opts.trackId && t.kind === 'audio' && !t.locked && isRangeFree(t, at, at + duration)) ??
+      p.tracks.find((t) => t.kind === 'audio' && !t.locked && isRangeFree(t, at, at + duration));
+    const target = audio ?? (p.tracks.push(createTrack('audio')), p.tracks[p.tracks.length - 1]!);
+    clip.trackId = target.id;
+    target.clips.push(clip);
+    target.clips.sort((x, y) => x.start - y.start);
+    return clip.id;
+  }
   const main = mainTrack(p);
   if ((explicit?.kind === 'main' || (!explicit && opts.kind !== 'overlay')) && !main.locked) {
     insertOnMain(p, clip, at, ctx);

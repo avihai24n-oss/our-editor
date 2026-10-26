@@ -12,7 +12,7 @@ import {
   createTransition,
   newId,
 } from '../model/defaults';
-import { sequenceDuration } from '../model/compound';
+import { isAudioCompound, sequenceDuration } from '../model/compound';
 import { shiftLocalMotionKeys, usesLocalKeyTime } from '../model/motionKeys';
 import { adjacentNext, audioLinked, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
 import { curveIntegral, curveMean, extendCurve, normalizeCurve, sliceCurve, type SpeedCurve } from '../model/speedCurve';
@@ -56,6 +56,7 @@ export function retain<T>(arr: T[], keep: (x: T) => boolean): void {
  * - all times integers.
  */
 export function normalize(p: Project, ctx: EditCtx): void {
+  fixCompoundTracks(p);
   const min = minClipUs(p);
   for (const track of p.tracks) {
     for (const c of track.clips) {
@@ -108,6 +109,33 @@ export function normalize(p: Project, ctx: EditCtx): void {
     pruneTransitions(p, track);
   }
   pruneAudioLinks(p);
+}
+
+/**
+ * A compound clip lives on the track kind of what it holds: sound only → an audio track, anything
+ * visual → a video track. Fixes compounds made before audio compounds existed (they sat on video
+ * tracks) and ones whose content changed inside. Moves to a free track of the right kind at the
+ * same time, else a new one.
+ */
+function fixCompoundTracks(p: Project): void {
+  let moved = false;
+  for (const t of [...p.tracks]) {
+    for (const c of [...t.clips]) {
+      if (c.type !== 'compound') continue;
+      const audio = isAudioCompound(p, c);
+      if (audio === (t.kind === 'audio')) continue;
+      if (t.locked) continue;
+      const kind = audio ? 'audio' : 'overlay';
+      const free = p.tracks.find((x) => x !== t && x.kind === kind && !x.locked && isRangeFree(x, c.start, c.start + c.duration));
+      const target = free ?? addTrack(p, kind);
+      retain(t.clips, (x) => x.id !== c.id);
+      retain(t.transitions, (tr) => tr.fromClipId !== c.id && tr.toClipId !== c.id);
+      c.trackId = target.id;
+      target.clips.push(c);
+      moved = true;
+    }
+  }
+  if (moved) removeEmptyTracks(p); // the track it left may be empty now
 }
 
 /**
@@ -265,7 +293,7 @@ export function addClipFromAsset(p: Project, assetId: Id, opts: AddClipOpts, ctx
   const at = Math.max(0, Math.round(opts.at));
   const clip = createClipFromAsset(asset, '', at);
   const explicit = opts.trackId ? p.tracks.find((t) => t.id === opts.trackId) : undefined;
-  if (explicit && !explicit.locked && trackAccepts(explicit.kind, clip)) {
+  if (explicit && !explicit.locked && trackAccepts(explicit.kind, clip, p)) {
     if (explicit.kind === 'main') insertOnMain(p, clip, at, ctx);
     else placeOnTrack(p, clip, explicit, at);
   } else if (clip.type === 'audio') {
@@ -298,7 +326,8 @@ function detach(p: Project, clipId: Id): Clip | null {
 }
 
 /** Kind of track a clip goes to when it needs a fresh one (video/image → overlay). */
-export function newTrackKindFor(clip: Pick<Clip, 'type'>): Exclude<TrackKind, 'main'> {
+export function newTrackKindFor(clip: Pick<Clip, 'type'> & { sequenceId?: Id }, p?: Project): Exclude<TrackKind, 'main'> {
+  if (p && isAudioCompound(p, clip)) return 'audio';
   return clip.type === 'audio' ? 'audio' : clip.type === 'text' ? 'text' : 'overlay';
 }
 
@@ -329,7 +358,7 @@ export function moveClip(p: Project, clipId: Id, to: { start: Us; trackId?: Id; 
   const start = Math.max(0, Math.round(to.start));
   if (to.newTrack) {
     const ref = to.trackId ? p.tracks.find((t) => t.id === to.trackId) : f.track;
-    const kind = newTrackKindFor(f.clip);
+    const kind = newTrackKindFor(f.clip, p);
     const index = indexNextTo(p, ref, kind, to.newTrack);
     const clip = detach(p, clipId)!;
     const track = addTrack(p, kind, index);
@@ -340,7 +369,7 @@ export function moveClip(p: Project, clipId: Id, to: { start: Us; trackId?: Id; 
     return true;
   }
   const target = to.trackId ? p.tracks.find((t) => t.id === to.trackId) : f.track;
-  if (!target || target.locked || !trackAccepts(target.kind, f.clip)) return false;
+  if (!target || target.locked || !trackAccepts(target.kind, f.clip, p)) return false;
   const clip = detach(p, clipId)!;
   if (target.kind === 'main') insertOnMain(p, clip, start + clip.duration / 2 - 1, ctx);
   else placeOnTrack(p, clip, target, start);
@@ -362,7 +391,7 @@ export function moveClips(p: Project, ids: readonly Id[], deltaUs: Us, trackDelt
     let target = f.track;
     if (trackDelta) {
       const cand = rows[rows.indexOf(f.track) + trackDelta];
-      if (cand && !cand.locked && trackAccepts(cand.kind, f.clip)) target = cand;
+      if (cand && !cand.locked && trackAccepts(cand.kind, f.clip, p)) target = cand;
     }
     plan.push({ clip: f.clip, target, start: Math.max(0, Math.round(f.clip.start + deltaUs)) });
   }
@@ -397,11 +426,11 @@ export function insertClips(p: Project, clips: readonly Clip[], at: Us, ctx: Edi
     const clip = copies[i]!;
     clip.id = newId('clp');
     const start = base + (src.start - minStart);
-    const orig = p.tracks.find((t) => t.id === src.trackId && !t.locked && trackAccepts(t.kind, clip));
+    const orig = p.tracks.find((t) => t.id === src.trackId && !t.locked && trackAccepts(t.kind, clip, p));
     if (orig?.kind === 'main' || (!orig && !mainLocked && (clip.type === 'video' || clip.type === 'image'))) {
       insertOnMain(p, clip, start, ctx);
     } else {
-      const kind = newTrackKindFor(clip);
+      const kind = newTrackKindFor(clip, p);
       placeOnTrack(p, clip, orig ?? freeTrack(p, kind, start, clip.duration), start);
     }
     out.push(clip.id);

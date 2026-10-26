@@ -2,6 +2,7 @@
  * Pure decisions behind the timeline gestures (no DOM): where a dragged clip lands, which track
  * a library drop goes to, snapping of moves and trims. Unit-tested in gestures.test.ts.
  */
+import { isAudioCompound } from '../model/compound';
 import { trackAccepts } from '../model/project';
 import { pxToUs, snapCandidates, snapRange, snapTime } from '../model/time';
 import type { Clip, ClipType, Id, MediaKind, Project, Track, TrackKind, Us } from '../model/types';
@@ -16,7 +17,8 @@ export type NewTrackKind = Exclude<TrackKind, 'main'>;
 export type MoveTarget = { trackId: Id; newKind?: undefined } | { trackId?: undefined; newKind: NewTrackKind };
 
 /** Kind of the new track created by dropping a clip of `type` into a band, or null (not allowed). */
-export function bandTrackKind(type: ClipType, band: 'top' | 'bottom'): NewTrackKind | null {
+export function bandTrackKind(type: ClipType, band: 'top' | 'bottom', audioCompound = false): NewTrackKind | null {
+  if (audioCompound) return band === 'bottom' ? 'audio' : null;
   if (band === 'top') {
     if (type === 'video' || type === 'image') return 'overlay';
     if (type === 'text') return 'text';
@@ -32,11 +34,11 @@ export function bandTrackKind(type: ClipType, band: 'top' | 'bottom'): NewTrackK
 export function resolveMoveTarget(project: Project, clip: Clip, fromTrack: Track, row: RowKey | null): MoveTarget {
   if (!row) return { trackId: fromTrack.id };
   if (row.type === 'band') {
-    const kind = bandTrackKind(clip.type, row.band);
+    const kind = bandTrackKind(clip.type, row.band, isAudioCompound(project, clip));
     return kind ? { newKind: kind } : { trackId: fromTrack.id };
   }
   const t = project.tracks.find((x) => x.id === row.trackId);
-  if (!t || t.locked || !trackAccepts(t.kind, clip)) return { trackId: fromTrack.id };
+  if (!t || t.locked || !trackAccepts(t.kind, clip, project)) return { trackId: fromTrack.id };
   return { trackId: t.id };
 }
 
