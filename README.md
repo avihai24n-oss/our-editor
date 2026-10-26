@@ -34,8 +34,8 @@ real-time WebM export.
 - **Keyboard shortcuts** panel (keyboard icon)
 
 **Library (left)**
-- Ten CapCut tabs. Media, Audio, Text, Transitions, Filters and Adjustment work. Stickers, Effects,
-  Captions and Templates show "Coming soon".
+- Ten CapCut tabs. Media, Audio, Text, Transitions, Captions, Filters and Adjustment work. Stickers,
+  Effects and Templates show "Coming soon".
 - **Media:**
   - Import video, audio and images with the button, or drag files from Finder / the desktop
     **anywhere on the window**: the window dims ("Drop files to import") and the files go to the
@@ -198,6 +198,30 @@ real-time WebM export.
   `~/.our-editor/inbox/`; the open editor polls it every 2 s (`src/import/inbox.ts`), opens or creates the
   project by name, imports the files through the normal import, saves, and acks (`inbox/done/`). The script
   starts the server / editor window when needed and prints the result JSON. Agents: the `our-editor-media` skill.
+
+**Captions** (added 26 Oct 2026; code in `src/captions/`, server in `vite-plugins/transcribe.js`)
+- **Library › Captions › Auto captions:** transcribes what you hear on the timeline (the export's own
+  audio mix) with whisper.cpp on this Mac (`whisper-cli`, `ggml-large-v3-turbo`, Metal), Hebrew /
+  English / auto-detect, for the whole timeline or the selected clips (optionally hearing only them),
+  with max words / characters per caption. Runs in the background with progress and Cancel; a re-run
+  replaces the captions of its range only. Word times come from whisper's DTW token alignment
+  (`-nfa -dtw large.v3.turbo -ojf`): about 50 ms from ElevenLabs Scribe on real Hebrew narration.
+- A caption track is a text track (named Captions); each caption is a text clip carrying its words
+  with their timings, so it moves, trims, splits, deletes and undoes like any clip and the words stay
+  on their sound.
+- **Caption lab** (select a caption → inspector): every caption with editable text (word timings
+  kept), split before a word, merge, nudge, delete, a "sync all" offset, re-split to N words, and
+  per-word start / end for the karaoke styles. **Style:** font (ten bundled Hebrew + Latin fonts from
+  MakePodcast: Secular One, Heebo, Rubik, Assistant, Suez One, Varela Round, Frank Ruhl Libre,
+  Karantina, Alef, Miriam Libre), weight, size, ALL CAPS, colour, highlight (MakePodcast swatches),
+  glow, stroke, shadow, background box, position (top / middle / bottom, safe area), alignment, max
+  width / lines, line height, word spacing, animation — for all captions or one. Hebrew reads right to
+  left automatically (per word, like MakePodcast).
+- **Styles:** MakePodcast's Karaoke, Word Pop, Clean, Hormozi, Highlight Box (+ Glow variants) and
+  Karaoke Fill, Bounce, Word Reveal, Outline, Subtitle. Drawn by the shared compositor, so preview
+  and export match.
+- **Caption files:** import SRT / VTT / word JSON, export SRT / VTT / word JSON (to ~/Downloads),
+  "Burn captions into the exported video" (on by default).
 
 **Import a CapCut project** (dev server / `vite preview` only)
 - Top bar › *Import CapCut project…* or open `/?importCapcut=<draft folder>` (e.g. `/?importCapcut=1018`).

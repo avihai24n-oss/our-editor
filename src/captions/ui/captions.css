@@ -269,11 +269,6 @@
 .caplab__presets .cap-tile {
   padding: 2px;
 }
-
-/* timeline labels of text clips: Hebrew captions read right to left (first strong letter decides) */
-.tl-clip__text {
-  unicode-bidi: plaintext;
-}
 .caplab__num {
   width: 40px;
   height: 22px;

@@ -25,7 +25,7 @@ export function drawPresetSample(canvas: HTMLCanvasElement, style: CaptionStyle,
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const words = (hebrew ? SAMPLE_HE : SAMPLE_EN).map((text, i) => ({ text, start: i * 400_000, end: (i + 1) * 400_000 }));
-  const s: CaptionStyle = { ...style, safeArea: false, x: 0, y: 0.5, fontSize: Math.min(style.fontSize, 120), maxWidth: 0.92 };
+  const s: CaptionStyle = { ...style, safeArea: false, x: 0, y: 0.5, fontSize: Math.min(Math.max(style.fontSize * 1.5, 120), 150), maxWidth: 0.94, maxLines: 1 };
   const frame: CaptionFrame = { style: s, words, now: 560_000, rtl: hebrew };
   const op = { caption: frame, transform: { x: 0, y: 0, scale: 1, scaleX: 1, scaleY: 1, rotation: 0 } };
   const L = layoutCaption(ctx, op, VW, VH);

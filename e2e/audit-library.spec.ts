@@ -803,13 +803,12 @@ test('Adjustment tab: every preset changes the pixels and sets Adjust; Reset res
 
 // ====================================================================== COMING SOON + TABS
 
-test('Stickers / Effects / Captions / Templates show a clean coming-soon state; the tab persists', async ({ page }) => {
+test('Stickers / Effects / Templates show a clean coming-soon state; the tab persists (Captions works since 26 Oct 2026)', async ({ page }) => {
   const errors = collectConsoleErrors(page);
   await boot(page);
   for (const [id, label] of [
     ['stickers', 'Stickers'],
     ['effects', 'Effects'],
-    ['captions', 'Captions'],
     ['templates', 'Templates'],
   ] as const) {
     await openTab(page, id);

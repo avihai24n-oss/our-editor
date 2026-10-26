@@ -174,7 +174,7 @@ test.describe('captions', () => {
     expect(errors.real()).toEqual([]);
   });
 
-  test('styles: every MakePodcast preset renders, Hebrew + English; style lab changes are undoable', async ({ page }) => {
+  test('styles: every preset renders in Hebrew (RTL) on a 16:9 film; style lab changes are undoable', async ({ page }) => {
     const he = makeSpeech('he-carmit.wav', 'Carmit', HE_TEXT);
     await mockWhisper(page, 'whisper-he-carmit.json');
     await setupProject(page, { aspect: '16:9', audio: he, video: path.join(here, '..', 'test-media', 'v-landscape-4s.mp4') });
@@ -201,6 +201,7 @@ test.describe('captions', () => {
     // style lab: font + size + highlight, then undo restores
     await page.evaluate((id) => (window as any).__oe.getState().select([id]), s.clips[1]!.id);
     await page.getByTestId('inspector-caption').getByRole('tab', { name: 'Style' }).click();
+    await screenshot(page, 'captions-style-lab.png');
     await page.getByTestId('cap-font').selectOption('Frank Ruhl Libre');
     s = await state(page);
     expect(s.track!.style.fontFamily).toBe('Frank Ruhl Libre');
@@ -276,6 +277,32 @@ test.describe('captions', () => {
     const off = await exportOnce();
     const b = brightAt(off, 1.0);
     expect(b.ymax).toBeLessThan(60);
+  });
+
+  test('cancel a running transcription; a server error is shown', async ({ page }) => {
+    const he = makeSpeech('he-carmit.wav', 'Carmit', HE_TEXT);
+    let canceled = 0;
+    await page.route('**/__transcribe/info', (r) => r.fulfill({ json: { available: true, model: 'mock', models: [] } }));
+    await page.route('**/__transcribe/start**', (r) => r.fulfill({ json: { id: 'slow-1' } }));
+    await page.route('**/__transcribe/status**', (r) => r.fulfill({ json: { state: 'running', progress: 0.3 } }));
+    await page.route('**/__transcribe/cancel**', (r) => {
+      canceled++;
+      return r.fulfill({ json: { ok: true } });
+    });
+    await setupProject(page, { aspect: '9:16', audio: he });
+    await openCaptionsTab(page, 'Auto captions');
+    await page.getByTestId('cap-generate').click();
+    await expect(page.getByTestId('cap-progress')).toContainText('Transcribing');
+    await page.getByTestId('cap-cancel').click();
+    await expect(page.getByTestId('cap-done')).toHaveText('Canceled');
+    expect(canceled).toBe(1);
+    expect((await state(page)).track).toBeNull();
+    expect(await page.evaluate(() => (window as any).__oe.getState().past.length)).toBe(1); // only the setup edit (the audio clip)
+
+    await page.unroute('**/__transcribe/start**');
+    await page.route('**/__transcribe/start**', (r) => r.fulfill({ status: 503, json: { error: 'No whisper model in ~/.whisper-models' } }));
+    await page.getByTestId('cap-generate').click();
+    await expect(page.getByTestId('cap-error')).toContainText('No whisper model');
   });
 
   test('@slow real whisper: Hebrew and English speech from the timeline', async ({ page }) => {
