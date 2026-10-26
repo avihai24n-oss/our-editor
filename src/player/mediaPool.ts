@@ -222,7 +222,10 @@ export class MediaPool implements FrameSources {
         this.frameImages.add(op.assetId);
         continue;
       }
-      if (this.videos.has(op.clipId)) continue;
+      // Also an element kept from an earlier pass: it sits where that pass left it (measured: at a
+      // cut it showed a frame ~1 s into the clip for one frame, then jumped back). These ops are not
+      // on screen now (the caller filters them), so parking them is invisible; apply() seeks only
+      // when the element is off its entry frame.
       const e = this.video(op.clipId, op.assetId);
       if (!e) continue;
       e.lastUsed = now;
