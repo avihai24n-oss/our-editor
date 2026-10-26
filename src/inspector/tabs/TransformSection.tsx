@@ -7,7 +7,9 @@ import { defaultTransform } from '../../model/defaults';
 import type { BlendMode, MediaAsset, ProjectSettings, TextStyle, VisualClip } from '../../model/types';
 import { useEditor } from '../../store';
 import { Icon } from '../../ui/Icon';
-import { FieldRow, KeyframeButton, NumberBox, Section, SliderRow, ToggleRow, fromPct, toPct } from '../controls';
+import { FieldRow, KeyframeNav, NumberBox, Section, SliderRow, ToggleRow, fromPct, toPct } from '../controls';
+import { MotionExtras, useMotionKeys } from '../motionKeyframes';
+import { TRANSFORM_PROPS, clearKeysPatch, hasPropKeys } from '../../model/motionKeys';
 import { ALIGN_ITEMS, AlignIcon } from '../controls/AlignIcons';
 import { RotationDial } from '../controls/RotationDial';
 import { alignPosition, displayedBox, normalizeAngle, uniformScalePatch, type AlignKind } from '../inspectorLogic';
@@ -41,16 +43,19 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
   const updateClip = useEditor((s) => s.updateClip);
   const settings = useEditor((s) => s.project.settings);
   const asset = useEditor((s) => (clip.type === 'text' || clip.type === 'compound' ? undefined : s.project.assets[clip.assetId]));
-  const t = clip.transform;
-  const set = (patch: Partial<typeof t>) => updateClip(clip.id, { transform: patch });
+  // motion keyframes: values at the playhead, edits go to the key under it (motionKeyframes.tsx)
+  const mk = useMotionKeys(clip);
+  const t = mk.tf;
+  const set = mk.set;
   const halfW = settings.width;
   const halfH = settings.height;
   const uniform = t.uniformScale !== false;
   const isDefault =
-    t.scale === 1 && t.x === 0 && t.y === 0 && t.rotation === 0 && !t.flipH && !t.flipV && uniform && (t.scaleX ?? 1) === 1 && (t.scaleY ?? 1) === 1;
+    t.scale === 1 && t.x === 0 && t.y === 0 && t.rotation === 0 && !t.flipH && !t.flipV && uniform && (t.scaleX ?? 1) === 1 && (t.scaleY ?? 1) === 1 &&
+    !TRANSFORM_PROPS.some((p) => hasPropKeys(clip, p));
 
   const align = (kind: AlignKind) => {
-    const box = boxFor(clip, asset, settings);
+    const box = boxFor({ ...clip, transform: t }, asset, settings);
     set(alignPosition(kind, box, settings));
   };
 
@@ -58,11 +63,12 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
     <Section
       id="transform"
       title="Transform"
-      keyframe
+      keyframeSlot={<KeyframeNav {...mk.nav(TRANSFORM_PROPS, 'transform-keyframe')} />}
       resetDisabled={isDefault}
       onReset={() => {
         const d = defaultTransform();
-        set({ scale: d.scale, x: d.x, y: d.y, rotation: d.rotation, flipH: d.flipH, flipV: d.flipV, uniformScale: d.uniformScale, scaleX: d.scaleX, scaleY: d.scaleY });
+        const transform = { scale: d.scale, x: d.x, y: d.y, rotation: d.rotation, flipH: d.flipH, flipV: d.flipV, uniformScale: d.uniformScale, scaleX: d.scaleX, scaleY: d.scaleY };
+        updateClip(clip.id, { ...clearKeysPatch(clip, TRANSFORM_PROPS), transform });
       }}
     >
       {uniform ? (
@@ -73,6 +79,7 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
           max={LIMITS.scaleMax * 100}
           unit="%"
           onChange={(v) => set({ scale: Math.round(v) / 100 })}
+          keyframeSlot={<KeyframeNav {...mk.nav(['scale'], 'scale-keyframe')} />}
           testId="scale-row"
         />
       ) : (
@@ -84,6 +91,7 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
             max={LIMITS.scaleMax * 100}
             unit="%"
             onChange={(v) => set({ scaleX: Math.round(v) / 100 })}
+            keyframeSlot={<KeyframeNav {...mk.nav(['scale'], 'scale-keyframe')} />}
             testId="scale-x-row"
           />
           <SliderRow
@@ -93,6 +101,7 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
             max={LIMITS.scaleMax * 100}
             unit="%"
             onChange={(v) => set({ scaleY: Math.round(v) / 100 })}
+            keyframeSlot={<KeyframeNav {...mk.nav(['scale'])} />}
             testId="scale-y-row"
           />
         </>
@@ -104,16 +113,17 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
           <NumberBox prefix="X" value={Math.round(t.x)} min={-halfW * 4} max={halfW * 4} label="Position X" onCommit={(x) => set({ x })} />
           <NumberBox prefix="Y" value={Math.round(t.y)} min={-halfH * 4} max={halfH * 4} label="Position Y" onCommit={(y) => set({ y })} />
         </div>
-        <KeyframeButton />
+        <KeyframeNav {...mk.nav(['position'], 'position-keyframe')} />
       </div>
       <div className="irow">
         <span className="irow__label">Rotate</span>
         <div className="irow__ctl">
-          <NumberBox value={t.rotation} digits={2} unit="°" step={1} min={-36000} max={36000} label="Rotate" onCommit={(r) => set({ rotation: normalizeAngle(r) })} />
+          <NumberBox value={t.rotation} digits={2} unit="°" step={1} min={-36000} max={36000} label="Rotate" onCommit={(r) => set({ rotation: mk.keyed('rotation') ? Math.round(r * 100) / 100 : normalizeAngle(r) })} />
           <RotationDial value={t.rotation} onChange={(rotation) => set({ rotation })} />
         </div>
-        <KeyframeButton />
+        <KeyframeNav {...mk.nav(['rotation'], 'rotation-keyframe')} />
       </div>
+      <MotionExtras clip={clip} />
       <div className="ialign">
         <div className="ialign__group" role="group" aria-label="Align">
           {ALIGN_ITEMS.map((a) => (
@@ -144,16 +154,17 @@ export function TransformSection({ clip }: { clip: VisualClip }) {
 
 export function BlendSection({ clip }: { clip: VisualClip }) {
   const updateClip = useEditor((s) => s.updateClip);
-  const isDefault = clip.blend === 'normal' && clip.transform.opacity === 1;
+  const mk = useMotionKeys(clip);
+  const isDefault = clip.blend === 'normal' && clip.transform.opacity === 1 && !hasPropKeys(clip, 'opacity');
   return (
     <Section
       id="blend"
       title="Blend"
-      keyframe
+      keyframeSlot={<KeyframeNav {...mk.nav(['opacity'])} />}
       checked={clip.blendEnabled !== false}
       onCheck={(on) => updateClip(clip.id, { blendEnabled: on })}
       resetDisabled={isDefault}
-      onReset={() => updateClip(clip.id, { blend: 'normal', transform: { opacity: 1 } })}
+      onReset={() => updateClip(clip.id, { ...clearKeysPatch(clip, ['opacity']), blend: 'normal', transform: { opacity: 1 } })}
     >
       <FieldRow label="Mode">
         <select value={clip.blend} aria-label="Blend mode" onChange={(e) => updateClip(clip.id, { blend: e.target.value as BlendMode })}>
@@ -166,11 +177,12 @@ export function BlendSection({ clip }: { clip: VisualClip }) {
       </FieldRow>
       <SliderRow
         label="Opacity"
-        value={toPct(clip.transform.opacity)}
+        value={toPct(mk.tf.opacity)}
         min={0}
         max={100}
         unit="%"
-        onChange={(v) => updateClip(clip.id, { transform: { opacity: fromPct(v) } })}
+        onChange={(v) => mk.set({ opacity: fromPct(v) })}
+        keyframeSlot={<KeyframeNav {...mk.nav(['opacity'], 'opacity-keyframe')} />}
         testId="opacity-row"
       />
     </Section>

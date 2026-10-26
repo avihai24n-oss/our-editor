@@ -1,0 +1,10 @@
+/* Motion keyframes extras (src/inspector/motionKeyframes.tsx) */
+.imotion__kb {
+  display: inline-flex;
+  gap: 6px;
+}
+.imotion__btn {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
