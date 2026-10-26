@@ -3,6 +3,7 @@
  * live in one place.
  */
 import { aspectSize } from './catalog';
+import { defaultColorPage } from './colorPage';
 import { secToUs } from './time';
 import {
   SCHEMA_VERSION,
@@ -160,6 +161,7 @@ export const defaultGrade = (): ColorGrade => ({
   curves: defaultCurves(),
   wheels: defaultWheels(),
   mask: defaultAdjustMask(),
+  color: defaultColorPage(),
 });
 
 export const defaultAudio = (): AudioProps => ({

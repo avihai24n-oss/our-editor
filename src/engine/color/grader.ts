@@ -86,7 +86,7 @@ export function gradeImageData(data: Uint8ClampedArray, w: number, h: number, pa
         const s = (du: number, dv: number) => sampleBuf(Y!, w, h, u + du, v + dv);
         const c0 = s(0, 0);
         env.detailSharpen = params.sharpen ? c0 - (s(rs[0]!, 0) + s(-rs[0]!, 0) + s(0, rs[1]!) + s(0, -rs[1]!)) / 4 : 0;
-        if (params.clarity) {
+        if (params.clarity || params.color?.midDetail) {
           let sum = 0;
           for (let i = 0; i < 8; i++) {
             const a = i * 0.7853981634;

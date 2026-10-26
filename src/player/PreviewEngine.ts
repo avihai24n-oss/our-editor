@@ -23,6 +23,7 @@ import { useEditor, type EditorState } from '../store';
 import { AudioEngine } from './audioEngine';
 import { PlaybackClock, perfNow } from './clock';
 import { MediaPool } from './mediaPool';
+import { afterPreviewRender } from './color/colorView';
 
 const PRELOAD_AHEAD_US = 800_000;
 const STORE_WRITE_MS = 33;
@@ -300,7 +301,9 @@ export class PreviewEngine {
     }
 
     if (this.grader === undefined) this.grader = createColorGrader();
-    const boxes = renderFrame(ctx, fs, { scale: this.scale, sources: this.pool, layers: this.layers, grader: this.grader });
+    const renderOpts = { scale: this.scale, sources: this.pool, layers: this.layers, grader: this.grader };
+    const boxes = renderFrame(ctx, fs, renderOpts);
+    afterPreviewRender(this.canvas, ctx, fs, renderOpts); // Adjust › Color: scopes + before/after split
     this.opts.onBoxes?.(boxes);
   }
 }

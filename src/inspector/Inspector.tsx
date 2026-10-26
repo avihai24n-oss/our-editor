@@ -18,6 +18,7 @@ import { MultiPanel, ProjectPanel, TransitionPanel } from './tabs/OtherPanels';
 import { TextTab } from './tabs/TextTab';
 import { VideoTab } from './tabs/VideoTab';
 import { CompoundVideoTab } from './tabs/CompoundVideoTab';
+import { MultiGradePaste } from './tabs/color/ColorPanel';
 import './inspector.css';
 
 function Shell(props: { tabs: { id: string; label: string }[]; value: string; onChange: (id: string) => void; children: React.ReactNode; testId: string }) {
@@ -85,6 +86,7 @@ export function Inspector() {
     return (
       <Shell testId="inspector-multi" tabs={[{ id: 'multi', label: 'Selection' }]} value="multi" onChange={() => undefined}>
         <MultiPanel count={count} />
+        <MultiGradePaste />
       </Shell>
     );
   }

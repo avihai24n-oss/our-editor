@@ -21,6 +21,7 @@ import { withShortcut } from '../timeline/shortcutDefs';
 import { onAppEvent } from '../ui/appEvents';
 import { Icon } from '../ui/Icon';
 import { MaskOverlay } from './MaskOverlay';
+import { ColorBarButtons, ColorCanvasOverlays, ScopesDock } from './color/ColorOverlays';
 import { PreviewEngine } from './PreviewEngine';
 import { SourcePlayer, useSourcePreview } from './sourcePreview';
 import './player.css';
@@ -308,8 +309,10 @@ export function Player() {
             )}
             {selBox && k > 0 && <MaskOverlay box={selBox} k={k} toProject={toProject} />}
           </div>
+          <ColorCanvasOverlays hidden={inSource} />
         </div>
       </div>
+      <ScopesDock hidden={inSource || fullscreen} />
       {inSource && srcKind !== 'image' && (
         <input
           type="range"
@@ -339,6 +342,7 @@ export function Player() {
           <Icon name={isPlaying ? 'pause' : 'play'} size={18} />
         </button>
         <div className="player__right">
+          {!inSource && <ColorBarButtons />}
           <div className="player__menu-anchor">
             <button className="btn btn--ghost player__chip" title={withShortcut('Zoom (fit to window)', 'fitPreview')} onClick={() => setMenu(menu === 'zoom' ? null : 'zoom')} data-testid="player-zoom">
               {zoomLabel}

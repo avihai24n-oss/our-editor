@@ -3,6 +3,7 @@
  * come from the same K object so the GPU and the CPU reference stay identical.
  */
 import { K } from './params';
+import { COLOR_STAGE_GLSL } from './colorStageGlsl';
 
 const f = (n: number) => {
   const s = String(n);
@@ -53,6 +54,12 @@ uniform vec3 u_lift;
 uniform vec3 u_gain;
 uniform vec3 u_gamma;
 uniform vec3 u_offset;
+uniform float u_lumMix;
+uniform vec3 u_liftC;
+uniform vec3 u_gainC;
+uniform vec3 u_gammaC;
+uniform vec3 u_offsetC;
+uniform vec4 u_wheelY;       // master lift, gain, gamma, offset
 uniform float u_fade;
 uniform float u_sharpen;
 uniform float u_clarity;
@@ -228,7 +235,13 @@ vec3 applyWheels(vec3 c) {
   v = v * u_gain;
   v = pow(max(v, vec3(0.0)), u_gamma);
   v = v + u_offset;
-  return clamp(v, 0.0, 1.0);
+  v = clamp(v, 0.0, 1.0);
+  if (!(u_lumMix > 0.0)) return v;
+  // Lum Mix: chroma-only wheel per channel, then the master curve on the luma only
+  vec3 ch = clamp(pow(max((c + u_liftC * (1.0 - c)) * u_gainC, vec3(0.0)), u_gammaC) + u_offsetC, 0.0, 1.0);
+  float Y = luma(ch);
+  float d = clamp(pow(max((Y + u_wheelY.x * (1.0 - Y)) * u_wheelY.y, 0.0), u_wheelY.z) + u_wheelY.w, 0.0, 1.0) - Y;
+  return clamp(mix(v, ch + d, u_lumMix), 0.0, 1.0);
 }
 
 vec3 applyFade(vec3 c) {
@@ -295,6 +308,8 @@ float maskAlpha(vec2 uv) {
   return u_maskInvert ? 1.0 - a : a;
 }
 
+${COLOR_STAGE_GLSL}
+
 void main() {
   vec4 src = srcAt(v_uv);
   vec3 orig = src.rgb;
@@ -308,6 +323,7 @@ void main() {
   o = applySat(o);
   if (u_useCurves) o = applyCurves(o);
   if (u_useWheels) o = applyWheels(o);
+  if (u_useColor) o = applyColorStage(o, v_uv);
   o = applyFade(o);
   if (u_sharpen > 0.0 || u_clarity > 0.0) {
     float Y = luma(o);

@@ -7,6 +7,8 @@
 import type { Lut3D } from './cube';
 import type { GradeParams } from './params';
 import { FRAGMENT_SHADER, VERTEX_SHADER } from './shader';
+import { CS_CURVES_UNIT, setColorStageUniforms } from './colorStageGlsl';
+import { HSL_CURVE_SIZE } from './hslCurves';
 import type { ColorGrader, GradeRequest } from './grader';
 
 type GLCanvas = HTMLCanvasElement | OffscreenCanvas;
@@ -37,6 +39,8 @@ export class GlGrader implements ColorGrader {
   private curveTex: WebGLTexture;
   private curveKey = '';
   private dummy3d: WebGLTexture;
+  private csCurveTex: WebGLTexture;
+  private csCurveState = { key: '' };
   private luts = new Map<string, { tex: WebGLTexture; lut: Lut3D }>();
   private loc = new Map<string, WebGLUniformLocation | null>();
   private lost = false;
@@ -98,6 +102,10 @@ export class GlGrader implements ColorGrader {
     gl.uniform1i(this.u('u_src'), 0);
     gl.uniform1i(this.u('u_lut'), 1);
     gl.uniform1i(this.u('u_curves'), 2);
+    this.csCurveTex = this.tex2d();
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); // hue curves wrap around
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, HSL_CURVE_SIZE, 2, 0, gl.RGBA, gl.FLOAT, null);
+    gl.uniform1i(this.u('u_csCurves'), CS_CURVES_UNIT);
 
     const c = canvas as HTMLCanvasElement;
     if (typeof c.addEventListener === 'function') {
@@ -218,6 +226,12 @@ export class GlGrader implements ColorGrader {
       gl.uniform3fv(this.u('u_gain'), p.wheels.gain);
       gl.uniform3fv(this.u('u_gamma'), p.wheels.gamma);
       gl.uniform3fv(this.u('u_offset'), p.wheels.offset);
+      gl.uniform1f(this.u('u_lumMix'), p.wheels.lumMix);
+      gl.uniform3fv(this.u('u_liftC'), p.wheels.liftC);
+      gl.uniform3fv(this.u('u_gainC'), p.wheels.gainC);
+      gl.uniform3fv(this.u('u_gammaC'), p.wheels.gammaC);
+      gl.uniform3fv(this.u('u_offsetC'), p.wheels.offsetC);
+      gl.uniform4fv(this.u('u_wheelY'), p.wheels.master);
     }
     gl.uniform1f(this.u('u_fade'), p.fade);
     gl.uniform1f(this.u('u_sharpen'), p.sharpen);
@@ -225,6 +239,9 @@ export class GlGrader implements ColorGrader {
     gl.uniform1f(this.u('u_vignette'), p.vignette);
     gl.uniform1f(this.u('u_grain'), p.grain);
     gl.uniform1ui(this.u('u_seed'), p.seed >>> 0);
+
+    // ---- Adjust › Color page (HSL curves table on unit 3)
+    setColorStageUniforms(gl, (n) => this.u(n), p.color, this.csCurveTex, this.csCurveState);
 
     const m = p.mask;
     gl.uniform1i(this.u('u_maskShape'), m ? m.shape : 0);
@@ -249,6 +266,7 @@ export class GlGrader implements ColorGrader {
     this.luts.clear();
     gl.deleteTexture(this.srcTex);
     gl.deleteTexture(this.curveTex);
+    gl.deleteTexture(this.csCurveTex);
     gl.deleteTexture(this.dummy3d);
     gl.deleteProgram(this.prog);
     gl.getExtension('WEBGL_lose_context')?.loseContext();

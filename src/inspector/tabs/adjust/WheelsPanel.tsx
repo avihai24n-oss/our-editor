@@ -40,7 +40,8 @@ export function WheelsPanel({ clip }: { clip: VisualClip }) {
   );
 }
 
-function WheelControl(props: { id: WheelId; label: string; hint: string; value: WheelValue; onChange: (v: WheelValue) => void }) {
+/** One colour wheel (also used by Adjust › Color for the primaries and the log wheels). */
+export function WheelControl(props: { id: string; label: string; hint: string; value: WheelValue; onChange: (v: WheelValue) => void; lumaLabel?: string; readout?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const v = props.value;
   const fromEvent = (e: { clientX: number; clientY: number }) => {
@@ -117,9 +118,9 @@ function WheelControl(props: { id: WheelId; label: string; hint: string; value: 
         <span className="iwheel__cross" />
         <span className="iwheel__puck" style={{ left: `${50 + v.x * 50}%`, top: `${50 - v.y * 50}%` }} />
       </div>
-      <div className="iwheel__readout">{strength ? `${hue}° · ${strength}%` : '—'}</div>
+      <div className="iwheel__readout">{props.readout ?? (strength ? `${hue}° · ${strength}%` : '—')}</div>
       <SliderRow
-        label="Luminance"
+        label={props.lumaLabel ?? 'Luminance'}
         value={v.luma}
         min={-100}
         max={100}

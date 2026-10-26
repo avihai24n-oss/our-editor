@@ -508,6 +508,8 @@ export interface ColorGrade {
   curves: CurvesSettings;
   wheels: WheelsSettings;
   mask: AdjustMask;
+  /** Adjust › Color (DaVinci-style page, added by color-grade; migrateColorPage fills it). */
+  color: import('./colorPage').ColorPage;
 }
 
 export type TextAlign = 'left' | 'center' | 'right';

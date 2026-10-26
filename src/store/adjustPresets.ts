@@ -5,6 +5,7 @@
  * which belongs to one clip's framing.
  */
 import { create } from 'zustand';
+import { normalizeColorPage } from '../model/colorPage';
 import { defaultAdjust, defaultGrade, newId } from '../model/defaults';
 import type { Adjust, ColorGrade, FilterRef, VisualClip } from '../model/types';
 
@@ -41,6 +42,7 @@ function load(): UserAdjustPreset[] {
             hsl: { ...g.hsl, ...(p.grade?.hsl ?? {}), bands: { ...g.hsl.bands, ...(p.grade?.hsl?.bands ?? {}) } },
             curves: { ...g.curves, ...(p.grade?.curves ?? {}) },
             wheels: { ...g.wheels, ...(p.grade?.wheels ?? {}) },
+            color: normalizeColorPage(p.grade?.color, p.grade?.color === undefined ? 0 : 100),
           },
         };
       });

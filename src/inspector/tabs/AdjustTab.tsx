@@ -17,16 +17,18 @@ import { CurvesPanel } from './adjust/CurvesPanel';
 import { HslPanel } from './adjust/HslPanel';
 import { MaskPanel } from './adjust/MaskPanel';
 import { WheelsPanel } from './adjust/WheelsPanel';
+import { ColorPanel } from './color/ColorPanel';
 import './adjust/adjust.css';
 
-export type AdjustSub = 'basic' | 'hsl' | 'curves' | 'wheel' | 'mask';
+export type AdjustSub = 'basic' | 'hsl' | 'curves' | 'wheel' | 'mask' | 'color';
 
-const SUBS: { id: AdjustSub; label: string }[] = [
+const SUBS: { id: AdjustSub; label: string; title?: string }[] = [
   { id: 'basic', label: 'Basic' },
   { id: 'hsl', label: 'HSL' },
   { id: 'curves', label: 'Curves' },
   { id: 'wheel', label: 'Color wheel' },
   { id: 'mask', label: 'Mask' },
+  { id: 'color', label: 'Color', title: 'Color page (DaVinci-style primaries, log wheels, HSL curves, qualifier, gallery)' },
 ];
 
 export function AdjustTab({ clip }: { clip: VisualClip }) {
@@ -72,6 +74,7 @@ export function AdjustTab({ clip }: { clip: VisualClip }) {
         {current === 'curves' && <CurvesPanel clip={clip} />}
         {current === 'wheel' && <WheelsPanel clip={clip} />}
         {current === 'mask' && <MaskPanel clip={clip} />}
+        {current === 'color' && <ColorPanel clip={clip} />}
       </div>
       <div className="iadj-dock">
         {naming !== null && (

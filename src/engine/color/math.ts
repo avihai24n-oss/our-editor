@@ -9,12 +9,14 @@
  *   4. brightness (mid-tone gamma), contrast (around 0.5)
  *   5. tone: shadows / highlights / whites / blacks / brilliance (luminance-weighted)
  *   6. HSL (8 ranges)          7. saturation
- *   8. curves (master, then R/G/B)   9. colour wheels (lift / gain / gamma / offset)
+ *   8. curves (master, then R/G/B)   9. colour wheels (lift / gain / gamma / offset, Lum Mix)
+ *   9b. Adjust › Color page (./colorStage.ts: CST, primaries, log wheels, HSL curves, qualifier)
  *  10. fade   11. clarity + sharpen (detail from the source)   12. vignette   13. grain
  *  14. mask: mix(original, graded, maskAlpha)
  * All values are sRGB-encoded 0..1 except stage 3.
  */
 import { sampleTable } from './curves';
+import { applyColorStage } from './colorStage';
 import { sampleLut, type Lut3D } from './cube';
 import { K, type GradeParams, type MaskParams, type Vec3 } from './params';
 
@@ -209,17 +211,19 @@ export function applyCurves(c: Vec3, table: Uint8Array): Vec3 {
   return [sampleTable(table, 0, c[0]), sampleTable(table, 1, c[1]), sampleTable(table, 2, c[2])];
 }
 
+/** One channel through lift → gain → gamma → offset. */
+const wheelCh = (v: number, lift: number, gain: number, gamma: number, offset: number) => Math.pow(Math.max((v + lift * (1 - v)) * gain, 0), gamma) + offset;
+
 export function applyWheels(c: Vec3, w: NonNullable<GradeParams['wheels']>): Vec3 {
   const o: Vec3 = [0, 0, 0];
-  for (let i = 0; i < 3; i++) {
-    let v = c[i]!;
-    v = v + w.lift[i]! * (1 - v);
-    v = v * w.gain[i]!;
-    v = Math.pow(Math.max(v, 0), w.gamma[i]!);
-    v = v + w.offset[i]!;
-    o[i] = clamp01(v);
-  }
-  return o;
+  for (let i = 0; i < 3; i++) o[i] = clamp01(wheelCh(c[i]!, w.lift[i]!, w.gain[i]!, w.gamma[i]!, w.offset[i]!));
+  if (!(w.lumMix > 0)) return o;
+  // Lum Mix: chroma-only wheel per channel, then the master curve on the luma only
+  const ch: Vec3 = [0, 0, 0];
+  for (let i = 0; i < 3; i++) ch[i] = clamp01(wheelCh(c[i]!, w.liftC[i]!, w.gainC[i]!, w.gammaC[i]!, w.offsetC[i]!));
+  const Y = luma(ch);
+  const d = clamp01(wheelCh(Y, w.master[0], w.master[1], w.master[2], w.master[3])) - Y;
+  return [0, 1, 2].map((i) => clamp01(mixN(o[i]!, ch[i]! + d, w.lumMix))) as Vec3;
 }
 
 export function applyFade(c: Vec3, f: number): Vec3 {
@@ -322,6 +326,7 @@ export function gradePixel(c: Vec3, p: GradeParams, env: PixelEnv): Vec3 {
   o = applySaturation(o, p.saturation);
   if (p.curves) o = applyCurves(o, p.curves);
   if (p.wheels) o = applyWheels(o, p.wheels);
+  if (p.color) o = applyColorStage(o, p.color, { u: env.u, v: env.v, aspect: env.aspect, detail: env.detailClarity ?? 0 });
   o = applyFade(o, p.fade);
   if (p.sharpen || p.clarity) {
     const Y = luma(o);

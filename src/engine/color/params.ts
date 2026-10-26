@@ -10,6 +10,7 @@ import { HSL_RANGES } from '../../model/catalog';
 import type { AdjustMaskShape, ColorGrade, WheelValue } from '../../model/types';
 import type { ColorOps } from '../frameState';
 import { bakeCurvesTable, curvesAreIdentity } from './curves';
+import { colorStageParams, type ColorStageParams } from './colorStage';
 
 export const K = {
   /** Exposure ±50 → ±1.5 EV in linear light. */
@@ -75,6 +76,19 @@ export interface WheelParams {
   /** Per-channel exponent. */
   gamma: Vec3;
   offset: Vec3;
+  /**
+   * Lum Mix (Adjust › Color › Primaries) 0..1: 0 = the master (luma) sliders act on R, G, B like the
+   * rest of the wheel (the original behaviour); 1 = Y-only: the chroma-only wheel runs per channel,
+   * then the master lift / gain / gamma / offset curve moves the luma (saturation kept).
+   */
+  lumMix: number;
+  /** The wheel without its master sliders (used when lumMix > 0). */
+  liftC: Vec3;
+  gainC: Vec3;
+  gammaC: Vec3;
+  offsetC: Vec3;
+  /** Master-only scalars: lift, gain, gamma exponent, offset. */
+  master: [number, number, number, number];
 }
 
 export interface GradeParams {
@@ -107,6 +121,8 @@ export interface GradeParams {
   curvesKey: string;
   wheels: WheelParams | null;
   mask: MaskParams | null;
+  /** Adjust › Color (./colorStage.ts), null = neutral. */
+  color: ColorStageParams | null;
   /** Grain seed (changes per frame; the same frame gets the same grain in preview and export). */
   seed: number;
 }
@@ -144,7 +160,7 @@ export function wheelChroma(w: Pick<WheelValue, 'x' | 'y'>): Vec3 {
 
 const wheelIsNeutral = (w: WheelValue) => Math.hypot(w.x, w.y) < 1e-4 && Math.abs(w.luma) < 1e-3;
 
-export function wheelParams(g: ColorGrade['wheels']): WheelParams | null {
+export function wheelParams(g: ColorGrade['wheels'], lumMix = 0): WheelParams | null {
   if (!g.enabled || (wheelIsNeutral(g.lift) && wheelIsNeutral(g.gamma) && wheelIsNeutral(g.gain) && wheelIsNeutral(g.offset))) return null;
   const map = (w: WheelValue, kc: number, kl: number): Vec3 => {
     const v = wheelChroma(w);
@@ -155,7 +171,20 @@ export function wheelParams(g: ColorGrade['wheels']): WheelParams | null {
   const gain = map(g.gain, K.WHEEL_GAIN, K.WHEEL_GAIN_LUMA).map((v) => 1 + v) as Vec3;
   const gamma = map(g.gamma, K.WHEEL_GAMMA, K.WHEEL_GAMMA_LUMA).map((v) => Math.pow(2, -v)) as Vec3;
   const offset = map(g.offset, K.WHEEL_OFFSET, K.WHEEL_OFFSET_LUMA);
-  return { lift, gain, gamma, offset };
+  const chroma = (w: WheelValue, kc: number): Vec3 => wheelChroma(w).map((v) => v * kc) as Vec3;
+  const ml = (w: WheelValue, kl: number) => clamp(w.luma / 100, -1, 1) * kl;
+  return {
+    lift,
+    gain,
+    gamma,
+    offset,
+    lumMix: clamp(lumMix, 0, 1),
+    liftC: chroma(g.lift, K.WHEEL_LIFT),
+    gainC: chroma(g.gain, K.WHEEL_GAIN).map((v) => 1 + v) as Vec3,
+    gammaC: chroma(g.gamma, K.WHEEL_GAMMA).map((v) => Math.pow(2, -v)) as Vec3,
+    offsetC: chroma(g.offset, K.WHEEL_OFFSET),
+    master: [ml(g.lift, K.WHEEL_LIFT_LUMA), 1 + ml(g.gain, K.WHEEL_GAIN_LUMA), Math.pow(2, -ml(g.gamma, K.WHEEL_GAMMA_LUMA)), ml(g.offset, K.WHEEL_OFFSET_LUMA)],
+  };
 }
 
 const SHAPES: Record<AdjustMaskShape, number> = { none: 0, linear: 1, mirror: 2, circle: 3, rectangle: 4 };
@@ -238,8 +267,9 @@ export function gradeParams(c: ColorOps, seed = 0, lutAvailable: (id: string) =>
     hsl: g ? hslParams(g.hsl) : null,
     curves,
     curvesKey,
-    wheels: g ? wheelParams(g.wheels) : null,
+    wheels: g ? wheelParams(g.wheels, (g.color?.primaries.lumMix ?? 0) / 100) : null,
     mask: g ? maskParams(g.mask) : null,
+    color: g ? colorStageParams(g.color) : null,
     seed: seed >>> 0,
   };
   return isNeutralParams(p) ? null : p;
@@ -268,8 +298,8 @@ const SCALARS = [
 
 /** True when the params change no pixel (a mask alone changes nothing). */
 export function isNeutralParams(p: GradeParams): boolean {
-  return !p.lut && !p.hsl && !p.curves && !p.wheels && SCALARS.every((k) => Math.abs(p[k]) < 1e-4);
+  return !p.lut && !p.hsl && !p.curves && !p.wheels && !p.color && SCALARS.every((k) => Math.abs(p[k]) < 1e-4);
 }
 
 /** True when the pass needs neighbour samples (sharpen / clarity). */
-export const needsNeighbours = (p: GradeParams): boolean => p.sharpen > 0 || p.clarity > 0;
+export const needsNeighbours = (p: GradeParams): boolean => p.sharpen > 0 || p.clarity > 0 || !!p.color?.midDetail;
