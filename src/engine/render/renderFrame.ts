@@ -20,6 +20,7 @@ import { chromaKeyPixels, chromaParams } from './chroma';
 import { cssFilter, tonePasses, type TonePass } from './color';
 import { applyMask, maskGeometry } from './mask';
 import { fontString, layoutText, type TextLayout } from './textLayout';
+import { drawCaption, layoutCaption, type CaptionLayout } from '../../captions/render';
 import type { Ctx2D, DrawnBox, RenderOptions, SourceImage } from './types';
 
 /** Text wraps at this fraction of the canvas width (local px, before clip scale). */
@@ -439,10 +440,15 @@ function drawOps(ctx: Ctx2D, list: readonly DrawOp[], fs: FrameState, opts: Rend
     // ---- measure
     let local: LocalBox;
     let textLayout: TextLayout | null = null;
+    let captionLayout: CaptionLayout | null = null;
     let src: SourceImage | 'missing' | null = null;
     if (op.kind === 'media') {
       local = mediaLocalBox(op);
       src = op.nested ? renderNested(op, fs, opts, depth) : opts.sources.get(op);
+    } else if (op.caption) {
+      resetCtx(ctx);
+      captionLayout = layoutCaption(ctx, op, W, H);
+      local = captionLayout.box;
     } else {
       resetCtx(ctx);
       textLayout = layoutTextOp(ctx, op, W);
@@ -493,6 +499,8 @@ function drawOps(ctx: Ctx2D, list: readonly DrawOp[], fs: FrameState, opts: Rend
       if (src === 'missing') drawMissing(target, local);
       else if (graded) drawMedia(target, { ...op, crop: NO_CROP }, { image: graded.image, width: graded.w, height: graded.h }, local, { x: k * Math.abs(ax.x), y: k * Math.abs(ax.y) });
       else if (src) drawMedia(target, op, src, local, { x: k * Math.abs(ax.x), y: k * Math.abs(ax.y) });
+    } else if (captionLayout) {
+      drawCaption(target, op, captionLayout, k * op.transform.scale);
     } else if (textLayout) {
       drawText(target, op, textLayout, k * op.transform.scale);
     }

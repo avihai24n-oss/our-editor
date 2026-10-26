@@ -18,6 +18,7 @@ import { curveIntegral, curveMean, extendCurve, normalizeCurve, sliceCurve, type
 import { clamp, clipContains, clipEnd, clipMeanSpeed, durationForSpan, frameUs, sourceOffsetAt, sourceSpan } from '../model/time';
 import type { AnimationSlot, Clip, ClipAnimation, ClipPatch, Id, Project, TimedClip, Track, TrackKind, TransitionType, Us } from '../model/types';
 import { ANIM_LIMITS } from '../engine/animations';
+import { captionSplit, captionTrimStart, syncCaptionClip } from '../captions/ops';
 
 export interface EditCtx {
   magnet: boolean;
@@ -83,6 +84,7 @@ export function normalize(p: Project, ctx: EditCtx): void {
         if (c.animationCombo) c.animationCombo.duration = clamp(Math.round(c.animationCombo.duration), 0, c.duration);
         if (c.animationLoop) c.animationLoop.duration = clamp(Math.round(c.animationLoop.duration), ANIM_LIMITS.loopMinUs, ANIM_LIMITS.loopMaxUs);
       }
+      if (c.type === 'text' && c.caption) syncCaptionClip(c); // captions: text = the words shown
       if (c.type === 'video' || c.type === 'audio') {
         c.audio.fadeIn = clamp(Math.round(c.audio.fadeIn), 0, c.duration);
         c.audio.fadeOut = clamp(Math.round(c.audio.fadeOut), 0, c.duration - c.audio.fadeIn);
@@ -436,6 +438,7 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
   }
   c.duration = end - s;
   const shift = s - c.start;
+  captionTrimStart(c, shift); // captions: the words stay on their sound
   c.start = s;
   if (ctx.magnet && f.track.kind !== 'main') {
     c.start -= shift;
@@ -592,6 +595,7 @@ export function splitClip(p: Project, clipId: Id, t: Us): Id | null {
     }
   }
   if (a.type === 'compound' && b.type === 'compound') b.inPoint = a.inPoint + (t - a.start);
+  captionSplit(b, t - a.start); // captions: the right part's words stay on their sound
   a.duration = t - a.start;
   if (a.type !== 'audio' && b.type !== 'audio') {
     a.animationOut = null;

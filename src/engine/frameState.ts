@@ -10,6 +10,7 @@ import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
 import { clipVolumeDbAt } from '../model/volumeKeys';
 import { clamp, clipContains, clipEnd, mediaTimeAt, mirrorInPoint, sourceSpan, speedAtTime } from '../model/time';
 import { animationFrame, composeFrames, type AnimFrame, type MaskShape } from './animations';
+import { withCaption, type CaptionFrame } from '../captions/frame';
 import type {
   Adjust,
   AnimationSlot,
@@ -133,6 +134,8 @@ export interface TextDrawOp extends DrawOpBase {
   style: TextStyle;
   /** content split into lines. */
   lines: string[];
+  /** Caption clip (src/captions): the words with their timing; drawn by src/captions/render.ts. */
+  caption?: CaptionFrame;
 }
 
 /** Full-canvas colour fill (dip-to-black / white flash transitions). Drawn in sequence. */
@@ -475,7 +478,8 @@ function buildVisualOp(
     transition: transitionInfo,
   };
   if (clip.type === 'text') {
-    return { ...base, kind: 'text', style: clip.text, lines: clip.text.content.split('\n') };
+    const op: TextDrawOp = { ...base, kind: 'text', style: clip.text, lines: clip.text.content.split('\n') };
+    return clip.caption ? withCaption(op, project, track, clip, t) : op;
   }
   if (clip.type === 'compound') {
     // a held edge frame (transition) shows the sequence's first / last frame of the window

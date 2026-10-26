@@ -9,6 +9,7 @@ import { onAppEvent } from '../ui/appEvents';
 import { Icon, type IconName } from '../ui/Icon';
 import { ComingSoon } from './LibraryLayout';
 import { AdjustmentTab, FiltersTab } from './LooksTabs';
+import { CaptionsTab } from '../captions/ui/CaptionsTab';
 import { MediaTab } from './MediaTab';
 import { usePref } from './prefs';
 import { TextTab } from './TextTab';
@@ -34,7 +35,7 @@ export const LIBRARY_TABS: { id: LibraryTab; label: string; icon: IconName; v1: 
   { id: 'stickers', label: 'Stickers', icon: 'stickers', v1: false },
   { id: 'effects', label: 'Effects', icon: 'effects', v1: false },
   { id: 'transitions', label: 'Transitions', icon: 'transitions', v1: true },
-  { id: 'captions', label: 'Captions', icon: 'captions', v1: false },
+  { id: 'captions', label: 'Captions', icon: 'captions', v1: true },
   { id: 'filters', label: 'Filters', icon: 'filters', v1: true },
   { id: 'adjustment', label: 'Adjustment', icon: 'adjustment', v1: true },
   { id: 'templates', label: 'Templates', icon: 'templates', v1: false },
@@ -141,6 +142,7 @@ export function LeftPanel() {
         {tab === 'transitions' && <TransitionsTab />}
         {tab === 'filters' && <FiltersTab />}
         {tab === 'adjustment' && <AdjustmentTab />}
+        {tab === 'captions' && <CaptionsTab />}
         {!current.v1 && <ComingSoon label={current.label} icon={current.icon} note={SOON_NOTES[tab]} />}
       </div>
     </div>

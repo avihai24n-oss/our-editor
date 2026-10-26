@@ -13,6 +13,7 @@
  */
 
 import type { SpeedCurve } from './speedCurve';
+import type { CaptionSegment, CaptionTrackSettings } from '../captions/types';
 
 export type Id = string;
 /** Integer microseconds. */
@@ -133,6 +134,8 @@ export interface Track {
   clips: Clip[];
   /** Transitions between adjacent clips of THIS track. */
   transitions: Transition[];
+  /** Caption track (text tracks only): track caption style. Optional, added 26 Oct 2026 (src/captions). */
+  captions?: CaptionTrackSettings;
 }
 
 // ---------------------------------------------------------------- clip props
@@ -633,6 +636,8 @@ export interface AudioClip extends ClipBase, TimedMediaFields {
 export interface TextClip extends ClipBase, VisualFields {
   type: 'text';
   text: TextStyle;
+  /** A caption (words with timings). Optional, added 26 Oct 2026 (src/captions). */
+  caption?: CaptionSegment;
 }
 
 /**

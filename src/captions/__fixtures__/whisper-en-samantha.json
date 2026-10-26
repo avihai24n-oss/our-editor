@@ -1,0 +1,290 @@
+{
+ "model": {
+  "type": "large",
+  "multilingual": true,
+  "vocab": 51866,
+  "audio": {
+   "ctx": 1500,
+   "state": 1280,
+   "head": 20,
+   "layer": 32
+  },
+  "text": {
+   "ctx": 448,
+   "state": 1280,
+   "head": 20,
+   "layer": 4
+  },
+  "mels": 128,
+  "ftype": 1
+ },
+ "params": {
+  "language": "en"
+ },
+ "result": {
+  "language": "en"
+ },
+ "transcription": [
+  {
+   "offsets": {
+    "from": 0,
+    "to": 4240
+   },
+   "text": " The quick brown fox jumps over the lazy dog.",
+   "tokens": [
+    {
+     "text": "[_BEG_]",
+     "offsets": {
+      "from": 0,
+      "to": 0
+     },
+     "p": 0.996,
+     "t_dtw": -1
+    },
+    {
+     "text": " The",
+     "offsets": {
+      "from": 10,
+      "to": 300
+     },
+     "p": 0.708,
+     "t_dtw": 10
+    },
+    {
+     "text": " quick",
+     "offsets": {
+      "from": 400,
+      "to": 920
+     },
+     "p": 0.996,
+     "t_dtw": 32
+    },
+    {
+     "text": " brown",
+     "offsets": {
+      "from": 1090,
+      "to": 1560
+     },
+     "p": 0.979,
+     "t_dtw": 60
+    },
+    {
+     "text": " fox",
+     "offsets": {
+      "from": 1560,
+      "to": 1920
+     },
+     "p": 0.985,
+     "t_dtw": 100
+    },
+    {
+     "text": " jumps",
+     "offsets": {
+      "from": 1920,
+      "to": 2410
+     },
+     "p": 0.999,
+     "t_dtw": 130
+    },
+    {
+     "text": " over",
+     "offsets": {
+      "from": 3000,
+      "to": 3000
+     },
+     "p": 0.999,
+     "t_dtw": 160
+    },
+    {
+     "text": " the",
+     "offsets": {
+      "from": 3000,
+      "to": 3360
+     },
+     "p": 0.996,
+     "t_dtw": 174
+    },
+    {
+     "text": " lazy",
+     "offsets": {
+      "from": 3360,
+      "to": 3840
+     },
+     "p": 0.963,
+     "t_dtw": 200
+    },
+    {
+     "text": " dog",
+     "offsets": {
+      "from": 4180,
+      "to": 4240
+     },
+     "p": 0.998,
+     "t_dtw": 242
+    },
+    {
+     "text": ".",
+     "offsets": {
+      "from": 4240,
+      "to": 4240
+     },
+     "p": 0.929,
+     "t_dtw": 262
+    },
+    {
+     "text": "[_TT_212]",
+     "offsets": {
+      "from": 4240,
+      "to": 4240
+     },
+     "p": 0.091,
+     "t_dtw": -1
+    }
+   ]
+  },
+  {
+   "offsets": {
+    "from": 4240,
+    "to": 6380
+   },
+   "text": " Then it rests for a moment.",
+   "tokens": [
+    {
+     "text": " Then",
+     "offsets": {
+      "from": 4250,
+      "to": 4530
+     },
+     "p": 0.967,
+     "t_dtw": 432
+    },
+    {
+     "text": " it",
+     "offsets": {
+      "from": 4640,
+      "to": 4820
+     },
+     "p": 0.998,
+     "t_dtw": 444
+    },
+    {
+     "text": " rests",
+     "offsets": {
+      "from": 4820,
+      "to": 5160
+     },
+     "p": 0.994,
+     "t_dtw": 474
+    },
+    {
+     "text": " for",
+     "offsets": {
+      "from": 5330,
+      "to": 5510
+     },
+     "p": 0.999,
+     "t_dtw": 490
+    },
+    {
+     "text": " a",
+     "offsets": {
+      "from": 5610,
+      "to": 5690
+     },
+     "p": 1.0,
+     "t_dtw": 504
+    },
+    {
+     "text": " moment",
+     "offsets": {
+      "from": 5690,
+      "to": 6320
+     },
+     "p": 0.999,
+     "t_dtw": 542
+    },
+    {
+     "text": ".",
+     "offsets": {
+      "from": 6320,
+      "to": 6350
+     },
+     "p": 0.744,
+     "t_dtw": 582
+    },
+    {
+     "text": "[_TT_319]",
+     "offsets": {
+      "from": 6380,
+      "to": 6380
+     },
+     "p": 0.188,
+     "t_dtw": -1
+    }
+   ]
+  },
+  {
+   "offsets": {
+    "from": 6380,
+    "to": 7380
+   },
+   "text": " And runs home again.",
+   "tokens": [
+    {
+     "text": " And",
+     "offsets": {
+      "from": 6390,
+      "to": 6450
+     },
+     "p": 0.965,
+     "t_dtw": 638
+    },
+    {
+     "text": " runs",
+     "offsets": {
+      "from": 6580,
+      "to": 6680
+     },
+     "p": 0.995,
+     "t_dtw": 666
+    },
+    {
+     "text": " home",
+     "offsets": {
+      "from": 6780,
+      "to": 6950
+     },
+     "p": 0.999,
+     "t_dtw": 688
+    },
+    {
+     "text": " again",
+     "offsets": {
+      "from": 6950,
+      "to": 7210
+     },
+     "p": 0.999,
+     "t_dtw": 722
+    },
+    {
+     "text": ".",
+     "offsets": {
+      "from": 7210,
+      "to": 7370
+     },
+     "p": 0.983,
+     "t_dtw": 736
+    },
+    {
+     "text": "[_TT_369]",
+     "offsets": {
+      "from": 7380,
+      "to": 7380
+     },
+     "p": 0.211,
+     "t_dtw": -1
+    }
+   ]
+  }
+ ]
+}

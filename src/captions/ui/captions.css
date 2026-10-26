@@ -1,0 +1,286 @@
+/* Captions: Library tab + caption lab (inspector). Theme tokens only. */
+.cap-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+}
+.cap-note {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 2px 0;
+}
+.cap-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 0;
+}
+.cap-field select,
+.cap-field input {
+  height: 28px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 0 8px;
+  font-size: 12px;
+}
+.cap-row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cap-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.cap-meta {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.cap-go {
+  height: 32px;
+  justify-content: center;
+}
+.cap-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cap-progress__label {
+  font-size: 12px;
+}
+.cap-progress__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  overflow: hidden;
+}
+.cap-progress__bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.cap-error {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.cap-done {
+  color: var(--accent);
+  font-size: 12px;
+}
+.cap-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cap-danger {
+  color: var(--danger);
+  align-self: flex-start;
+}
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cap-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  border: 1.5px solid transparent;
+  text-align: center;
+}
+.cap-tile:hover {
+  background: var(--bg-hover);
+}
+.cap-tile.is-active {
+  border-color: var(--accent);
+}
+.cap-tile__label {
+  font-size: 11px;
+}
+.cap-thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 1;
+  border-radius: 3px;
+  display: block;
+}
+
+/* ---------------------------------------------------------------- caption lab */
+.caplab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.caplab__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.caplab__bar .btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+.caplab__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.caplab__row {
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  padding: 6px;
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.caplab__row.is-current {
+  border-color: var(--accent);
+}
+.caplab__row.is-playing .caplab__time {
+  color: var(--hover-axis);
+}
+.caplab__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.caplab__time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  flex: 1;
+}
+.caplab__head .icon-btn {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+}
+.caplab__text {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 4px 6px;
+  resize: vertical;
+  min-height: 30px;
+}
+.caplab__words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.caplab__word {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 4px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 86px;
+}
+.caplab__word.is-active {
+  border-color: var(--hover-axis);
+}
+.caplab__word-text {
+  font-size: 12px;
+  text-align: center;
+  font-weight: 600;
+}
+.caplab__word-times {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.caplab__word-times input {
+  width: 46px;
+  height: 20px;
+  background: var(--bg-window);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 10px;
+  padding: 0 3px;
+}
+.caplab__word-tools {
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+}
+.caplab__word-tools button {
+  font-size: 10px;
+  padding: 0 4px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--bg-raised);
+}
+.caplab__word-tools button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.caplab__swatches {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.caplab__swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+}
+.caplab__swatch.is-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.caplab__scope {
+  margin-bottom: 4px;
+}
+.caplab__presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.caplab__presets .cap-tile {
+  padding: 2px;
+}
+
+/* timeline labels of text clips: Hebrew captions read right to left (first strong letter decides) */
+.tl-clip__text {
+  unicode-bidi: plaintext;
+}
+.caplab__num {
+  width: 40px;
+  height: 22px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 0 4px;
+}
