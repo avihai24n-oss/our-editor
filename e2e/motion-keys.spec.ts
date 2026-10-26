@@ -166,6 +166,21 @@ test('position keys from the inspector: interpolated preview, curve, diamonds, â
   expect(c.motionKeys.scale).toBeUndefined();
   expect(c.motionKeys.position).toHaveLength(2);
 
+  // drag the second diamond 0.5 s to the left (zoom px/s from the store): the key moves in time
+  const zoom = await page.evaluate(() => (window as any).__oe.getState().zoom as number);
+  const kb = (await keys.nth(1).boundingBox())!;
+  await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(kb.x + kb.width / 2 - zoom * 0.25, kb.y + kb.height / 2, { steps: 4 });
+  await page.mouse.move(kb.x + kb.width / 2 - zoom * 0.5, kb.y + kb.height / 2, { steps: 4 });
+  await page.mouse.up();
+  c = await theClip(page);
+  expect(Math.abs(c.motionKeys.position[1].src - (c.inPoint + S(2)))).toBeLessThanOrEqual(S(1 / 30));
+  expect(c.motionKeys.position[1].v).toEqual([300, 0]);
+  await pressShortcut(page, 'Meta+z');
+  c = await theClip(page);
+  expect(c.motionKeys.position[1].src).toBe(c.inPoint + S(2.5));
+
   // double-click the second diamond: removes it
   await keys.nth(1).locator('rect').first().dblclick({ force: true });
   c = await theClip(page);
