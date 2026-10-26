@@ -594,6 +594,21 @@ const Keyboard = make('Keyboard', (
   </>
 ));
 
+const Home = make('Home', (
+  <>
+    <path d="M4 10.5L12 4l8 6.5" />
+    <path d="M6 9.8V19h12V9.8" />
+    <path d="M10 19v-5h4v5" />
+  </>
+));
+
+const Copy = make('Copy', (
+  <>
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M15 6.5A2.5 2.5 0 0 0 12.5 4H6.5A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15" />
+  </>
+));
+
 /* ------------------------------------------------------------------ */
 /* Name map                                                            */
 /* ------------------------------------------------------------------ */
@@ -614,7 +629,7 @@ export const Icons = {
   Reset, Keyframe, KeyframeFilled,
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CaretDown, CaretUp,
   Plus, Minus, Close, Search, Grid, List, Sort, Filter, Import, Export, Check,
-  Settings, Record, Menu, Image, Speed, Keyboard,
+  Settings, Record, Menu, Image, Speed, Keyboard, Home, Copy,
   // aliases (names used in the brief / research docs)
   Pointer: Select,
   Delete: Trash,

@@ -16,6 +16,7 @@ import { create } from 'zustand';
 import { importFiles as importMediaFiles, relinkMedia } from '../media/import';
 import { aspectSize, LIMITS } from '../model/catalog';
 import { createProject } from '../model/defaults';
+import { shiftKeys } from '../model/volumeKeys';
 import { findClip, findTransition, mainTrack, migrateProject } from '../model/project';
 import {
   clamp,
@@ -612,6 +613,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
         if (!c || (c.type !== 'video' && c.type !== 'audio')) continue;
         const v = Math.round((c.audio.volumeDb + deltaDb) * 10) / 10;
         c.audio.volumeDb = clamp(v, LIMITS.volumeDbMin, LIMITS.volumeDbMax);
+        if (c.audio.volumeKeys?.length) c.audio.volumeKeys = shiftKeys(c.audio.volumeKeys, deltaDb);
       }
     });
     return targets.length;

@@ -1,6 +1,7 @@
 export { ColorInput, normalizeHex } from './ColorInput';
 export { beginSession, endSession, startPointerGesture } from './gesture';
 export { KeyframeButton } from './KeyframeButton';
+export { KeyframeNav, type KeyframeNavProps } from './KeyframeNav';
 export { NumberBox } from './NumberBox';
 export { FieldRow, GroupLabel, Section } from './Section';
 export { SegmentedTabs, type SegItem } from './SegmentedTabs';

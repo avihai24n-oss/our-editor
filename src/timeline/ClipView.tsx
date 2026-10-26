@@ -2,6 +2,10 @@
  * One clip on a track: coloured body by type, name, speed badge, content (filmstrip / waveform /
  * text label), animation ramps, selection outline with trim handles. Pointer handling is delegated
  * to the Timeline's gesture controller through `onPointerDown`.
+ *
+ * A video clip that carries sound also gets CapCut's audio lane: its waveform along the bottom of
+ * the filmstrip, on a dark band. It is the clip's own sound, so it follows the clip's volume,
+ * fades and speed — muting the clip flattens it.
  */
 import { memo, type PointerEvent as RPointerEvent } from 'react';
 import { usToPx } from '../model/time';
@@ -9,6 +13,7 @@ import type { Clip, MediaAsset } from '../model/types';
 import { Icon } from '../ui/Icon';
 import { openCompound } from '../actions/compound';
 import { Filmstrip, ImageStrip, Waveform } from './ClipContent';
+import { VolumeLine } from './VolumeLine';
 
 /** Stacked-frames glyph of a compound clip (CapCut draws its compound clips with a stack icon). */
 export function CompoundGlyph({ size = 14 }: { size?: number }) {
@@ -58,6 +63,9 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
   const badge = clip.type === 'video' || clip.type === 'audio' ? (clip.speedCurve ? curveBadge(clip.speedCurve.preset) : speedBadge(clip.speed)) : null;
   const missing = !!asset?.missing;
   const contentH = Math.max(8, bodyH);
+  // the lane only appears on a clip tall enough to keep the filmstrip readable above it
+  const hasSound = clip.type === 'video' && !!asset && !missing && asset.hasAudio !== false;
+  const audioH = hasSound && bodyH >= 26 ? Math.round(Math.min(22, Math.max(10, bodyH * 0.32))) : 0;
 
   const cls = [
     'tl-clip',
@@ -108,6 +116,11 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
         {clip.type === 'video' && asset && (
           <Filmstrip clip={clip} asset={asset} width={width} height={contentH} zoom={zoom} fromPx={fromPx} toPx={toPx} />
         )}
+        {clip.type === 'video' && asset && audioH > 0 && (
+          <div className="tl-clip__audio" style={{ height: audioH }} data-testid="clip-audio-band">
+            <Waveform clip={clip} asset={asset} width={width} height={audioH} zoom={zoom} fromPx={fromPx} toPx={toPx} />
+          </div>
+        )}
         {clip.type === 'image' && asset && <ImageStrip clip={clip} asset={asset} />}
         {clip.type === 'audio' && asset && (
           <Waveform clip={clip} asset={asset} width={width} height={contentH} zoom={zoom} fromPx={fromPx} toPx={toPx} />
@@ -138,6 +151,10 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
           )}
           {clip.type !== 'text' && <span className="tl-clip__name">{clip.name}</span>}
         </div>
+      )}
+
+      {!locked && !missing && width > 24 && bodyH >= 20 && (clip.type === 'audio' || (clip.type === 'video' && hasSound)) && (
+        <VolumeLine clip={clip} width={width} height={bodyH} zoom={zoom} fromPx={fromPx} toPx={toPx} />
       )}
 
       {!locked && (

@@ -1,0 +1,273 @@
+/* Home screen (project gallery). Tokens only — see src/theme.css. */
+.home {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(1100px 520px at 18% -8%, rgba(34, 211, 238, 0.09), transparent 60%),
+    var(--bg-window);
+  overflow: hidden;
+}
+
+.home__bar {
+  flex: none;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(28, 28, 30, 0.6);
+  backdrop-filter: blur(8px);
+}
+.home__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.home__brand .oe-icon {
+  color: var(--accent);
+}
+
+.home__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px 24px 40px;
+}
+.home__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 auto 20px;
+  max-width: 1320px;
+}
+.home__head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.home__count {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-dim);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.home__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  color: var(--text-dim);
+}
+.home__search input {
+  width: 200px;
+  background: none;
+  border: 0;
+  height: 28px;
+  padding: 0;
+}
+
+.home__grid {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.home-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition:
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+.home-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+.home-card__open {
+  display: block;
+  width: 100%;
+}
+/* One tile shape for every project ratio: the frame is letterboxed inside it, as in the player. */
+.home-card__cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  border-bottom: 1px solid var(--border);
+}
+.home-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.home-card__open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.home-card__blank {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  background: linear-gradient(160deg, var(--bg-panel-2), #121214);
+}
+.home-card__badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  font: 500 10px/1 var(--font-mono);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.66);
+  border-radius: 3px;
+  padding: 3px 5px;
+}
+
+.home-card__foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 6px 9px 10px;
+}
+.home-card__text {
+  flex: 1;
+  min-width: 0;
+}
+.home-card__name {
+  display: block;
+  max-width: 100%;
+  text-align: left;
+  font-size: var(--fs-md);
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+}
+.home-card__name:hover {
+  color: var(--accent);
+}
+.home-card__rename {
+  width: 100%;
+  height: 22px;
+  font-size: var(--fs-md);
+  font-weight: 550;
+}
+.home-card__meta {
+  display: flex;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.home-card__menu {
+  position: relative;
+  flex: none;
+}
+.home-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: var(--z-menu);
+  min-width: 148px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-pop);
+  padding: 4px;
+}
+.home-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.home-menu button:hover {
+  background: var(--bg-hover);
+}
+.home-menu button.is-danger {
+  color: var(--danger);
+}
+
+.home__empty {
+  max-width: 520px;
+  margin: 10vh auto 0;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.home__empty .oe-icon {
+  color: var(--text-faint);
+}
+.home__empty p {
+  margin: 0;
+}
+.home__hint {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.home__error {
+  max-width: 1320px;
+  margin: 0 auto 16px;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.home__foot {
+  max-width: 1320px;
+  margin: 28px auto 0;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.home__busy {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 15, 16, 0.55);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  z-index: var(--z-modal);
+}
+
+/* Danger button (delete confirm) */
+.btn--danger {
+  background: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}

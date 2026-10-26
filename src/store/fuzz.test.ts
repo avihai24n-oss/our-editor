@@ -302,7 +302,7 @@ function runSeed(seed: number, n = 200) {
 
 beforeEach(() => {
   st().newProject();
-  useEditor.setState({ magnet: true, snapping: true, zoom: 60 });
+  useEditor.setState({ magnet: true, snapping: true, linkage: true, zoom: 60 });
 });
 
 describe('fuzz: 200 random edits keep every invariant, undo/redo are exact', () => {
@@ -429,6 +429,7 @@ describe('audit: trim respects media length and speed', () => {
   });
   it('left edge stops at the media start (in-point 0), scaled by speed', () => {
     const [v5] = setup(A.v5());
+    st().setMagnet(false); // magnet on would ripple the overlay (start stays put)
     const id = st().addClip(v5!, { at: S(10), kind: 'overlay' })!;
     st().setSpeed(id, 2); // 10 s .. 12.5 s
     undoable(() => st().trimStart(id, S(11)));
@@ -436,8 +437,9 @@ describe('audit: trim respects media length and speed', () => {
     st().trimStart(id, 0);
     expect(clipOf(id).clip).toMatchObject({ start: S(10), duration: S(2.5), inPoint: 0 });
   });
-  it('an edge stops at the neighbour off the magnetic main track', () => {
+  it('magnet off: an edge stops at the neighbour off the main track', () => {
     const [v3] = setup(A.v3());
+    st().setMagnet(false);
     const a = st().addClip(v3!, { at: 0, kind: 'overlay' })!;
     st().trimEnd(a, S(2));
     const b = st().addClip(v3!, { at: S(2.5), trackId: clipOf(a).track.id })!;

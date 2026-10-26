@@ -416,8 +416,9 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
   s = Math.min(s, end - minClipUs(p));
   s = Math.max(s, 0);
   const prev = f.track.clips[f.index - 1];
-  const magnetMain = f.track.kind === 'main' && ctx.magnet;
-  if (prev && !magnetMain) s = Math.max(s, clipEnd(prev));
+  // magnet: the main track packs itself (normalize); any other track ripples (below) — either way
+  // the left edge stays put, so the neighbour is no limit
+  if (prev && !ctx.magnet) s = Math.max(s, clipEnd(prev));
   if (isTimedClip(c)) {
     if (c.speedCurve) {
       const r = trimCurveStart(c, s, p.assets[c.assetId]?.duration);
@@ -434,8 +435,24 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
     c.inPoint = Math.max(0, c.inPoint + (s - c.start));
   }
   c.duration = end - s;
+  const shift = s - c.start;
   c.start = s;
+  if (ctx.magnet && f.track.kind !== 'main') {
+    c.start -= shift;
+    rippleTrim(f.track, c, shift);
+  }
   return true;
+}
+
+/**
+ * Magnet on a track other than main (CapCut only packs the main track): a trim ripples instead of
+ * leaving a gap. Left edge: the clip keeps its start (it "sticks left") and the clips after it on
+ * the track move by the trimmed amount. Right edge: the clips after it move with the edge. Gaps the
+ * user left between clips are kept.
+ */
+function rippleTrim(track: Track, c: Clip, shortenedBy: Us): void {
+  if (!shortenedBy) return;
+  for (const o of track.clips) if (o !== c && o.start > c.start) o.start -= shortenedBy;
 }
 
 /** Drag of the RIGHT edge to timeline time `newEnd`. */
@@ -446,10 +463,12 @@ export function trimEnd(p: Project, clipId: Id, newEnd: Us, ctx: EditCtx): boole
   let e = Math.round(newEnd);
   e = Math.max(e, c.start + minClipUs(p));
   const next = f.track.clips[f.index + 1];
-  const magnetMain = f.track.kind === 'main' && ctx.magnet;
-  if (next && !magnetMain) e = Math.min(e, next.start);
+  const ripple = ctx.magnet && f.track.kind !== 'main';
+  if (next && !ctx.magnet) e = Math.min(e, next.start);
+  const oldEnd = clipEnd(c);
   if (isTimedClip(c) && c.speedCurve) {
     trimCurveEnd(c, Math.max(minClipUs(p), e - c.start), p.assets[c.assetId]?.duration);
+    if (ripple) rippleTrim(f.track, c, oldEnd - clipEnd(c));
     return true;
   }
   if (isTimedClip(c)) {
@@ -461,6 +480,7 @@ export function trimEnd(p: Project, clipId: Id, newEnd: Us, ctx: EditCtx): boole
     if (avail !== null) e = Math.min(e, c.start + avail - c.inPoint);
   }
   c.duration = Math.max(minClipUs(p), e - c.start);
+  if (ripple) rippleTrim(f.track, c, oldEnd - clipEnd(c));
   return true;
 }
 

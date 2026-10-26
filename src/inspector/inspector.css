@@ -102,6 +102,45 @@
   cursor: not-allowed;
 }
 
+/* working cluster (KeyframeNav) */
+.kfnav {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.kf--live {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.kf--live:hover:not(:disabled) {
+  color: var(--text);
+}
+.kf--live.is-on {
+  color: var(--accent);
+}
+.kf--live:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.kfnav__arrow {
+  width: 12px;
+  height: 18px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.kfnav__arrow:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
 /* ---------------------------------------------------------------- slider row */
 .srow {
   display: flex;
@@ -1091,4 +1130,31 @@
 .imask-invert.is-active {
   background: var(--accent-dim);
   color: var(--accent);
+}
+
+/* Voice changer groups + Mixer (AudioTab.tsx) */
+.iaudio__tile--none {
+  flex-direction: row;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 6px;
+}
+.iaudio__group-title {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 4px 0 6px;
+}
+.iaudio__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.iaudio__preset {
+  font-size: var(--fs-xs);
+  padding: 4px 8px;
+  height: auto;
 }

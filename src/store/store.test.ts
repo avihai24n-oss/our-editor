@@ -226,8 +226,19 @@ describe('split / delete / ripple', () => {
     expect(clip(ids[2]!).start).toBe(S(13));
   });
 
-  it('delete-left on a selected overlay clip leaves the gap', () => {
+  it('delete-left on a selected overlay clip: magnet on, it sticks left', () => {
     const { asset } = threeOnMain();
+    const o = st().addClip(asset.id, { kind: 'overlay', at: S(2) })!;
+    st().select([o]);
+    st().setPlayhead(S(5));
+    st().deleteLeft();
+    expect(clip(o).start).toBe(S(2));
+    expect(clip(o).duration).toBe(S(7));
+  });
+
+  it('delete-left on a selected overlay clip leaves the gap (magnet off)', () => {
+    const { asset } = threeOnMain();
+    st().setMagnet(false);
     const o = st().addClip(asset.id, { kind: 'overlay', at: S(2) })!;
     st().select([o]);
     st().setPlayhead(S(5));
@@ -258,9 +269,27 @@ describe('trim', () => {
     checkInvariants(proj());
   });
 
-  it('images trim freely; non-main tracks clamp to neighbours', () => {
+  it('magnet on, non-main track: a trim ripples (sticks left, the next clips follow, gaps kept)', () => {
     const img = image();
     st().addAssets([img]);
+    const a = st().addClip(img.id, { kind: 'overlay', at: 0 })!;
+    const trackId = findClip(proj(), a)!.track.id;
+    const b = st().addClip(img.id, { trackId, at: S(6) })!;
+    const bLen = clip(b).duration;
+    st().trimEnd(a, clipEnd(clip(a)) - S(2)); // right edge in by 2 s: b follows
+    expect(clip(b).start).toBe(S(4));
+    st().trimStart(b, S(5)); // left edge in by 1 s: b keeps its start
+    expect(clip(b).start).toBe(S(4));
+    expect(clip(b).duration).toBe(bLen - S(1));
+    st().trimEnd(a, S(30)); // outwards: b is pushed, the 1 s gap stays
+    expect(clip(b).start - clipEnd(clip(a))).toBe(S(1));
+    checkInvariants(proj());
+  });
+
+  it('images trim freely; non-main tracks clamp to neighbours (magnet off)', () => {
+    const img = image();
+    st().addAssets([img]);
+    st().setMagnet(false);
     const a = st().addClip(img.id, { kind: 'overlay', at: 0 })!;
     const trackId = findClip(proj(), a)!.track.id;
     const b = st().addClip(img.id, { trackId, at: S(6) })!;
@@ -607,5 +636,5 @@ describe('random op sequences keep invariants', () => {
       }
       checkInvariants(proj());
     }
-  });
+  }, 30_000); // ~1 s alone; under the full parallel suite it can pass the default 5 s
 });

@@ -144,3 +144,62 @@
     width: auto;
   }
 }
+
+/* Export frame (ExportFrameDialog.tsx) */
+.frame-export {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+}
+.frame-export__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.frame-export__quality,
+.frame-export__folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.frame-export__quality input {
+  flex: 1;
+}
+.frame-export__folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.frame-export__error {
+  color: #ff6b6b;
+  font-size: var(--fs-sm);
+}
+.player__menu--more {
+  min-width: 140px;
+}
+.frame-export__preview {
+  position: relative;
+  align-self: center;
+  flex: none;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.frame-export__preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.frame-export__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}

@@ -32,6 +32,8 @@ export interface SliderRowProps {
   ticks?: number[];
   disabled?: boolean;
   keyframe?: boolean;
+  /** A working keyframe cluster (KeyframeNav) in place of the disabled ◇. */
+  keyframeSlot?: ReactNode;
   /** Extra content right of the label (e.g. "2.3s → 1.2s"). */
   aside?: ReactNode;
   testId?: string;
@@ -91,7 +93,7 @@ export function SliderRow(p: SliderRowProps) {
           label={`${p.label} value`}
           onCommit={p.onChange}
         />
-        {p.keyframe !== false && <KeyframeButton />}
+        {p.keyframeSlot ?? (p.keyframe !== false && <KeyframeButton />)}
       </div>
     </div>
   );

@@ -195,7 +195,8 @@ Editing: keyframes (`‹ ◇ ›` on every row; transform, opacity, volume first
 (model field exists), freeze frame, reverse, replace clip, detach/extract audio + linkage,
 split-all-tracks ⇧⌘B, select-left/right `[`/`]`, group/compound clips, ripple delete for
 non-main tracks, multi-clip drag, right-click context menu, preview axis (hover scrub), cover
-picker, project home screen (list/rename/delete projects), project fps/resolution picker,
+picker, ~~project home screen (list/rename/delete projects)~~ — built 2026-10-20 (src/home/),
+project fps/resolution picker,
 Original ratio (follow first clip) and more ratios (4:3, 2.35:1, 3:4 …).
 Look: Speed › Curve (Montage, Hero, Bullet, Jump cut, Flash in/out, Custom), Combo animations,
 more In/Out animations, more transitions, LUT import (.cube), HSL / Curves / Color wheel,

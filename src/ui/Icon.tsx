@@ -87,6 +87,8 @@ export const iconsByName = {
   'delete': Icons.Delete,
   'snap': Icons.Snap,
   'keyboard': Icons.Keyboard,
+  'home': Icons.Home,
+  'copy': Icons.Copy,
   // extra aliases
   'x': Icons.Close,
   'delete-icon': Icons.Trash,

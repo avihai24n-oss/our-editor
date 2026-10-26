@@ -246,7 +246,50 @@ export type VoiceFilterId =
   | 'megaphone'
   | 'distorted'
   | 'vinyl'
-  | 'hall';
+  | 'hall'
+  // spaces (added 26 Oct 2026)
+  | 'room'
+  | 'studio'
+  | 'tiled'
+  | 'stone'
+  | 'cathedral'
+  | 'outdoor'
+  | 'distant'
+  | 'next-room'
+  // eras & devices
+  | 'phone'
+  | 'walkie'
+  | 'radio-old'
+  | 'gramophone'
+  // characters
+  | 'broadcast'
+  | 'intimate'
+  | 'inner-voice'
+  | 'memory'
+  | 'underwater';
+
+/**
+ * Audio › Voice changer › Mixer: a hand-tuned channel strip, like a mixing desk. Applied after the
+ * voice filter, in this order: low cut → high cut → EQ → compressor → warmth → delay → reverb →
+ * output. Each section has its own switch. DSP: src/audio/dsp.ts (buildMixer). Added 26 Oct 2026.
+ */
+export interface VoiceMixer {
+  /** High-pass, Hz (0 = off). */
+  lowCut: number;
+  /** Low-pass, Hz (0 = off). */
+  highCut: number;
+  eq: { on: boolean; lowFreq: number; lowGain: number; midFreq: number; midGain: number; midQ: number; highFreq: number; highGain: number };
+  /** threshold / makeup dB, attack / release ms, ratio n:1. */
+  comp: { on: boolean; threshold: number; ratio: number; attack: number; release: number; makeup: number };
+  /** Tape-style saturation: drive 0..100, mix 0..100 %. */
+  warmth: { on: boolean; drive: number; mix: number };
+  /** time ms, feedback / mix %. */
+  delay: { on: boolean; time: number; feedback: number; mix: number };
+  /** decay s, pre-delay ms, damping 0..100 (darker tail), mix %. */
+  reverb: { on: boolean; decay: number; predelay: number; damping: number; mix: number };
+  /** Output gain, dB. */
+  output: number;
+}
 
 /**
  * Voice isolation (DSP, not AI) — CapCut's "Isolate voice" with a signal-processing engine
@@ -268,9 +311,25 @@ export interface VoiceFilter {
   strength: number;
 }
 
+/**
+ * A volume keyframe. `src` is the clip's source position (µs, inPoint + source offset — the same
+ * frame as `inPoint`), so keys stay on their sound through trims, splits and speed changes.
+ */
+export interface VolumeKey {
+  src: Us;
+  /** -60..+20 dB. */
+  db: number;
+}
+
 export interface AudioProps {
-  /** -60..+20 dB. -60 is treated as silence. */
+  /** -60..+20 dB. -60 is treated as silence. Ignored while `volumeKeys` has keys. */
   volumeDb: number;
+  /**
+   * Volume keyframes, sorted by `src`. When present (≥ 1) they replace `volumeDb`: the volume is
+   * interpolated linearly in dB between keys and held flat before the first / after the last.
+   * Absent = no keyframes. Added 25 Oct 2026 (src/model/volumeKeys.ts).
+   */
+  volumeKeys?: VolumeKey[];
   fadeIn: Us;
   fadeOut: Us;
   /** Per-clip mute (the Basic section checkbox in Audio › Basic). */
@@ -289,6 +348,8 @@ export interface AudioProps {
   voiceFilter: VoiceFilter | null;
   /** Voice isolation (DSP); null = off. Added 20 Oct 2026 (migrateAudioProps fills it). */
   voiceIsolation: VoiceIsolation | null;
+  /** Voice changer › Mixer channel strip; absent / null = off. Added 26 Oct 2026. */
+  mixer?: VoiceMixer | null;
 }
 
 /**

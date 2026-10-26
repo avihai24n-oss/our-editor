@@ -6,9 +6,12 @@
  *   GET /__local/capcut/projects          → [{ id, name, duration, modified, cover }]
  *   GET /__local/capcut/project?id=<dir>  → { id, folder, name, draft, resolved: { raw → abs | null } }
  *   GET /__local/file?path=<abs>          → the file, with HTTP Range support
+ *   GET  /__local/inbox                   → pending media-pool requests [{ id, project, aspect, files }]
+ *   POST /__local/inbox/done?id=<id>      → body = result JSON; moves the request to inbox/done/
  *
  * Only paths under ~/Movies/CapCut and ~/Desktop/ai/ are served (after resolving symlinks); every
- * other path is 403. Only GET / HEAD; nothing here writes, moves or locks a file.
+ * other path is 403. Only GET / HEAD, except the inbox ack; the only thing written is in
+ * ~/.our-editor/inbox (requests dropped there by scripts/add-media.sh, for agents and the shell).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -42,6 +45,51 @@ export function isAllowedPath(p, roots = ALLOWED_ROOTS) {
     }
     return real === rr || real.startsWith(rr + path.sep);
   });
+}
+
+export const INBOX = path.join(HOME, '.our-editor/inbox');
+const INBOX_DONE = path.join(INBOX, 'done');
+
+function listInbox() {
+  if (!fs.existsSync(INBOX)) return [];
+  const out = [];
+  for (const f of fs.readdirSync(INBOX).sort()) {
+    if (!f.endsWith('.json')) continue;
+    try {
+      const r = readJson(path.join(INBOX, f));
+      const files = Array.isArray(r.files) ? r.files.filter((p) => typeof p === 'string') : [];
+      out.push({ id: f.slice(0, -5), project: typeof r.project === 'string' ? r.project : '', aspect: r.aspect ?? null, files });
+    } catch {
+      /* half-written or broken: picked up on a later poll, or ignored */
+    }
+  }
+  return out;
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    let b = '';
+    req.on('data', (c) => (b += c));
+    req.on('end', () => resolve(b));
+    req.on('error', () => resolve(''));
+  });
+}
+
+async function ackInbox(req, res, id) {
+  if (!validId(id)) return send(res, 400, { error: 'bad id' });
+  const src = path.join(INBOX, `${id}.json`);
+  if (!fs.existsSync(src)) return send(res, 404, { error: 'no such request' });
+  let result = {};
+  try {
+    result = JSON.parse((await readBody(req)) || '{}');
+  } catch {
+    /* keep the request even if the result is unreadable */
+  }
+  fs.mkdirSync(INBOX_DONE, { recursive: true });
+  const request = readJson(src);
+  fs.writeFileSync(path.join(INBOX_DONE, `${id}.json`), JSON.stringify({ request, result, doneAt: new Date().toISOString() }, null, 2));
+  fs.unlinkSync(src);
+  return send(res, 200, { ok: true });
 }
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
@@ -154,9 +202,13 @@ function middleware(req, res, next) {
   const url = req.url ?? '';
   if (!url.startsWith('/__local/')) return next();
   if (!isLocal(req)) return send(res, 403, { error: 'localhost only' });
-  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'read-only' });
   const u = new URL(url, 'http://localhost');
+  if (req.method === 'POST' && u.pathname === '/__local/inbox/done') {
+    return void ackInbox(req, res, u.searchParams.get('id')).catch((e) => send(res, 500, { error: String(e) }));
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'read-only' });
   try {
+    if (u.pathname === '/__local/inbox') return send(res, 200, listInbox());
     if (u.pathname === '/__local/capcut/projects') return send(res, 200, listProjects());
     if (u.pathname === '/__local/capcut/project') {
       const id = u.searchParams.get('id');

@@ -5,6 +5,7 @@
  */
 import { memo, useEffect, useRef, useState } from 'react';
 import { dbToGain } from '../model/project';
+import { hasVolumeKeys, keysDbAt } from '../model/volumeKeys';
 import { clipMeanSpeed, mirrorMediaTime, sourceOffsetAt } from '../model/time';
 import type { AudioClip, ImageClip, MediaAsset, VideoClip } from '../model/types';
 import { getThumb, peekThumb } from './media/thumbnails';
@@ -117,15 +118,19 @@ export const Waveform = memo(function Waveform({ clip, asset, width, height, zoo
     ctx.fillStyle = getComputedStyle(cv).color || '#6ea0ff';
     const norm = normGain(peaks) * gain;
     const D = asset.duration;
+    const keys = !clip.audio.muted && hasVolumeKeys(clip.audio) ? clip.audio.volumeKeys! : null;
+    const srcUs = (px: number) => clip.inPoint + sourceOffsetAt(clip, (px / zoom) * 1e6);
     const srcSec = (px: number) => {
-      const r = clip.inPoint + sourceOffsetAt(clip, (px / zoom) * 1e6);
+      const r = srcUs(px);
       return (clip.reversed ? Math.max(0, D - r) : r) / 1e6; // Edit › Reverse
     };
     let t0 = srcSec(a);
     for (let x = 0; x < w; x++) {
       const t1 = srcSec(a + x + 1);
       const lo = Math.min(t0, t1);
-      const v = Math.min(1, peakAt(peaks, lo, Math.max(t0, t1, lo + 1e-4)) * norm);
+      // volume keyframes: the envelope at this pixel instead of the flat volume
+      const k = keys ? (normGain(peaks) * Math.min(2, dbToGain(keysDbAt(keys, srcUs(a + x + 0.5))))) : norm;
+      const v = Math.min(1, peakAt(peaks, lo, Math.max(t0, t1, lo + 1e-4)) * k);
       t0 = t1;
       const h = Math.max(v > 0 ? 1 : 0, v * (height - 2));
       ctx.fillRect(x, height - h, 1, h);

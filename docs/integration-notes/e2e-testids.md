@@ -44,6 +44,13 @@ generate them. Add new ids here before you use them in a test.
 | Timeline | `timeline-ruler`, `timeline-marker`, `timeline-transition` (`data-transition-id`) | ruler, a marker, a transition on a cut |
 | Timeline | `timeline-tool-menu`, `timeline-undo`, `timeline-redo`, `timeline-split`, `timeline-delete`, `timeline-magnet`, `timeline-snapping`, `timeline-zoom`, `timeline-fit` | toolbar buttons |
 | Timeline | `track-lock`, `track-hide`, `track-mute` | track header toggles |
+| Timeline | `clip-audio-band` | the audio lane at the bottom of a video clip that has sound |
+| Home | `home-button` | the top-bar button that leaves the editor for the project gallery |
+| Home | `home-screen` | the gallery root |
+| Home | `home-new-project`, `home-search` | New project button, the search field (shown past 6 projects) |
+| Home | `project-card` (`data-project-id`, `data-project-name`) | one project card |
+| Home | `project-open`, `project-name`, `project-rename-input`, `project-menu` | open the project, its name (click = rename), the rename field, the ⋯ menu |
+| Home | `confirm-delete` | the Delete button in the delete-project dialog |
 
 `timeline-track` also carries `data-track-role="main|overlay|audio|text"` and `data-track-id`;
 `data-track-kind` is `video` for both main and overlay tracks. `timeline-clip` also carries

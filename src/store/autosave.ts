@@ -1,7 +1,7 @@
 /**
  * Autosave + boot. `startAutosave()` saves the project JSON MEMORY_LIMITS.autosaveDebounceMs after
- * the last change and on page hide. `bootProject()` loads the last project (and its media URLs)
- * or keeps a new one.
+ * the last change, and flushes it when the page is hidden or unloaded. `bootProject()` loads the
+ * last project (and its media URLs) or keeps a new one.
  *
  * Write rules (an idle tab writes nothing):
  * - only the project JSON is written; media blobs are written once, at import (media/import.ts);
@@ -9,16 +9,94 @@
  * - two writes are at least MEMORY_LIMITS.autosaveMinGapMs apart;
  * - only `project` changes schedule a save; the save itself only touches `saveStatus`, so a save
  *   can never schedule another one.
+ *
+ * Never losing work (`pagehide` / `beforeunload` / tab hidden):
+ * - the flush is unconditional: it saves whenever the document differs from the last write, with
+ *   or without a pending debounce timer;
+ * - an IndexedDB write started while the page unloads is not guaranteed to commit, and a crash or
+ *   an OS kill sends no event at all. So every save first writes the same JSON to localStorage
+ *   (synchronously, inside the unload handler) and clears it once IndexedDB has committed. A
+ *   leftover snapshot is therefore work that never reached the database: `bootProject()` commits
+ *   it before loading, unless the stored project is newer (another tab saved after the crash).
+ *   Two tabs share the one snapshot key, so the last one to write owns it; what the other tab
+ *   wrote is already in IndexedDB, which is what the "stored project is newer" check compares.
  */
 import { blobsBeingWritten, restoreAssetUrls } from '../media/import';
 import { MEMORY_LIMITS } from '../media/memory';
 import { rootProject } from '../model/compound';
 import type { Project } from '../model/types';
 import { useEditor } from './index';
-import { deleteBlob, listBlobKeys, loadLastProject, referencedBlobKeys, saveProject } from './persistence';
+import {
+  deleteBlob,
+  listBlobKeys,
+  loadLastProject,
+  loadProject,
+  referencedBlobKeys,
+  saveProject,
+  syncLibrary,
+} from './persistence';
+import { flushView, restoreView, startViewAutosave } from './viewState';
 
 const DEBOUNCE_MS = MEMORY_LIMITS.autosaveDebounceMs;
 const MIN_GAP_MS = MEMORY_LIMITS.autosaveMinGapMs;
+
+/** Pending-write snapshot (see the header): one project JSON, cleared as soon as it is committed. */
+const UNSAVED_KEY = 'our-editor:unsaved';
+/** localStorage is ~5 MB; a project JSON past this is not worth the risk of a quota error. */
+const UNSAVED_MAX_CHARS = 3_500_000;
+
+function writeUnsavedSnapshot(p: Project): void {
+  try {
+    const json = JSON.stringify(p);
+    if (json.length > UNSAVED_MAX_CHARS) return;
+    globalThis.localStorage?.setItem(UNSAVED_KEY, json);
+  } catch {
+    /* storage unavailable or full: IndexedDB is still the real save */
+  }
+}
+
+function clearUnsavedSnapshot(): void {
+  try {
+    globalThis.localStorage?.removeItem(UNSAVED_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** The uncommitted project JSON left by a crash or a killed unload, if any. */
+export function readUnsavedSnapshot(): Project | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(UNSAVED_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Project;
+    return p && typeof p.id === 'string' && Array.isArray(p.tracks) ? p : null;
+  } catch {
+    clearUnsavedSnapshot();
+    return null;
+  }
+}
+
+/**
+ * Commits a snapshot an earlier session could not write, and returns it. Returns null when there
+ * is nothing to recover or the stored project is newer (another tab saved it meanwhile).
+ */
+export async function recoverUnsaved(): Promise<Project | null> {
+  const snap = readUnsavedSnapshot();
+  if (!snap) return null;
+  try {
+    const stored = await loadProject(snap.id);
+    if (stored && stored.updatedAt > snap.updatedAt) {
+      clearUnsavedSnapshot();
+      return null;
+    }
+    await saveProject(snap);
+    clearUnsavedSnapshot();
+    return snap;
+  } catch (e) {
+    console.warn('Could not recover unsaved changes', e);
+    return null;
+  }
+}
 
 /** JSON of the project without its timestamp: equal fingerprints = nothing to save. */
 export function projectFingerprint(p: Project): string {
@@ -39,20 +117,35 @@ export function resetAutosaveState(): void {
   writes = 0;
 }
 
+/**
+ * Records a project as already on disk, so the next change is what triggers the next write.
+ * Called after loading / creating a project (src/store/projects.ts) — without it the module would
+ * still hold the previous project's fingerprint.
+ */
+export function markSaved(p: Project): void {
+  lastWritten = projectFingerprint(p);
+  lastWriteAt = Date.now();
+}
+
 /** Saves now unless the project is unchanged since the last write. Returns true when it wrote. */
 export async function saveNow(force = false): Promise<boolean> {
   const { project, setSaveStatus } = useEditor.getState();
   const fp = projectFingerprint(project);
   if (!force && fp === lastWritten) return false;
+  const doc = rootProject(project); // an open compound clip is saved closed
   setSaveStatus({ saving: true });
+  // synchronous, so it survives even when this tab is killed before IndexedDB commits
+  writeUnsavedSnapshot(doc);
   try {
     lastWriteAt = Date.now();
     writes++;
-    await saveProject(rootProject(project)); // an open compound clip is saved closed
+    await saveProject(doc);
     lastWritten = fp;
+    clearUnsavedSnapshot();
     setSaveStatus({ saving: false, lastSavedAt: Date.now(), error: null });
     return true;
   } catch (e) {
+    // the snapshot stays: the next boot commits it
     setSaveStatus({ saving: false, error: e instanceof Error ? e.message : String(e) });
     return false;
   }
@@ -62,12 +155,16 @@ export function startAutosave(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   // the loaded project is already on disk: do not write it back
   lastWritten ??= projectFingerprint(useEditor.getState().project);
+  // unconditional: a flush saves whenever the document differs from the last write, whether or
+  // not a debounce timer is pending (a timer that already fired could still have been skipped by
+  // the minimum-gap wait)
   const flush = () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
-      void saveNow();
     }
+    void saveNow();
+    flushView();
   };
   const schedule = () => {
     if (timer) clearTimeout(timer);
@@ -84,14 +181,19 @@ export function startAutosave(): () => void {
   const onHide = () => {
     if (document.visibilityState === 'hidden') flush();
   };
+  const stopView = startViewAutosave();
   if (typeof window !== 'undefined') {
+    // pagehide fires where beforeunload does not (Safari, mobile, page cache)
+    window.addEventListener('pagehide', flush);
     window.addEventListener('beforeunload', flush);
     document.addEventListener('visibilitychange', onHide);
   }
   return () => {
     unsub();
     flush();
+    stopView();
     if (typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', flush);
       document.removeEventListener('visibilitychange', onHide);
     }
@@ -129,13 +231,18 @@ export async function sweepOrphanBlobs(): Promise<number> {
 
 async function doBoot(): Promise<boolean> {
   try {
-    const p = await loadLastProject();
+    // the disk library first: a fresh browser profile gets every project (and opens the newest)
+    await syncLibrary().catch((e) => console.warn('Could not sync the project library', e));
+    const recovered = await recoverUnsaved();
+    const p = recovered ?? (await loadLastProject());
     void sweepOrphanBlobs().catch((e) => console.warn('Could not sweep unused media', e));
     if (!p) return false;
     useEditor.getState().setProject(p);
+    markSaved(p);
     const missing = await restoreAssetUrls(p);
     useEditor.getState().setAssetsMissing(missing);
     useEditor.getState().setSaveStatus({ lastSavedAt: p.updatedAt });
+    await restoreView(p);
     return true;
   } catch (e) {
     console.warn('Could not load the last project', e);

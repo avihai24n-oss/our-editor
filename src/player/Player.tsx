@@ -1,11 +1,13 @@
 /**
  * Centre player (CapCut desktop): header "Player", letterboxed canvas, bottom bar with
- * current / total timecode, Play/Pause, zoom (Fit / %), Ratio menu and fullscreen.
+ * current / total timecode, Play/Pause, zoom (Fit / %), Ratio menu, ⋯ (Export frame) and fullscreen.
  * The canvas is driven by PreviewEngine (getFrameState → renderFrame). On-canvas: click selects
  * the topmost clip; the selected clip gets a box with corner scale handles and a rotate handle;
  * drag to move with centre snap guides. Every gesture is one undo step (beginTx … commitTx).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ExportFrameDialog } from '../export/ExportFrameDialog';
 import type { DrawnBox } from '../engine/render';
 import { hitTest, letterbox, moveWithSnap, rotateFromDrag, scaleFromDrag, scaleXYFromDrag, type Pt } from '../engine/render/geometry';
 import { ASPECTS, LIMITS } from '../model/catalog';
@@ -13,6 +15,7 @@ import { findClip } from '../model/project';
 import { formatTimecode, projectDuration } from '../model/time';
 import type { Id } from '../model/types';
 import { useEditor } from '../store';
+import { setCoverSource } from '../store/viewState';
 import { withShortcut } from '../timeline/shortcutDefs';
 import { onAppEvent } from '../ui/appEvents';
 import { Icon } from '../ui/Icon';
@@ -65,7 +68,8 @@ export function Player() {
 
   const [stage, setStage] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState<ZoomMode>('fit');
-  const [menu, setMenu] = useState<'ratio' | 'zoom' | null>(null);
+  const [menu, setMenu] = useState<'ratio' | 'zoom' | 'more' | null>(null);
+  const [frameExport, setFrameExport] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [selBox, setSelBox] = useState<DrawnBox | null>(null);
   const [guides, setGuides] = useState({ x: false, y: false });
@@ -87,7 +91,10 @@ export function Player() {
     engine.start();
     const source = new SourcePlayer(canvas, (on) => engine.setSuspended(on));
     sourceRef.current = source;
+    // the frame on screen is the project's cover on the home screen
+    const dropCover = setCoverSource(() => canvasRef.current);
     return () => {
+      dropCover();
       source.dispose();
       sourceRef.current = null;
       engine.dispose();
@@ -374,11 +381,31 @@ export function Player() {
               </div>
             )}
           </div>
+          <div className="player__menu-anchor">
+            <button className="icon-btn" title="More" aria-label="More" onClick={() => setMenu(menu === 'more' ? null : 'more')} data-testid="player-more">
+              <Icon name="more" />
+            </button>
+            {menu === 'more' && (
+              <div className="menu player__menu player__menu--more" data-testid="player-more-menu">
+                <button
+                  className="menu__item"
+                  onClick={() => {
+                    setMenu(null);
+                    setFrameExport(true);
+                  }}
+                  data-testid="player-export-frame"
+                >
+                  Export frame…
+                </button>
+              </div>
+            )}
+          </div>
           <button className="icon-btn" title={fullscreen ? 'Exit full screen (Esc)' : withShortcut('Full screen', 'fullscreenPreview')} onClick={toggleFullscreen} data-testid="player-fullscreen">
             <Icon name={fullscreen ? 'exit-fullscreen' : 'fullscreen'} />
           </button>
         </div>
       </div>
+      {frameExport && createPortal(<ExportFrameDialog onClose={() => setFrameExport(false)} />, document.body)}
     </div>
   );
 }

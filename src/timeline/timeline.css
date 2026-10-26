@@ -320,6 +320,28 @@
   box-shadow: inset 0 0 0 2px var(--clip-selected);
   z-index: 2;
 }
+/* The selection frame is drawn ON TOP of the filmstrip / waveform (an inset box-shadow is painted
+   under the children, so on a video clip it was hidden): a thick white frame with a dark hairline
+   inside it, and a light wash over the whole clip, so the chosen clip reads at a glance. */
+.tl-clip.is-selected::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2.5px solid var(--clip-selected);
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.55);
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+  z-index: 3;
+}
+.tl-clip.is-selected .tl-clip__label {
+  z-index: 4; /* above the frame's wash */
+}
+.tl-clip.is-selected .tl-clip__name {
+  background: var(--clip-selected);
+  color: #111;
+  text-shadow: none;
+}
 .tl-clip.is-disabled {
   opacity: 0.4;
   filter: grayscale(1);
@@ -373,6 +395,19 @@
   position: absolute;
   top: 0;
   color: var(--clip-audio-wave);
+}
+/* CapCut's audio lane: the video clip's own sound along the bottom of the filmstrip */
+.tl-clip__audio {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.45);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.tl-clip--video .tl-wave {
+  color: var(--clip-video-wave);
 }
 .tl-clip__text {
   position: absolute;
@@ -784,4 +819,64 @@
   width: 14px;
   display: inline-flex;
   color: var(--accent);
+}
+
+/* volume line (VolumeLine.tsx): only the line (a 10px stroke) and the diamonds take the pointer */
+.tl-vol {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+.tl[data-tool]:not([data-tool='select']) .tl-vol {
+  display: none;
+}
+.tl-vol__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 10px;
+  pointer-events: stroke;
+  cursor: ns-resize;
+}
+.tl-vol__line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.6);
+  stroke-width: 1.5px;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+  pointer-events: none;
+}
+.tl-vol__hit:hover + .tl-vol__line,
+.tl-vol.is-dragging .tl-vol__line {
+  stroke: #fff;
+  stroke-width: 2px;
+}
+.tl-vol.is-muted .tl-vol__line {
+  stroke: rgba(255, 255, 255, 0.25);
+}
+.tl-vol__key-hit {
+  fill: transparent;
+  pointer-events: all;
+  cursor: ns-resize;
+}
+.tl-vol__key-mark {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.7);
+  stroke-width: 1px;
+  pointer-events: none;
+}
+.tl-vol__key:hover .tl-vol__key-mark {
+  fill: var(--accent);
+}
+.tl-vol__label {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 14px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+  white-space: nowrap;
 }

@@ -5,30 +5,32 @@
  * Normalize loudness (−23 LUFS), Enhance voice (AI, coming soon), Video translator (AI, video
  * clips only, coming soon), Reduce noise (DSP gate, not AI), Isolate voice (AI, coming soon),
  * Fill channel (left / right to both).
- * Voice changer: Voice filters (non-AI DSP, with Strength), Voice characters and Speech to song
- * (AI, coming soon).
+ * Voice changer: Voice filters (non-AI DSP, with Strength) grouped as Spaces / Eras & devices /
+ * Character / Pitch & effects; Mixer (a channel strip: cuts, EQ, compressor, warmth, delay,
+ * reverb, output — with starting presets); Voice characters and Speech to song (AI, coming soon).
  *
  * Every control writes through updateClip (undoable; slider drags are one step) and is saved
  * with the project. A video clip whose sound was extracted shows the link instead of controls.
  */
 import { useEffect, useState } from 'react';
-import { DEFAULT_ISOLATION_STRENGTH, DEFAULT_VOICE_STRENGTH, VOICE_FILTERS } from '../../audio/dsp';
+import { DEFAULT_ISOLATION_STRENGTH, DEFAULT_MIXER, DEFAULT_VOICE_STRENGTH, MIXER_PRESETS, VOICE_FILTER_GROUPS, VOICE_FILTERS } from '../../audio/dsp';
 import { NORMALIZE_TARGET_LUFS, normalizeGainDb } from '../../audio/loudness';
 import { loudnessReady, measureSpan, onLoudness, spanKey } from '../../audio/measure';
 import { getAssetBlob, getAssetUrl } from '../../media/registry';
 import { LIMITS } from '../../model/catalog';
 import { audioLinked } from '../../model/project';
+import { clipVolumeDbAt, hasVolumeKeys, keyIndexAt, keyTimes, shiftKeys, withKeyAt, withoutKeyAt } from '../../model/volumeKeys';
 import { secToUs, sourceSpan, usToSec } from '../../model/time';
-import type { AudioClip, AudioProps, FillChannel, VideoClip, VoiceFilterId, VoiceIsolationMode } from '../../model/types';
+import type { AudioClip, AudioProps, FillChannel, VideoClip, VoiceFilterId, VoiceIsolationMode, VoiceMixer } from '../../model/types';
 import { usePref } from '../../panels/prefs';
 import { useEditor } from '../../store';
-import { SegmentedTabs, Section, SliderRow } from '../controls';
+import { KeyframeNav, SegmentedTabs, Section, SliderRow } from '../controls';
 import { fadeMax, formatDb } from '../inspectorLogic';
 
 type Sub = 'basic' | 'voice';
 
 /** Defaults of the Basic section (its Reset). */
-const BASIC_RESET: Partial<AudioProps> = { volumeDb: 0, fadeIn: 0, fadeOut: 0 };
+const BASIC_RESET: Partial<AudioProps> = { volumeDb: 0, volumeKeys: undefined, fadeIn: 0, fadeOut: 0 };
 
 export function AudioTab({ clip }: { clip: VideoClip | AudioClip }) {
   const [sub, setSub] = usePref<Sub>('insp.audio.sub', 'basic');
@@ -60,6 +62,56 @@ export function AudioTab({ clip }: { clip: VideoClip | AudioClip }) {
 
 // ---------------------------------------------------------------- Basic
 
+/**
+ * Volume with keyframes (src/model/volumeKeys.ts). Without keys the slider edits volumeDb. With
+ * keys it shows the envelope at the playhead; moving it sets the key at the playhead (adding one,
+ * CapCut-style), or — with the playhead off the clip — moves every key by the same amount.
+ */
+function useVolumeKeyframes(clip: VideoClip | AudioClip) {
+  const updateClip = useEditor((s) => s.updateClip);
+  const playhead = useEditor((s) => s.playhead);
+  const fps = useEditor((s) => s.project.settings.fps);
+  const setPlayhead = useEditor((s) => s.setPlayhead);
+  const a = clip.audio;
+  const keyed = hasVolumeKeys(a);
+  const tol = 1e6 / fps / 2;
+  const inside = playhead >= clip.start && playhead < clip.start + clip.duration;
+  const at = Math.min(clip.start + clip.duration - 1, Math.max(clip.start, playhead));
+  const db = keyed ? Math.round(clipVolumeDbAt(clip, at) * 10) / 10 : a.volumeDb;
+  const on = keyed && inside && keyIndexAt(clip, playhead, tol) >= 0;
+  const times = keyed ? keyTimes(clip) : [];
+  const prev = [...times].reverse().find((t) => t < playhead - tol);
+  const next = times.find((t) => t > playhead + tol);
+  const setAudio = (patch: Partial<AudioProps>) => updateClip(clip.id, { audio: patch });
+
+  const setDb = (v: number) => {
+    const r = Math.round(v * 10) / 10;
+    if (!keyed) setAudio({ volumeDb: r });
+    else if (inside) setAudio({ volumeKeys: withKeyAt(clip, playhead, r, tol) });
+    else setAudio({ volumeKeys: shiftKeys(a.volumeKeys!, r - db) });
+  };
+  const onToggle = () => {
+    if (!inside) return;
+    if (on) {
+      const rest = withoutKeyAt(clip, playhead, tol);
+      // the last key goes: the clip keeps the level it had there
+      setAudio(rest ? { volumeKeys: rest } : { volumeKeys: undefined, volumeDb: db });
+    } else setAudio({ volumeKeys: withKeyAt(clip, playhead, db, tol) });
+  };
+  return {
+    db,
+    setDb,
+    nav: {
+      on,
+      any: keyed,
+      disabled: !inside,
+      onToggle,
+      onPrev: prev !== undefined ? () => setPlayhead(Math.round(prev)) : null,
+      onNext: next !== undefined ? () => setPlayhead(Math.round(next)) : null,
+    },
+  };
+}
+
 function BasicPane({ clip }: { clip: VideoClip | AudioClip }) {
   const updateClip = useEditor((s) => s.updateClip);
   const a = clip.audio;
@@ -67,7 +119,8 @@ function BasicPane({ clip }: { clip: VideoClip | AudioClip }) {
   const sec = (us: number) => Math.round(usToSec(us) * 10) / 10;
   const maxIn = usToSec(fadeMax(clip.duration, a.fadeOut));
   const maxOut = usToSec(fadeMax(clip.duration, a.fadeIn));
-  const basicDefault = a.volumeDb === 0 && a.fadeIn === 0 && a.fadeOut === 0;
+  const basicDefault = a.volumeDb === 0 && !hasVolumeKeys(a) && a.fadeIn === 0 && a.fadeOut === 0;
+  const vol = useVolumeKeyframes(clip);
   // the dropdown remembers the side even while the section is off
   const [fillSide, setFillSide] = useState<FillChannel>(a.fillChannel ?? 'left');
   useEffect(() => {
@@ -87,7 +140,7 @@ function BasicPane({ clip }: { clip: VideoClip | AudioClip }) {
       >
         <SliderRow
           label="Volume"
-          value={a.volumeDb}
+          value={vol.db}
           min={LIMITS.volumeDbMin}
           max={LIMITS.volumeDbMax}
           step={0.1}
@@ -95,7 +148,8 @@ function BasicPane({ clip }: { clip: VideoClip | AudioClip }) {
           unit="dB"
           format={formatDb}
           disabled={a.muted}
-          onChange={(v) => set({ volumeDb: Math.round(v * 10) / 10 })}
+          onChange={vol.setDb}
+          keyframeSlot={<KeyframeNav {...vol.nav} testId="volume-keyframe" />}
           testId="volume-row"
         />
         <SliderRow
@@ -292,36 +346,37 @@ function VoicePane({ clip }: { clip: VideoClip | AudioClip }) {
   return (
     <>
       <Section id="audio-voice-filters" title="Voice filters" note="DSP · not AI" resetDisabled={!vf} onReset={() => pick(null)}>
-        <div className="iaudio__grid" role="listbox" aria-label="Voice filters">
-          <button
-            className={`iaudio__tile${!vf ? ' is-active' : ''}`}
-            role="option"
-            aria-selected={!vf}
-            data-testid="voice-filter-none"
-            onClick={() => pick(null)}
-          >
-            <span className="iaudio__tile-icon" aria-hidden>
-              ∅
-            </span>
-            None
-          </button>
-          {VOICE_FILTERS.map((f) => (
-            <button
-              key={f.id}
-              className={`iaudio__tile${vf?.id === f.id ? ' is-active' : ''}`}
-              role="option"
-              aria-selected={vf?.id === f.id}
-              title={f.hint}
-              data-testid={`voice-filter-${f.id}`}
-              onClick={() => pick(f.id)}
-            >
-              <span className="iaudio__tile-icon" aria-hidden>
-                {f.label.slice(0, 1)}
-              </span>
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <button
+          className={`iaudio__tile iaudio__tile--none${!vf ? ' is-active' : ''}`}
+          aria-pressed={!vf}
+          data-testid="voice-filter-none"
+          onClick={() => pick(null)}
+        >
+          None
+        </button>
+        {VOICE_FILTER_GROUPS.map((g) => (
+          <div key={g.id} className="iaudio__group">
+            <div className="iaudio__group-title">{g.label}</div>
+            <div className="iaudio__grid" role="listbox" aria-label={g.label}>
+              {VOICE_FILTERS.filter((f) => f.group === g.id).map((f) => (
+                <button
+                  key={f.id}
+                  className={`iaudio__tile${vf?.id === f.id ? ' is-active' : ''}`}
+                  role="option"
+                  aria-selected={vf?.id === f.id}
+                  title={f.hint}
+                  data-testid={`voice-filter-${f.id}`}
+                  onClick={() => pick(f.id)}
+                >
+                  <span className="iaudio__tile-icon" aria-hidden>
+                    {f.label.slice(0, 1)}
+                  </span>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
         {vf && (
           <SliderRow
             label="Strength"
@@ -336,8 +391,82 @@ function VoicePane({ clip }: { clip: VideoClip | AudioClip }) {
           />
         )}
       </Section>
+      <MixerPane clip={clip} />
       <AiRow id="characters" title="Voice characters" />
       <AiRow id="speech-to-song" title="Speech to song" />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- Mixer
+
+/** Voice changer › Mixer: a channel strip on the clip (after the voice filter). */
+function MixerPane({ clip }: { clip: VideoClip | AudioClip }) {
+  const updateClip = useEditor((s) => s.updateClip);
+  const m: VoiceMixer = clip.audio.mixer ?? DEFAULT_MIXER;
+  const active = !!clip.audio.mixer;
+  const put = (next: VoiceMixer | null) => updateClip(clip.id, { audio: { mixer: next } });
+  const set = <K extends keyof VoiceMixer>(k: K, v: VoiceMixer[K]) => put({ ...m, [k]: v });
+  const sub = <K extends 'eq' | 'comp' | 'warmth' | 'delay' | 'reverb'>(k: K, patch: Partial<VoiceMixer[K]>) => put({ ...m, [k]: { ...m[k], ...patch } });
+  const row = (label: string, value: number, min: number, max: number, onChange: (v: number) => void, o: { step?: number; digits?: number; unit?: string; testId?: string; format?: (v: number) => string } = {}) => (
+    <SliderRow label={label} value={value} min={min} max={max} step={o.step ?? 1} digits={o.digits ?? 0} unit={o.unit} format={o.format} keyframe={false} onChange={onChange} testId={o.testId} />
+  );
+  const hz = (v: number) => (v <= 0 ? 'Off' : v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}kHz` : `${Math.round(v)}Hz`);
+  const db = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}dB`;
+
+  return (
+    <>
+      <Section id="audio-mixer" title="Mixer" note="Channel strip" checked={active} onCheck={(on) => put(on ? { ...DEFAULT_MIXER } : null)} resetDisabled={!active} onReset={() => put(null)}>
+        <div className="iaudio__presets" data-testid="mixer-presets">
+          {MIXER_PRESETS.map((p) => (
+            <button key={p.id} className="btn iaudio__preset" title={p.hint} onClick={() => put(structuredClone(p.mixer))} data-testid={`mixer-preset-${p.id}`}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {active && (
+          <>
+            {row('Low cut', m.lowCut, 0, 500, (v) => set('lowCut', Math.round(v)), { step: 5, format: hz, testId: 'mixer-lowcut' })}
+            {row('High cut', m.highCut > 0 ? m.highCut : 20000, 2000, 20000, (v) => set('highCut', v >= 20000 ? 0 : Math.round(v)), { step: 100, format: (v) => (v >= 20000 ? 'Off' : hz(v)), testId: 'mixer-highcut' })}
+            {row('Output', m.output, -12, 12, (v) => set('output', Math.round(v * 10) / 10), { step: 0.1, digits: 1, format: db, testId: 'mixer-output' })}
+          </>
+        )}
+      </Section>
+      {active && (
+        <>
+          <Section id="audio-mixer-eq" title="EQ" checked={m.eq.on} onCheck={(on) => sub('eq', { on })} resetDisabled={false} onReset={() => sub('eq', DEFAULT_MIXER.eq)}>
+            {row('Low freq', m.eq.lowFreq, 40, 500, (v) => sub('eq', { lowFreq: Math.round(v) }), { step: 5, format: hz })}
+            {row('Low gain', m.eq.lowGain, -12, 12, (v) => sub('eq', { lowGain: Math.round(v * 10) / 10 }), { step: 0.1, digits: 1, format: db, testId: 'mixer-eq-low' })}
+            {row('Mid freq', m.eq.midFreq, 150, 8000, (v) => sub('eq', { midFreq: Math.round(v) }), { step: 10, format: hz })}
+            {row('Mid gain', m.eq.midGain, -12, 12, (v) => sub('eq', { midGain: Math.round(v * 10) / 10 }), { step: 0.1, digits: 1, format: db })}
+            {row('Mid width (Q)', m.eq.midQ, 0.3, 6, (v) => sub('eq', { midQ: Math.round(v * 10) / 10 }), { step: 0.1, digits: 1 })}
+            {row('High freq', m.eq.highFreq, 2000, 16000, (v) => sub('eq', { highFreq: Math.round(v) }), { step: 100, format: hz })}
+            {row('High gain', m.eq.highGain, -12, 12, (v) => sub('eq', { highGain: Math.round(v * 10) / 10 }), { step: 0.1, digits: 1, format: db })}
+          </Section>
+          <Section id="audio-mixer-comp" title="Compressor" checked={m.comp.on} onCheck={(on) => sub('comp', { on })} resetDisabled={false} onReset={() => sub('comp', DEFAULT_MIXER.comp)}>
+            {row('Threshold', m.comp.threshold, -50, 0, (v) => sub('comp', { threshold: Math.round(v) }), { unit: 'dB', testId: 'mixer-comp-threshold' })}
+            {row('Ratio', m.comp.ratio, 1, 20, (v) => sub('comp', { ratio: Math.round(v * 10) / 10 }), { step: 0.1, digits: 1, format: (v) => `${v.toFixed(1)}:1` })}
+            {row('Attack', m.comp.attack, 0, 100, (v) => sub('comp', { attack: Math.round(v) }), { unit: 'ms' })}
+            {row('Release', m.comp.release, 20, 1000, (v) => sub('comp', { release: Math.round(v) }), { step: 5, unit: 'ms' })}
+            {row('Makeup', m.comp.makeup, 0, 18, (v) => sub('comp', { makeup: Math.round(v * 10) / 10 }), { step: 0.1, digits: 1, format: db })}
+          </Section>
+          <Section id="audio-mixer-warmth" title="Warmth" note="Saturation" checked={m.warmth.on} onCheck={(on) => sub('warmth', { on })} resetDisabled={false} onReset={() => sub('warmth', DEFAULT_MIXER.warmth)}>
+            {row('Drive', m.warmth.drive, 0, 100, (v) => sub('warmth', { drive: Math.round(v) }), { unit: '%' })}
+            {row('Mix', m.warmth.mix, 0, 100, (v) => sub('warmth', { mix: Math.round(v) }), { unit: '%' })}
+          </Section>
+          <Section id="audio-mixer-delay" title="Delay" checked={m.delay.on} onCheck={(on) => sub('delay', { on })} resetDisabled={false} onReset={() => sub('delay', DEFAULT_MIXER.delay)}>
+            {row('Time', m.delay.time, 20, 1500, (v) => sub('delay', { time: Math.round(v) }), { step: 5, unit: 'ms' })}
+            {row('Feedback', m.delay.feedback, 0, 90, (v) => sub('delay', { feedback: Math.round(v) }), { unit: '%' })}
+            {row('Mix', m.delay.mix, 0, 100, (v) => sub('delay', { mix: Math.round(v) }), { unit: '%' })}
+          </Section>
+          <Section id="audio-mixer-reverb" title="Reverb" checked={m.reverb.on} onCheck={(on) => sub('reverb', { on })} resetDisabled={false} onReset={() => sub('reverb', DEFAULT_MIXER.reverb)}>
+            {row('Decay', m.reverb.decay, 0.1, 8, (v) => sub('reverb', { decay: Math.round(v * 10) / 10 }), { step: 0.1, digits: 1, unit: 's', testId: 'mixer-reverb-decay' })}
+            {row('Pre-delay', m.reverb.predelay, 0, 150, (v) => sub('reverb', { predelay: Math.round(v) }), { unit: 'ms' })}
+            {row('Damping', m.reverb.damping, 0, 100, (v) => sub('reverb', { damping: Math.round(v) }), { unit: '%' })}
+            {row('Mix', m.reverb.mix, 0, 100, (v) => sub('reverb', { mix: Math.round(v) }), { unit: '%' })}
+          </Section>
+        </>
+      )}
     </>
   );
 }

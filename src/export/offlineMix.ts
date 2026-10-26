@@ -22,11 +22,12 @@ import { measureAudioBuffer } from '../audio/measure';
 import { profileForBuffer } from '../audio/noiseProfile';
 import { ensureWorklets } from '../audio/worklets';
 import { dbToGain } from '../model/project';
+import { hasVolumeKeys, keysDbAt } from '../model/volumeKeys';
 import type { SpeedCurve } from '../model/speedCurve';
-import { mirrorInPoint, sourceOffsetAt, sourceSpan } from '../model/time';
+import { localTimeForSourceOffset, mirrorInPoint, sourceOffsetAt, sourceSpan } from '../model/time';
 import { reverseBuffer } from '../audio/reverse';
 import { MAX_COMPOUND_DEPTH, sequenceTracks } from '../model/compound';
-import type { AudioProps, Id, Project, Track, Us } from '../model/types';
+import type { AudioProps, Id, Project, Track, Us, VolumeKey } from '../model/types';
 import { limitPeaks } from './audioDsp';
 import { resampleMapped, sampledMap, stretchMapped } from './timeStretch';
 
@@ -47,8 +48,10 @@ export interface MixClip {
   inPointUs: Us;
   /** Keep the pitch at speed ≠ 1 (CapCut "Change audio pitch" off). */
   preservePitch: boolean;
-  /** Linear gain from volume dB. */
+  /** Linear gain from volume dB (1 when `volumeKeys` carries the volume). */
   volume: number;
+  /** Volume keyframes (source-positioned, see src/model/volumeKeys.ts); absent = flat `volume`. */
+  volumeKeys?: VolumeKey[];
   fadeInSec: number;
   fadeOutSec: number;
   /**
@@ -61,7 +64,7 @@ export interface MixClip {
   /** Real media time where the heard span starts, seconds (= inSec unless reversed). */
   realInSec: number;
   /** Audio › Basic / Voice changer settings. */
-  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'> & Partial<Pick<AudioProps, 'voiceIsolation'>>;
+  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter'> & Partial<Pick<AudioProps, 'voiceIsolation' | 'mixer'>>;
   /**
    * Compound clips (⌥G): the part of the timeline where this nested clip is heard, seconds (the
    * compound clip's window). Absent = the whole clip.
@@ -108,8 +111,10 @@ function planTracks(project: Project, tracks: readonly Track[], shiftUs: Us, win
       const asset = project.assets[clip.assetId];
       if (!asset || asset.missing) continue;
       if (clip.type === 'video' && asset.hasAudio === false) continue;
-      const volume = dbToGain(clip.audio.volumeDb);
-      if (volume <= 0 || clip.duration <= 0) continue;
+      const keys = hasVolumeKeys(clip.audio) ? clip.audio.volumeKeys! : null;
+      const volume = keys ? 1 : dbToGain(clip.audio.volumeDb);
+      if (keys ? keys.every((k) => dbToGain(k.db) <= 0) : volume <= 0) continue;
+      if (clip.duration <= 0) continue;
       const start = clip.start + shiftUs;
       if (win && (start + clip.duration <= win[0] || start >= win[1])) continue;
       out.push({
@@ -127,6 +132,7 @@ function planTracks(project: Project, tracks: readonly Track[], shiftUs: Us, win
         mediaSec: asset.duration / 1e6,
         realInSec: (clip.reversed === true ? mirrorInPoint(asset.duration, clip.inPoint, sourceSpan(clip)) : clip.inPoint) / 1e6,
         volume,
+        ...(keys ? { volumeKeys: keys.map((k) => ({ ...k })) } : {}),
         fadeInSec: Math.min(clip.audio.fadeIn, clip.duration) / 1e6,
         fadeOutSec: Math.min(clip.audio.fadeOut, clip.duration) / 1e6,
         fx: {
@@ -135,6 +141,7 @@ function planTracks(project: Project, tracks: readonly Track[], shiftUs: Us, win
           fillChannel: clip.audio.fillChannel ?? null,
           voiceFilter: clip.audio.voiceFilter ?? null,
           voiceIsolation: clip.audio.voiceIsolation ?? null,
+          ...(clip.audio.mixer ? { mixer: clip.audio.mixer } : {}),
         },
         ...(win && (start < win[0] || start + clip.duration > win[1]) ? { windowSec: [win[0] / 1e6, win[1] / 1e6] as [number, number] } : {}),
       });
@@ -163,8 +170,43 @@ export function clipGainPoints(pts: [number, number][], from: number, to: number
   return [[from, at(from)], ...pts.filter(([t]) => t > from && t < to), [to, at(to)]];
 }
 
-/** Gain automation points (time sec, value) for one clip: 0→vol over fade-in, vol→0 over fade-out. */
-export function gainPoints(c: Pick<MixClip, 'startSec' | 'durationSec' | 'volume' | 'fadeInSec' | 'fadeOutSec'>): [number, number][] {
+/** Sampling step of a keyframed volume envelope, seconds (linear ramps between samples). */
+const KEY_STEP_SEC = 0.02;
+
+/**
+ * Gain automation points (time sec, value) for one clip: 0→vol over fade-in, vol→0 over fade-out.
+ * With volume keyframes the envelope (linear in dB) is sampled every 20 ms and at every key, times
+ * the fades — the same value the preview computes per frame.
+ */
+export function gainPoints(
+  c: Pick<MixClip, 'startSec' | 'durationSec' | 'volume' | 'fadeInSec' | 'fadeOutSec'> & Partial<Pick<MixClip, 'volumeKeys' | 'inPointUs' | 'durationUs' | 'speed' | 'speedCurve'>>,
+): [number, number][] {
+  const flat = flatGainPoints(c);
+  const keys = c.volumeKeys;
+  if (!keys?.length) return flat;
+  const clip = { duration: c.durationUs ?? Math.round(c.durationSec * 1e6), speed: c.speed ?? 1, speedCurve: c.speedCurve ?? null };
+  const inPoint = c.inPointUs ?? 0;
+  const t0 = c.startSec;
+  const t1 = c.startSec + c.durationSec;
+  const fade = (t: number): number => {
+    const f = clipGainPoints(flat, t, t)[0]![1];
+    return c.volume > 0 ? f / c.volume : 0;
+  };
+  const times = new Set<number>([t0, t1, ...flat.map(([t]) => t)]);
+  for (let t = t0; t < t1; t += KEY_STEP_SEC) times.add(t);
+  for (const k of keys) {
+    const t = t0 + localTimeForSourceOffset(clip, k.src - inPoint) / 1e6;
+    if (t > t0 && t < t1) times.add(t);
+  }
+  // grid samples that land a hair from a key / edge are dropped (float drift of the 20 ms grid)
+  const sorted = [...times].sort((a, b) => a - b).filter((t, i, arr) => i === arr.length - 1 || arr[i + 1]! - t > 1e-6);
+  return sorted.map((t) => {
+      const src = inPoint + sourceOffsetAt(clip, Math.min(clip.duration, Math.max(0, (t - t0) * 1e6)));
+    return [t, c.volume * dbToGain(keysDbAt(keys, src)) * fade(t)] as [number, number];
+  });
+}
+
+function flatGainPoints(c: Pick<MixClip, 'startSec' | 'durationSec' | 'volume' | 'fadeInSec' | 'fadeOutSec'>): [number, number][] {
   const t0 = c.startSec;
   const t1 = c.startSec + c.durationSec;
   let fi = Math.max(0, c.fadeInSec);

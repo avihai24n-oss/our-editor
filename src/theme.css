@@ -32,6 +32,8 @@
   --clip-image: #2b5866;
   --clip-audio: #1f4f9a;
   --clip-audio-wave: #6ea0ff;
+  /* waveform of a video clip's own sound, on its audio lane */
+  --clip-video-wave: #7fd6de;
   --clip-text: #9a5b16;
   --clip-selected: #ffffff;
   --playhead: #ffffff;

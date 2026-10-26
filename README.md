@@ -27,6 +27,7 @@ real-time WebM export.
 ## What v1 does
 
 **Top bar**
+- **Home** (house icon): saves the project and opens the project gallery
 - Auto-save status
 - Editable project name
 - **Export** (⌘E)
@@ -82,9 +83,34 @@ real-time WebM export.
   background (approximate centre-channel cut), Strength 0–100, also on the clip right-click menu as
   "Voice isolation (DSP)" — and Fill channel (left / right → both). Enhance voice and Video
   translator are shown disabled (AI, coming soon).
+- **Export frame** (player bar ⋯ › Export frame…): the frame at the playhead as PNG / JPEG / WebP
+  (quality for the lossy two), at the project's size, drawn by the export renderer, with a preview.
+  Saved by the editor's server (`vite-plugins/saveFiles.js`) into a folder on this Mac: default
+  ~/Downloads, "Change…" opens Finder's folder dialog (remembered). Chrome's own folder picker is not
+  used: it refuses Downloads / Desktop as "system folders". Never overwrites ("(2)"); only inside the
+  home folder. Without the server it downloads. `src/export/exportFrame.ts`.
+- **Volume keyframes** (Audio › Basic › Volume ‹ ◇ ›): ◇ adds a keyframe at the playhead (filled = one
+  is there, click removes it), ‹ › jump between them, the slider / number box edit the key under the
+  playhead (adding one). Linear in dB between keys, flat outside; keys sit on the source, so trims,
+  splits and speed changes keep them on their sound. Preview and export use the same envelope
+  (`src/model/volumeKeys.ts`). Other properties have no keyframes yet (their ◇ stay disabled).
+- **Volume line on the timeline** (every clip with sound): drag up/down for the volume. 100 % rests a
+  third up; the top two thirds are boost up to +20 dB (1000 %). Double-click = 100 %. With keyframes
+  the line follows the envelope and shows diamonds: drag a diamond up/down, drag the line to move all
+  keys, double-click the line to add a key, double-click a diamond to remove it.
 - **Audio › Voice changer:** 11 DSP voice filters (Chipmunk, High, Low, Deep, Robot, Electronic,
   Echo, Megaphone, Distorted, Vinyl, Big hall) with a Strength slider; AI voice characters and
   Speech to song are disabled. Preview and export run the same Web Audio graph.
+  - **Spaces / Eras & devices / Character** (added 26 Oct 2026), for placing a voice in a scene:
+    Small room, Studio booth, Tiled room, Stone hall (synagogue), Big hall, Cathedral, Outdoors, Far
+    away, Behind a door · Telephone, Walkie-talkie, Old radio, Gramophone, Megaphone, Vinyl ·
+    Announcer, Close & intimate, Inner voice, Memory, Underwater. Reverbs use a seeded room impulse
+    (pre-delay, early reflections, highs absorbed over time); devices have 24 dB/oct band edges on
+    both sides of their drive. Strength = how much.
+  - **Mixer** (channel strip after the voice filter): low / high cut, 3-band EQ, compressor (+makeup),
+    warmth (saturation), delay, reverb (decay, pre-delay, damping, mix), output; each section has its
+    own switch; presets Clean voice-over / Warm narrator / Documentary / Epic trailer. Same graph in
+    preview and export. Measured in e2e/voice-fx.spec.ts (OfflineAudioContext renders).
 - **Speed › Standard:** 0.1×–100× on CapCut's six-tick slider, editable duration, "Change audio
   pitch", Reset. **Speed › Curve:** None, Custom, Montage, Hero, Bullet, Jump cut, Flash in and
   Flash out, with a graph editor (drag points between 0.1× and 10× on a log axis, add / delete a
@@ -118,6 +144,10 @@ real-time WebM export.
 **Timeline (bottom)**
 - **Toolbar:** tool dropdown (Select A, Split B, Select leftward `[`, Select rightward `]` — CapCut's four cursor tools, each with its own cursor; see `docs/research/07-tool-modes.md`), undo/redo, split, delete left/right, delete, marker, mirror,
   rotate; magnet, snapping, linkage, preview axis, zoom slider and fit.
+- **Magnet on other tracks too:** with the magnet on, trimming a clip on an overlay or audio track
+  ripples like the main track: a left-edge trim keeps the clip's start (it sticks left) and the clips
+  after it on that track move by the trimmed amount; a right-edge trim pulls them along. Gaps the user
+  left are kept, and nothing is packed. Magnet off: the CapCut behaviour (the edge leaves a gap).
 - **Tracks:** main track (magnetic), overlay tracks above it, text tracks above those, audio tracks
   below. Dropping on the empty space above or below the tracks creates a new track.
 - **Clip menu › Edit** (`src/actions/editMenu.ts`, registered in the clip context-menu registry):
@@ -126,7 +156,12 @@ real-time WebM export.
   it) and Replace clip. Each is one undo step. See `docs/research/08-context-edit-menu.md`.
 - **Track headers:** lock, hide, mute and the Cover tile.
 - **Clips:**
-  - Filmstrip thumbnails, waveforms, speed badges and animation/fade ramps.
+  - Filmstrip thumbnails, speed badges and animation/fade ramps.
+  - **Audio lane:** every video clip that carries sound shows its own waveform along the bottom of
+    the filmstrip (CapCut's lane). It is the clip's sound, so it follows the clip's volume, fades,
+    speed and Reverse, and goes flat when the clip is muted or its audio is extracted. A video
+    without an audio track has no lane, and neither does a clip too short to keep the filmstrip
+    readable. Audio clips keep their own full-height waveform.
   - Trim with the edge handles. Move with snapping (Alt turns snapping off).
   - Moving a clip that is part of a multi-selection moves the whole selection.
   - Marquee selection.
@@ -158,6 +193,12 @@ real-time WebM export.
   are ignored while you type in a text field (except ⌘E) and while a dialog is open. ⌘N and ⌘Q
   belong to the browser and cannot be taken by a web page.
 
+**Add files to a project's Media pool from the shell / an agent** (dev server only)
+- `scripts/add-media.sh [--aspect 16:9] "<project name>" <file>...` drops a request in
+  `~/.our-editor/inbox/`; the open editor polls it every 2 s (`src/import/inbox.ts`), opens or creates the
+  project by name, imports the files through the normal import, saves, and acks (`inbox/done/`). The script
+  starts the server / editor window when needed and prints the result JSON. Agents: the `our-editor-media` skill.
+
 **Import a CapCut project** (dev server / `vite preview` only)
 - Top bar › *Import CapCut project…* or open `/?importCapcut=<draft folder>` (e.g. `/?importCapcut=1018`).
   Reads `~/Movies/CapCut/User Data/Projects/com.lveditor.draft/<folder>/draft_info.json` READ-ONLY,
@@ -167,10 +208,39 @@ real-time WebM export.
   file access: `vite-plugins/localFiles.js` (`/__local/capcut/projects`, `/__local/capcut/project?id=`,
   `/__local/file?path=` with Range; localhost only, only under ~/Movies/CapCut and ~/Desktop/ai/).
 
-**Persistence**
+**Home screen** (the house icon in the top bar)
+- Every project stored in this browser, newest first: cover frame (the last frame you had in the
+  player), name, ratio, clip count, duration and when you last edited it.
+- **New project**, click a card to open it, click a name to rename it, and ⋯ → Rename / Duplicate
+  (media is shared, not copied) / Delete (with a confirmation).
+- Search appears past six projects.
+- Leaving the editor for the gallery saves the project first, so it is as safe as a refresh.
+- The app itself always opens in the editor, on the project you left.
+
+**Persistence** — *your work is never lost*
+- **Project library on disk** (`~/.our-editor/library`, dev server / `vite preview`): every save is
+  mirrored there (project JSON, view + cover, media blobs once), and every boot merges it both ways,
+  newest wins, deletions included. So the home screen shows the same projects in any Chrome profile or
+  browser on this machine; a fresh profile opens the newest project, and media comes over on demand.
+  Code: `vite-plugins/projectStore.js`, `src/store/diskSync.ts`. e2e runs use a temp library, opt-in
+  per context (cookie `oe-library=1`). Blobs on disk are never swept.
 - The project JSON and the media blobs live in IndexedDB. A media file is written once, at import.
 - The project JSON autosaves 0.8 s after each change (at most one write per 2 s, skipped when
   nothing changed) and reloads on the next visit. An idle tab writes nothing.
+- It is also flushed whenever the page is hidden or unloaded (`pagehide`, `beforeunload`,
+  `visibilitychange`) — unconditionally, so a change the debounce has not written yet still lands.
+- An IndexedDB write started while the tab is closing is not guaranteed to commit, and a crash
+  sends no event at all. So every save first writes the same JSON synchronously to localStorage
+  and clears it once IndexedDB has committed. A leftover snapshot is work that never reached the
+  database: the next boot commits it before loading (unless the stored project is newer).
+- Where you were in each project — playhead, timeline zoom, selected clips and the cover frame —
+  is saved beside it (IndexedDB store `views`) and restored when it reopens. Playback writes
+  nothing; the view is saved once it stops. A playhead past the end or a selection whose clips are
+  gone is dropped instead of restored.
+- Switching projects saves the one you leave, releases its media (object URLs and caches) and only
+  then hands the new document to the store, so the player never renders a project without its
+  media. Opening a project clears the undo history.
+- An open compound clip is saved closed; reopening the project shows the main timeline.
 
 **Memory limits** (all in `src/media/memory.ts`; measurements in `docs/QA-REPORT.md` § Memory)
 - Preview: at most 6 hidden `<video>` and 8 `<audio>` elements; anything the current frame does not
@@ -207,6 +277,7 @@ src/
     color/      WebGL2 colour grader (+ CPU fallback): LUT, HSL, curves, wheels, adjust mask
     animations.ts  the animation catalogue (In / Out / Combo / Loop) used by player, export, thumbs
   media/        import (probe + store blobs), registry (asset → object URL), cleanup on asset removal
+  home/         home screen (project gallery) + the route between it and the editor
   panels/       left Library (tabs, media bin, text/transition/filter/adjust presets)
   inspector/    right Inspector (tabs by selection) + reusable controls
   player/       Player UI, PreviewEngine (rAF + AudioContext clock), media pool, audio engine
@@ -229,8 +300,9 @@ be undone.
 
 See **[docs/SPEC-v1.md § 5 — v2 backlog](docs/SPEC-v1.md#5-v2-backlog-researched-deferred)**:
 
-- **Editing:** keyframes, crop UI, the right-click menu, Velocity effects.
+- **Editing:** keyframes beyond volume (transform, opacity, …), crop UI, the right-click menu, Velocity effects.
 - ~~Combo animations, masks, HSL / Curves and a WebGL colour pipeline~~ — built 2026-10-19.
-- **Content and project:** stickers/effects, captions, and a project home screen.
+- **Content and project:** stickers/effects and captions.
+- ~~Project home screen (list / open / rename / duplicate / delete)~~ — built 2026-10-20.
 
 Known v1 limits are listed in [docs/QA-REPORT.md](docs/QA-REPORT.md).

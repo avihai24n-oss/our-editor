@@ -7,6 +7,7 @@ import { BLEND_MODES, CANVAS_BLUR_PX, filterDef } from '../model/catalog';
 import { defaultAdjust, defaultGrade } from '../model/defaults';
 import { MAX_COMPOUND_DEPTH, sequenceTracks } from '../model/compound';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
+import { clipVolumeDbAt } from '../model/volumeKeys';
 import { clamp, clipContains, clipEnd, mediaTimeAt, mirrorInPoint, sourceSpan, speedAtTime } from '../model/time';
 import { animationFrame, composeFrames, type AnimFrame, type MaskShape } from './animations';
 import type {
@@ -166,7 +167,7 @@ export interface AudioOp {
    * Audio FX (Audio › Basic / Voice changer). `normalize` is applied by the audio engine with the
    * loudness measured over the source span below (src/audio/measure.ts).
    */
-  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter' | 'voiceIsolation'>;
+  fx: Pick<AudioProps, 'normalize' | 'reduceNoise' | 'fillChannel' | 'voiceFilter' | 'voiceIsolation'> & Partial<Pick<AudioProps, 'mixer'>>;
   /** Source span heard by the clip, µs: [inPoint, inPoint + spanLength). */
   spanIn: Us;
   spanLength: Us;
@@ -684,7 +685,7 @@ function buildFrame(project: Project, tracks: readonly Track[], t: Us, nest: Nes
       if (clip.audio.muted) continue;
       const asset = project.assets[clip.assetId];
       if (clip.type === 'video' && asset?.hasAudio === false) continue;
-      const gain = dbToGain(clip.audio.volumeDb) * fadeEnvelope(clip, t);
+      const gain = dbToGain(clipVolumeDbAt(clip, t)) * fadeEnvelope(clip, t);
       audio.push({
         clipId: id(clip.id),
         assetId: clip.assetId,
@@ -702,6 +703,7 @@ function buildFrame(project: Project, tracks: readonly Track[], t: Us, nest: Nes
           fillChannel: clip.audio.fillChannel ?? null,
           voiceFilter: clip.audio.voiceFilter ?? null,
           voiceIsolation: clip.audio.voiceIsolation ?? null,
+          ...(clip.audio.mixer ? { mixer: clip.audio.mixer } : {}),
         },
         // real media span (a reversed clip's inPoint is in reversed media time)
         spanIn: clip.reversed && asset ? mirrorInPoint(asset.duration, clip.inPoint, sourceSpan(clip)) : clip.inPoint,
