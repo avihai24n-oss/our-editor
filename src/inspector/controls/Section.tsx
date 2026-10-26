@@ -17,6 +17,8 @@ export function Section(props: {
   onReset?: () => void;
   resetDisabled?: boolean;
   keyframe?: boolean;
+  /** A working keyframe cluster (KeyframeNav) in place of the disabled ◇. */
+  keyframeSlot?: ReactNode;
   /** Small dimmed note after the title. */
   note?: string;
 }) {
@@ -50,7 +52,7 @@ export function Section(props: {
             <Icon name="reset" size={14} />
           </button>
         )}
-        {props.keyframe && <KeyframeButton />}
+        {props.keyframeSlot ?? (props.keyframe && <KeyframeButton />)}
       </header>
       {open && props.children && <div className="isec__body">{props.children}</div>}
     </section>

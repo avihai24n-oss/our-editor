@@ -5,6 +5,7 @@
  * key (`code`), so the shortcuts also work with a Hebrew (or any non-Latin) keyboard layout.
  */
 import { useEffect } from 'react';
+import { toggleSelectedTransformKeys } from '../actions/motionKeys';
 import { findClip } from '../model/project';
 import { clipEnd, projectDuration } from '../model/time';
 import type { Clip, Id } from '../model/types';
@@ -176,7 +177,7 @@ export function runCommand(cmd: Command): boolean {
     case 'splitCaption':
       return comingSoon(cmd);
     case 'keyframePanel':
-      showToast('Keyframes — coming soon');
+      toggleSelectedTransformKeys(); // ⌥K: Transform keyframes at the playhead (src/actions/motionKeys.ts)
       return true;
     case 'fullscreenPreview':
       emitAppEvent('fullscreenPreview');

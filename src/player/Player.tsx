@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { setTransformAtPlayhead, transformAt } from '../actions/motionKeys';
 import { ExportFrameDialog } from '../export/ExportFrameDialog';
 import type { DrawnBox } from '../engine/render';
 import { hitTest, letterbox, moveWithSnap, rotateFromDrag, scaleFromDrag, scaleXYFromDrag, type Pt } from '../engine/render/geometry';
@@ -202,7 +203,8 @@ export function Player() {
     if (!s.selection.clipIds.includes(hit.clipId) || s.selection.clipIds.length !== 1) s.select([hit.clipId], 'replace');
     const clip = findClip(s.project, hit.clipId)?.clip;
     if (!clip || clip.type === 'audio') return;
-    beginGesture({ kind: 'move', clipId: hit.clipId, startPt: pt, startX: clip.transform.x, startY: clip.transform.y }, e);
+    const ktf = transformAt(clip.id) ?? clip.transform; // motion keys: the values at the playhead
+    beginGesture({ kind: 'move', clipId: hit.clipId, startPt: pt, startX: ktf.x, startY: ktf.y }, e);
   };
 
   const onHandleDown = (kind: 'scale' | 'rotate') => (e: React.PointerEvent) => {
@@ -212,27 +214,26 @@ export function Player() {
     if (!clip || clip.type === 'audio') return;
     const centre = { x: selBox.cx, y: selBox.cy };
     const startPt = toProject(e);
-    const tf = clip.transform;
+    const tf = transformAt(clip.id) ?? clip.transform; // motion keys: the values at the playhead
     if (kind === 'scale')
       beginGesture({ kind, clipId: clip.id, startPt, startScale: tf.scale, centre, uniform: tf.uniformScale !== false, startScaleX: tf.scaleX ?? tf.scale, startScaleY: tf.scaleY ?? tf.scale }, e);
-    else beginGesture({ kind, clipId: clip.id, startPt, startRotation: clip.transform.rotation, centre }, e);
+    else beginGesture({ kind, clipId: clip.id, startPt, startRotation: tf.rotation, centre }, e);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     const g = gestureRef.current;
     if (!g) return;
     const pt = toProject(e);
-    const s = useEditor.getState();
     if (g.kind === 'move') {
       const threshold = k > 0 && !e.altKey ? 8 / k : -1;
       const m = moveWithSnap({ x: g.startX, y: g.startY }, { x: pt.x - g.startPt.x, y: pt.y - g.startPt.y }, threshold);
       setGuides((p) => (p.x === m.guideX && p.y === m.guideY ? p : { x: m.guideX, y: m.guideY }));
-      s.updateClip(g.clipId, { transform: { x: m.x, y: m.y } });
+      setTransformAtPlayhead(g.clipId, { x: m.x, y: m.y });
     } else if (g.kind === 'scale') {
-      if (g.uniform) s.updateClip(g.clipId, { transform: { scale: scaleFromDrag(g.startScale, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax) } });
-      else s.updateClip(g.clipId, { transform: scaleXYFromDrag(g.startScaleX, g.startScaleY, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax) });
+      if (g.uniform) setTransformAtPlayhead(g.clipId, { scale: scaleFromDrag(g.startScale, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax) });
+      else setTransformAtPlayhead(g.clipId, scaleXYFromDrag(g.startScaleX, g.startScaleY, g.centre, g.startPt, pt, LIMITS.scaleMin, LIMITS.scaleMax));
     } else {
-      s.updateClip(g.clipId, { transform: { rotation: rotateFromDrag(g.startRotation, g.centre, g.startPt, pt, e.altKey ? 0 : 4) } });
+      setTransformAtPlayhead(g.clipId, { rotation: rotateFromDrag(g.startRotation, g.centre, g.startPt, pt, e.altKey ? 0 : 4) });
     }
   };
 

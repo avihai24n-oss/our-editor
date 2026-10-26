@@ -227,7 +227,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Audio & speed', label: 'Main track magnet', command: 'toggleMagnet', status: 'works', combos: [L('p')] },
   { group: 'Audio & speed', label: 'Auto snapping', command: 'toggleSnapping', status: 'works', combos: [L('n')] },
   { group: 'Audio & speed', label: 'Linkage', command: 'toggleLinkage', status: 'works', combos: [{ codes: ['Backquote'], shift: 'any' }] },
-  { group: 'Audio & speed', label: 'Show / hide keyframes', command: 'keyframePanel', status: 'soon', combos: [L('k', { alt: true })] },
+  { group: 'Audio & speed', label: 'Add / remove keyframe', command: 'keyframePanel', status: 'works', combos: [L('k', { alt: true })] },
 
   // ---------------------------------------------------------------- Project & clipboard
   { group: 'Project & clipboard', label: 'New project', status: 'browser', combos: [L('n', { mod: true })], note: 'The browser keeps this key' },

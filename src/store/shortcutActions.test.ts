@@ -272,7 +272,7 @@ describe('UI commands', () => {
   it('later features answer with a "Coming soon" toast and leave the project alone', () => {
     setup();
     const before = proj();
-    for (const c of ['group', 'ungroup', 'matchCut', 'splitCaption', 'keyframePanel'] as const) {
+    for (const c of ['group', 'ungroup', 'matchCut', 'splitCaption'] as const) {
       expect(runCommand(c)).toBe(true);
     }
     expect(toasts).toEqual([
@@ -280,7 +280,6 @@ describe('UI commands', () => {
       'Coming soon: Ungroup',
       'Coming soon: Match cut',
       'Coming soon: Split caption',
-      'Keyframes — coming soon',
     ]);
     expect(proj()).toBe(before);
   });

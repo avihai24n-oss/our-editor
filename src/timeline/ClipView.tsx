@@ -14,6 +14,7 @@ import { Icon } from '../ui/Icon';
 import { openCompound } from '../actions/compound';
 import { Filmstrip, ImageStrip, Waveform } from './ClipContent';
 import { VolumeLine } from './VolumeLine';
+import { MotionKeyLine } from './MotionKeyLine';
 
 /** Stacked-frames glyph of a compound clip (CapCut draws its compound clips with a stack icon). */
 export function CompoundGlyph({ size = 14 }: { size?: number }) {
@@ -156,6 +157,8 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
       {!locked && !missing && width > 24 && bodyH >= 20 && (clip.type === 'audio' || (clip.type === 'video' && hasSound)) && (
         <VolumeLine clip={clip} width={width} height={bodyH} zoom={zoom} fromPx={fromPx} toPx={toPx} />
       )}
+
+      {clip.type !== 'audio' && clip.motionKeys && width > 8 && <MotionKeyLine clip={clip} width={width} height={bodyH} zoom={zoom} selected={selected} />}
 
       {!locked && (
         <>

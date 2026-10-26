@@ -1,0 +1,37 @@
+/* Motion keyframe diamonds on a clip (src/timeline/MotionKeyLine.tsx) */
+.tl-mkeys {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
+}
+.tl[data-tool]:not([data-tool='select']) .tl-mkeys__hit,
+.tl-clip.is-locked .tl-mkeys__hit {
+  pointer-events: none;
+}
+.tl-mkeys__hit {
+  fill: transparent;
+  pointer-events: all;
+  cursor: ew-resize;
+}
+.tl-mkeys__mark {
+  fill: var(--accent);
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 1px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+.tl-mkeys.is-selected .tl-mkeys__mark {
+  opacity: 1;
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+}
+.tl-mkeys__key:hover .tl-mkeys__mark,
+.tl-mkeys.is-dragging .tl-mkeys__mark {
+  opacity: 1;
+  fill: var(--accent);
+  stroke: #fff;
+}

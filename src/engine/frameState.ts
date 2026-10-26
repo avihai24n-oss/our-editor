@@ -8,6 +8,7 @@ import { defaultAdjust, defaultGrade } from '../model/defaults';
 import { MAX_COMPOUND_DEPTH, sequenceTracks } from '../model/compound';
 import { fadeEnvelope, dbToGain, isTimedClip } from '../model/project';
 import { clipVolumeDbAt } from '../model/volumeKeys';
+import { motionTransformAt } from '../model/motionKeys';
 import { clamp, clipContains, clipEnd, mediaTimeAt, mirrorInPoint, sourceSpan, speedAtTime } from '../model/time';
 import { animationFrame, composeFrames, type AnimFrame, type MaskShape } from './animations';
 import type {
@@ -446,7 +447,7 @@ function buildVisualOp(
   const a = resolved?.effect ?? NO_EFFECT;
   const anim = resolved?.active[0] ?? null;
   const x = extra ?? { ...NO_EFFECT, clipRect: null };
-  const tf = clip.transform;
+  const tf = motionTransformAt(clip, t); // motion keyframes (src/model/motionKeys.ts)
   const ax = baseScaleXY(tf);
   const mul = a.scaleMul * x.scaleMul;
   const transform: ResolvedTransform = {
