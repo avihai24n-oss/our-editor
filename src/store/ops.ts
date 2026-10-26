@@ -13,6 +13,7 @@ import {
   newId,
 } from '../model/defaults';
 import { sequenceDuration } from '../model/compound';
+import { shiftLocalMotionKeys, usesLocalKeyTime } from '../model/motionKeys';
 import { adjacentNext, audioLinked, findClip, isRangeFree, isTimedClip, mainTrack, timelineRows, trackAccepts } from '../model/project';
 import { curveIntegral, curveMean, extendCurve, normalizeCurve, sliceCurve, type SpeedCurve } from '../model/speedCurve';
 import { clamp, clipContains, clipEnd, clipMeanSpeed, durationForSpan, frameUs, sourceOffsetAt, sourceSpan } from '../model/time';
@@ -436,6 +437,7 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
   }
   c.duration = end - s;
   const shift = s - c.start;
+  if (usesLocalKeyTime(c) && c.type !== 'audio' && c.motionKeys) c.motionKeys = shiftLocalMotionKeys(c.motionKeys, shift);
   c.start = s;
   if (ctx.magnet && f.track.kind !== 'main') {
     c.start -= shift;
@@ -592,6 +594,7 @@ export function splitClip(p: Project, clipId: Id, t: Us): Id | null {
     }
   }
   if (a.type === 'compound' && b.type === 'compound') b.inPoint = a.inPoint + (t - a.start);
+  if (usesLocalKeyTime(b) && b.type !== 'audio' && b.motionKeys) b.motionKeys = shiftLocalMotionKeys(b.motionKeys, t - a.start);
   a.duration = t - a.start;
   if (a.type !== 'audio' && b.type !== 'audio') {
     a.animationOut = null;
@@ -697,6 +700,14 @@ export function updateClip(p: Project, clipId: Id, patch: ClipPatch): boolean {
     if (key === 'animationIn' || key === 'animationOut' || key === 'animationCombo' || key === 'animationLoop') {
       // set even on clips saved before the field existed
       if (c.type !== 'audio') (c as Record<string, unknown>)[key] = v === null ? null : { ...(v as object) };
+      continue;
+    }
+    if (key === 'motionKeys') {
+      // whole value (clips saved before the field existed get it too); null = no keys
+      if (c.type !== 'audio') {
+        if (v === null) delete (c as Record<string, unknown>).motionKeys;
+        else (c as Record<string, unknown>).motionKeys = JSON.parse(JSON.stringify(v));
+      }
       continue;
     }
     if (key === 'blendEnabled' || key === 'adjustEnabled') {

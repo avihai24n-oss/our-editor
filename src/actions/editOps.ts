@@ -5,6 +5,7 @@
  */
 import { current, isDraft } from 'immer';
 import { createClipFromAsset, newId } from '../model/defaults';
+import { rotatedKeys } from '../model/motionKeys';
 import { findClip } from '../model/project';
 import { clamp, clipContains, clipEnd, frameUs, mirrorInPoint, sourceSpan } from '../model/time';
 import type { Clip, Crop, Id, ImageClip, Project, Us, VideoClip } from '../model/types';
@@ -40,6 +41,7 @@ export function rotate90(p: Project, ids: readonly Id[], deg = 90): number {
     if (r > 180) r -= 360;
     if (r <= -180) r += 360;
     f.clip.transform.rotation = r;
+    if (f.clip.motionKeys?.rotation?.length) f.clip.motionKeys = rotatedKeys(f.clip.motionKeys, deg);
     n++;
   }
   return n;

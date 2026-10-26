@@ -549,9 +549,32 @@ interface ClipBase {
   disabled: boolean;
 }
 
+/** Keyframe curve (CapCut keyframe curve presets); absent = 'linear', CapCut's default. */
+export type KeyEase = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+
+/** Keyframed properties of a visual clip. */
+export type MotionProp = 'position' | 'scale' | 'rotation' | 'opacity';
+
+/**
+ * A motion keyframe. `src` sits on the content (see src/model/motionKeys.ts): the source position
+ * for video, the sequence time for compound, the time from the clip's left edge for image / text.
+ * `v`: position [x, y] · scale [scale, scaleX, scaleY] · rotation [deg] · opacity [0..1].
+ * `ease`: the curve from this key to the next one.
+ */
+export interface MotionKey {
+  src: Us;
+  v: number[];
+  ease?: KeyEase;
+}
+
+/** Per-property key lists, each sorted by `src`; a keyed property ignores its `transform` value. */
+export type MotionKeys = Partial<Record<MotionProp, MotionKey[]>>;
+
 /** Fields shared by every clip that draws pictures. */
 export interface VisualFields {
   transform: Transform;
+  /** Motion keyframes (position, scale, rotation, opacity). Absent = none. Added 26 Oct 2026. */
+  motionKeys?: MotionKeys;
   crop: Crop;
   blend: BlendMode;
   /** Blend section checkbox. false = draw as Normal at 100 % opacity (values kept). */
@@ -662,6 +685,8 @@ export interface ClipPatch {
   name?: string;
   disabled?: boolean;
   transform?: Partial<Transform>;
+  /** Replaces the clip's motion keys as a whole; null removes them all. */
+  motionKeys?: MotionKeys | null;
   crop?: Partial<Crop>;
   blend?: BlendMode;
   blendEnabled?: boolean;
