@@ -392,3 +392,33 @@ test('Color page: scopes, primaries, HSL curves, qualifier, split, copy/paste, s
 
   expect(errors.real()).toEqual([]);
 });
+
+test('scopes follow playback live at a sane rate', async ({ page }) => {
+  await openApp(page);
+  await page.waitForFunction(() => !!(window as any).__oe && !!(window as any).__oeScopes);
+  await importMedia(page, [MEDIA.landscape]);
+  await page.evaluate(() => {
+    const s = (window as any).__oe.getState();
+    s.setAspectRatio('16:9');
+    const asset = Object.values(s.project.assets)[0] as any;
+    s.select([s.addClip(asset.id, { at: 0 })]);
+    s.setPlayhead(0);
+  });
+  if (!(await page.getByTestId('scopes-panel').isVisible())) await page.getByTestId('player-scopes').click();
+  await expect(page.getByTestId('scopes-panel')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__oeScopes.computes().count), { timeout: 10_000 }).toBeGreaterThan(0);
+  const before = await page.evaluate(() => ({ c: (window as any).__oeScopes.computes().count, f: (window as any).__oeScopes.frames() }));
+  await page.getByTestId('play-button').click();
+  await page.waitForTimeout(2000);
+  await page.getByTestId('play-button').click();
+  const after = await page.evaluate(() => ({ c: (window as any).__oeScopes.computes(), f: (window as any).__oeScopes.frames() }));
+  const frames = after.f - before.f;
+  const computes = after.c.count - before.c;
+  console.log(`[color-grade] playback 2 s: ${frames} frames rendered, ${computes} scope analyses, last analysis ${after.c.ms.toFixed(1)} ms`);
+  expect(frames).toBeGreaterThan(20);
+  expect(computes).toBeGreaterThan(8); // ≈ 12 / s
+  expect(computes).toBeLessThan(60); // throttled, never per pixel per frame
+  expect(after.c.ms).toBeLessThan(40);
+  await page.getByTestId('player-scopes').click(); // leave the pref off for other specs
+  await expect(page.getByTestId('scopes-panel')).toBeHidden();
+});

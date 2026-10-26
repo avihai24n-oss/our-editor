@@ -60,6 +60,9 @@ real-time WebM export.
 - `HH:MM:SS:FF` current/total timecode.
 - Play/Pause (Space).
 - Zoom (Fit/50/150/200 %), **Ratio** menu and full screen.
+- **Scopes** (bar button): Waveform, RGB Parade, Vectorscope (75 % targets, skin tone line) and
+  Histogram of the graded frame on screen, live while scrubbing and playing (≈12 analyses/s on a
+  ≤ 480 px read-back). **Split**: before / after with a draggable divider (left = no colour).
 - Click a clip in the preview to select it. Drag to move it (with centre guides); corner handles
   scale it and the round handle rotates it.
 - **Preview axis (S, on by default like CapCut):** an amber line follows the mouse over the
@@ -136,6 +139,19 @@ real-time WebM export.
   - **Mask:** limit the adjustment to a Linear / Mirror / Circle / Rectangle shape (position,
     rotation, size, feather, roundness, invert).
   - Every section has a checkbox and a reset; **Apply to all** and **Save as preset**.
+  - **Color** (DaVinci Resolve–style colour page, `src/engine/color/colorStage.ts`, same shader
+    in preview and export): **Primaries** — the Lift / Gamma / Gain / Offset wheels (the Color wheel
+    data, with R/G/B readouts and a Master slider) and the bar: Contrast + Pivot (S-curve, no
+    clipping), Temp (Kelvin, Planckian) / Tint in linear light, Saturation, Hue, Color boost,
+    Shadows / Highlights, Midtone detail, Lum mix; **Log wheels** (Shadow / Midtone / Highlight with
+    Low / High range); **HSL curves** (Hue vs Hue / Sat / Lum, Lum vs Sat, Sat vs Sat; hue curves
+    wrap, swatches add anchored points); **Qualifier** secondary (HSL key with soft edges, matte
+    finesse, invert, power window, eyedropper on the player — Shift adds —, Show matte, and a
+    correction inside the matte); **Color space transform** (LogC3 / S-Log3 / V-Log → Rec.709,
+    Rec.709 → log); **Copy / Paste grade** (paste onto a multi-selection from the Selection
+    inspector, one undo step); **Gallery** (grab still with a thumbnail, per browser) and six
+    built-in film looks previewed on the current frame. Older projects load with a neutral page
+    (Lum mix 0 keeps their wheel look).
 - **Text:** content, font, size, colour, B/I/U, alignment, spacing, and stroke / background / shadow.
 - **Transition:** type, duration, Apply to all and Remove.
 - **Project:** shown when nothing is selected (name, ratio, details).

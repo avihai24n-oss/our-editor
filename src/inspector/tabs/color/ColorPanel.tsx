@@ -167,10 +167,21 @@ export function ColorPanel({ clip }: { clip: VisualClip }) {
 /** Real previews of the built-in looks on the current (ungraded) frame, as data URLs by look id. */
 function useLookThumbs(clipId: string): Record<string, string> {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  // the paused frame (not while playing): previews follow the playhead, debounced
+  const at = useEditor((s) => (s.playing ? -1 : s.playhead));
   useEffect(() => {
-    const t = window.setTimeout(() => {
+    if (at < 0) return;
+    let tries = 0;
+    let t = 0;
+    const run = () => {
       const base = neutralFrameImage(160);
-      if (!base) return;
+      let lit = false;
+      if (base) for (let i = 0; i < base.data.length && !lit; i += 4) lit = base.data[i]! + base.data[i + 1]! + base.data[i + 2]! > 12;
+      if (!base || !lit) {
+        // no frame drawn yet (media still loading): try again shortly
+        if (++tries < 20) t = window.setTimeout(run, 250);
+        return;
+      }
       const c = document.createElement('canvas');
       c.width = base.width;
       c.height = base.height;
@@ -186,9 +197,10 @@ function useLookThumbs(clipId: string): Record<string, string> {
         out[l.id] = c.toDataURL('image/jpeg', 0.8);
       }
       setThumbs(out);
-    }, 120);
+    };
+    t = window.setTimeout(run, 400);
     return () => window.clearTimeout(t);
-  }, [clipId]);
+  }, [clipId, at]);
   return thumbs;
 }
 

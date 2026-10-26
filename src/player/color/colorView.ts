@@ -104,6 +104,8 @@ let scopeData: ScopeData | null = null;
 let lastCompute = 0;
 let trailing = 0;
 let frameNo = 0;
+let computes = 0;
+let computeMs = 0;
 const listeners = new Set<(d: ScopeData) => void>();
 
 const SCOPE_MAX_W = 480;
@@ -134,8 +136,11 @@ function computeFromCapture(): void {
   if (!scopeCtx) return;
   const { width: w, height: h } = scopeCtx.canvas;
   try {
+    const t0 = performance.now();
     const img = scopeCtx.getImageData(0, 0, w, h);
     scopeData = computeScopes(img.data, w, h, scopeData);
+    computes++;
+    computeMs = performance.now() - t0;
   } catch {
     return;
   }
@@ -246,5 +251,5 @@ export function neutralFrameImage(maxW = 160): ImageData | null {
 export const renderedFrames = (): number => frameNo;
 
 if (import.meta.env?.DEV && typeof window !== 'undefined') {
-  (window as unknown as { __oeScopes?: unknown }).__oeScopes = { last: lastScopes, refresh: refreshScopes, view: useColorView, frames: renderedFrames, pick: pickStageInput };
+  (window as unknown as { __oeScopes?: unknown }).__oeScopes = { last: lastScopes, refresh: refreshScopes, view: useColorView, frames: renderedFrames, computes: () => ({ count: computes, ms: computeMs }), pick: pickStageInput, neutral: neutralFrameImage };
 }
