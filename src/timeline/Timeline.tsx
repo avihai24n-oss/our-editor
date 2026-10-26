@@ -78,6 +78,8 @@ type Gesture =
       edge: 'left' | 'right';
       x0: number;
       started: boolean;
+      /** The player shows the dragged edge's frame (cleared when the gesture ends). */
+      previewing?: boolean;
     }
   | {
       kind: 'marquee';
@@ -347,6 +349,8 @@ export function Timeline() {
   // ---------------------------------------------------------------- gestures
 
   const endGesture = useCallback(() => {
+    // a trim preview ends with the gesture: the player goes back to the playhead's frame
+    if (gesture.current && 'previewing' in gesture.current && gesture.current.previewing) useEditor.getState().setPreviewTime(null);
     gesture.current = null;
     setGhost(null);
     setGuide(null);
@@ -435,7 +439,14 @@ export function Timeline() {
       else useEditor.getState().trimEnd(g.clip.id, sn.value);
       const now = findClip(useEditor.getState().project, g.clip.id)?.clip;
       setGuide(sn.guide);
-      if (now) setTrimTip({ x: usToPx(g.edge === 'left' ? now.start : clipEnd(now), z), text: `${(now.duration / 1e6).toFixed(1)}s` });
+      if (now) {
+        setTrimTip({ x: usToPx(g.edge === 'left' ? now.start : clipEnd(now), z), text: `${(now.duration / 1e6).toFixed(1)}s` });
+        // trim preview (CapCut): the player shows the frame at the edge being dragged — the clip's
+        // new first frame (left) or its new last frame (right), live as the edge moves
+        const frame = 1e6 / useEditor.getState().project.settings.fps;
+        useEditor.getState().setPreviewTime(g.edge === 'left' ? now.start : Math.max(now.start, clipEnd(now) - frame));
+        g.previewing = true;
+      }
       return;
     }
 
