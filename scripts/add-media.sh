@@ -1,7 +1,14 @@
 #!/bin/bash
 # Puts local files into a project's Media pool in Our Editor (the browser CapCut-style editor).
 #
-#   add-media.sh [--aspect 16:9] "<project name>" <file> [<file> ...]
+#   add-media.sh [--aspect 16:9] [--place '<json>'] "<project name>" [<file> ...]
+#
+# --place: JSON array of timeline placements, run after the import (files are optional then: the
+#   clips can already be in the pool). Each: {"asset": "<pool file name>",
+#   "track": "<track id>" | "main" | "overlay" | {"newAbove": "<track id>" | "$prev"},
+#   "at": <seconds> | "$prevStart" | {"afterTrackEnd": "<track id>" | "$prev"}}. "$prev" = the track
+#   of the previous placement, "$prevStart" = its start time (stack takes to compare them). Track ids: see ~/.our-editor/library/projects/<project id>.json. The result JSON lists
+#   where every clip landed ("placed").
 #
 # The project is opened by name (created when it does not exist; --aspect applies to a new one).
 # Files must be under ~/Desktop/ai or ~/Movies/CapCut. Starts the dev server and opens the editor
@@ -9,12 +16,20 @@
 # Exit 0 = all files in the pool, 1 = some failed, 2 = usage, 3 = the editor never picked it up.
 set -euo pipefail
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
-URL="http://localhost:5173"
-INBOX="$HOME/.our-editor/inbox"
+PORT="${OUR_EDITOR_PORT:-5173}"
+URL="http://localhost:$PORT"
+INBOX="$HOME/.our-editor/inbox/$PORT"   # one inbox per editor server (vite-plugins/localFiles.js)
 APP="$HOME/Applications/Our Editor.app"
 ASPECT=""
-if [[ "${1:-}" == "--aspect" ]]; then ASPECT="$2"; shift 2; fi
-if [[ $# -lt 2 ]]; then sed -n 2,10p "$0" | sed 's/^# \{0,1\}//'; exit 2; fi
+PLACE=""
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --aspect) ASPECT="$2"; shift 2 ;;
+    --place) PLACE="$2"; shift 2 ;;
+    *) echo "Unknown option $1" >&2; exit 2 ;;
+  esac
+done
+if [[ $# -lt 1 || ( $# -lt 2 && -z "$PLACE" ) ]]; then sed -n 2,19p "$0" | sed 's/^# \{0,1\}//'; exit 2; fi
 PROJECT="$1"; shift
 
 FILES=()
@@ -25,11 +40,14 @@ done
 
 mkdir -p "$INBOX"
 ID="req-$(date +%s)-$$"
-python3 - "$INBOX/$ID.json" "$PROJECT" "$ASPECT" "${FILES[@]}" <<'PY'
+python3 - "$INBOX/$ID.json" "$PROJECT" "$ASPECT" "$PLACE" "${FILES[@]+"${FILES[@]}"}" <<'PY'
 import json, os, sys
-out, project, aspect, *files = sys.argv[1:]
+out, project, aspect, place, *files = sys.argv[1:]
+req = {"project": project, "aspect": aspect or None, "files": files}
+if place:
+    req["place"] = json.loads(place)  # fails loudly on bad JSON, before anything is sent
 tmp = out + ".tmp"
-json.dump({"project": project, "aspect": aspect or None, "files": files}, open(tmp, "w"), ensure_ascii=False, indent=2)
+json.dump(req, open(tmp, "w"), ensure_ascii=False, indent=2)
 os.rename(tmp, out)  # atomic: the editor never sees half a request
 PY
 

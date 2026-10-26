@@ -6,12 +6,12 @@
  *   GET /__local/capcut/projects          → [{ id, name, duration, modified, cover }]
  *   GET /__local/capcut/project?id=<dir>  → { id, folder, name, draft, resolved: { raw → abs | null } }
  *   GET /__local/file?path=<abs>          → the file, with HTTP Range support
- *   GET  /__local/inbox                   → pending media-pool requests [{ id, project, aspect, files }]
+ *   GET  /__local/inbox                   → pending requests [{ id, project, aspect, files, place? }]
  *   POST /__local/inbox/done?id=<id>      → body = result JSON; moves the request to inbox/done/
  *
  * Only paths under ~/Movies/CapCut and ~/Desktop/ai/ are served (after resolving symlinks); every
  * other path is 403. Only GET / HEAD, except the inbox ack; the only thing written is in
- * ~/.our-editor/inbox (requests dropped there by scripts/add-media.sh, for agents and the shell).
+ * ~/.our-editor/inbox/<server port>/ (requests dropped there by scripts/add-media.sh).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -48,17 +48,25 @@ export function isAllowedPath(p, roots = ALLOWED_ROOTS) {
 }
 
 export const INBOX = path.join(HOME, '.our-editor/inbox');
-const INBOX_DONE = path.join(INBOX, 'done');
 
-function listInbox() {
-  if (!fs.existsSync(INBOX)) return [];
+/**
+ * One inbox per server port (~/.our-editor/inbox/5173/): a request for the user's editor is never
+ * picked up by another editor server on this Mac (e2e runs, agents' worktrees on other ports).
+ */
+function inboxDir(req) {
+  const port = /:(\d+)$/.exec(String(req.headers.host ?? ''))?.[1] ?? '80';
+  return path.join(INBOX, port);
+}
+
+function listInbox(dir) {
+  if (!fs.existsSync(dir)) return [];
   const out = [];
-  for (const f of fs.readdirSync(INBOX).sort()) {
+  for (const f of fs.readdirSync(dir).sort()) {
     if (!f.endsWith('.json')) continue;
     try {
-      const r = readJson(path.join(INBOX, f));
+      const r = readJson(path.join(dir, f));
       const files = Array.isArray(r.files) ? r.files.filter((p) => typeof p === 'string') : [];
-      out.push({ id: f.slice(0, -5), project: typeof r.project === 'string' ? r.project : '', aspect: r.aspect ?? null, files });
+      out.push({ id: f.slice(0, -5), project: typeof r.project === 'string' ? r.project : '', aspect: r.aspect ?? null, files, ...(Array.isArray(r.place) ? { place: r.place } : {}) });
     } catch {
       /* half-written or broken: picked up on a later poll, or ignored */
     }
@@ -77,7 +85,8 @@ function readBody(req) {
 
 async function ackInbox(req, res, id) {
   if (!validId(id)) return send(res, 400, { error: 'bad id' });
-  const src = path.join(INBOX, `${id}.json`);
+  const dir = inboxDir(req);
+  const src = path.join(dir, `${id}.json`);
   if (!fs.existsSync(src)) return send(res, 404, { error: 'no such request' });
   let result = {};
   try {
@@ -85,9 +94,10 @@ async function ackInbox(req, res, id) {
   } catch {
     /* keep the request even if the result is unreadable */
   }
-  fs.mkdirSync(INBOX_DONE, { recursive: true });
+  const done = path.join(dir, 'done');
+  fs.mkdirSync(done, { recursive: true });
   const request = readJson(src);
-  fs.writeFileSync(path.join(INBOX_DONE, `${id}.json`), JSON.stringify({ request, result, doneAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(path.join(done, `${id}.json`), JSON.stringify({ request, result, doneAt: new Date().toISOString() }, null, 2));
   fs.unlinkSync(src);
   return send(res, 200, { ok: true });
 }
@@ -208,7 +218,7 @@ function middleware(req, res, next) {
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'read-only' });
   try {
-    if (u.pathname === '/__local/inbox') return send(res, 200, listInbox());
+    if (u.pathname === '/__local/inbox') return send(res, 200, listInbox(inboxDir(req)));
     if (u.pathname === '/__local/capcut/projects') return send(res, 200, listProjects());
     if (u.pathname === '/__local/capcut/project') {
       const id = u.searchParams.get('id');
