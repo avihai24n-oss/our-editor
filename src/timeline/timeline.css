@@ -716,7 +716,11 @@
 .tl-area__pill {
   position: absolute;
   top: 2px;
-  left: 11px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6; /* above the amber hover label */
+  pointer-events: auto;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -731,27 +735,42 @@
   cursor: default;
 }
 .tl-area__clear {
-  display: inline-grid;
-  place-items: center;
-  width: 12px;
-  height: 12px;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 14px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 50%;
-  background: rgba(11, 26, 28, 0.18);
+  border-radius: 7px;
+  background: rgba(11, 26, 28, 0.22);
   color: inherit;
+  font: 600 10px/14px var(--font-ui, inherit);
   cursor: pointer;
 }
 .tl-area__clear:hover {
   background: rgba(11, 26, 28, 0.4);
 }
+/* outside the In–Out range: greyed out, so the marked part is the focus */
+.tl-area-dim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(12, 12, 14, 0.62);
+  backdrop-filter: grayscale(1);
+  pointer-events: none;
+  z-index: 3;
+}
+.tl-area-dim--ruler {
+  background: rgba(12, 12, 14, 0.5);
+  z-index: 1;
+}
 .tl-area-shade {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(34, 211, 238, 0.06);
-  border-left: 1px solid rgba(34, 211, 238, 0.55);
-  border-right: 1px solid rgba(34, 211, 238, 0.55);
+  background: transparent;
+  border-left: 1.5px solid rgba(34, 211, 238, 0.85);
+  border-right: 1.5px solid rgba(34, 211, 238, 0.85);
   pointer-events: none;
   z-index: 3;
 }
@@ -940,4 +959,8 @@
   background: rgba(0, 0, 0, 0.75);
   pointer-events: none;
   white-space: nowrap;
+}
+/* the amber hover time sits under the pointer: hide it while the pointer is on the range pill (Clear) */
+.tl:has(.tl-area__pill:hover) .tl-hover--ruler {
+  display: none;
 }

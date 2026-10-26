@@ -8,7 +8,7 @@ import type { Marker, Us } from '../model/types';
 import { rulerScale, rulerTicks } from './geometry';
 import type { TimelineArea } from './uiStore';
 import { hasArea } from './range';
-import { RangeBar } from './RangeBar';
+import { RangeBar, RangeRulerDim } from './RangeBar';
 
 interface RulerProps {
   zoom: number;
@@ -33,6 +33,7 @@ export const Ruler = memo(function Ruler({ zoom, fps, width, viewFrom, viewTo, m
   const ticks = rulerTicks(from, to, scale, fps);
   return (
     <div className="tl-ruler" style={{ width }} onPointerDown={onScrubStart} data-testid="timeline-ruler">
+      {area && hasArea(area) && <RangeRulerDim area={area} end={areaEnd} zoom={zoom} />}
       {area && hasArea(area) && <RangeBar area={area} end={areaEnd} zoom={zoom} fps={fps} />}
       {ticks.map((t) => (
         <div key={t.t} className={`tl-ruler__tick${t.major ? ' is-major' : ''}`} style={{ left: usToPx(t.t, zoom) }}>

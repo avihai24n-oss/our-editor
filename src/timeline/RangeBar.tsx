@@ -88,8 +88,8 @@ export function RangeBar({ area, end, zoom, fps }: RangeBarProps) {
     >
       {handle('in')}
       {handle('out')}
-      <span className="tl-area__pill" data-testid="timeline-area-label" onPointerDown={(e) => e.stopPropagation()}>
-        <span className="tl-area__len" title={`In–Out length ${formatTimecode(len, fps)}`}>{shortLength(len, fps)}</span>
+      <span className="tl-area__pill" data-testid="timeline-area-pill" onPointerDown={(e) => e.stopPropagation()}>
+        <span className="tl-area__len" data-testid="timeline-area-label" title={`In–Out length ${formatTimecode(len, fps)}`}>{shortLength(len, fps)}</span>
         <button
           type="button"
           className="tl-area__clear"
@@ -102,14 +102,35 @@ export function RangeBar({ area, end, zoom, fps }: RangeBarProps) {
           <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden>
             <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
+          Clear
         </button>
       </span>
     </div>
   );
 }
 
-/** The range's light shade over the tracks (lane coordinates + the header offset). */
+/** Ruler outside the range, dimmed (the focus is the marked part). */
+export function RangeRulerDim({ area, end, zoom }: { area: TimelineArea; end: Us; zoom: number }) {
+  const [a, b] = drawnSpan(area, end);
+  return (
+    <>
+      <div className="tl-area-dim tl-area-dim--ruler" style={{ left: 0, width: usToPx(a, zoom) }} />
+      <div className="tl-area-dim tl-area-dim--ruler" style={{ left: usToPx(b, zoom), right: 0 }} />
+    </>
+  );
+}
+
+/**
+ * Over the tracks (lane coordinates + the header offset): the range's edge lines, and everything
+ * outside the range greyed out, so the marked part is the focus. Clips stay editable underneath.
+ */
 export function RangeShade({ area, end, zoom, offset }: { area: TimelineArea; end: Us; zoom: number; offset: number }) {
   const [a, b] = drawnSpan(area, end);
-  return <div className="tl-area-shade" data-testid="timeline-area-shade" style={{ left: offset + usToPx(a, zoom), width: Math.max(1, usToPx(b - a, zoom)) }} />;
+  return (
+    <>
+      <div className="tl-area-dim" data-testid="timeline-area-dim-before" style={{ left: offset, width: usToPx(a, zoom) }} />
+      <div className="tl-area-dim" data-testid="timeline-area-dim-after" style={{ left: offset + usToPx(b, zoom), right: 0 }} />
+      <div className="tl-area-shade" data-testid="timeline-area-shade" style={{ left: offset + usToPx(a, zoom), width: Math.max(1, usToPx(b - a, zoom)) }} />
+    </>
+  );
 }
