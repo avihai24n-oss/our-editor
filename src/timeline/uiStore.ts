@@ -9,6 +9,7 @@ import { useEditor } from '../store';
 import type { AttributeSnapshot } from '../actions/attributes';
 
 import type { Tool } from './tools';
+import { moveAreaEdge, NO_AREA, type TimelineArea } from './range';
 
 export type { Tool };
 
@@ -48,11 +49,8 @@ export interface TimelineView {
   fit: () => void;
 }
 
-/** In / out points (CapCut I / O, ⇧X, ⌥X). Either end may be unset. Not part of the document. */
-export interface TimelineArea {
-  in: Us | null;
-  out: Us | null;
-}
+/** In / out points (CapCut I / O, ⇧X, ⌥X): see ./range.ts. Saved per project with the view state. */
+export type { TimelineArea } from './range';
 
 export interface TimelineUiState extends Persisted {
   tool: Tool;
@@ -70,8 +68,12 @@ export interface TimelineUiState extends Persisted {
   setAreaOut: (t: Us) => void;
   /** ⇧X: both ends at once (ignored when out <= in). */
   setArea: (inT: Us, outT: Us) => void;
-  /** ⌥X / Esc. */
+  /** ⌥X or the range's ✕ (Esc no longer clears it: the marked range is kept for the export). */
   clearArea: () => void;
+  /** Drag of an In / Out handle (frame-snapped, never crosses the other edge). */
+  moveAreaEdge: (edge: 'in' | 'out', t: Us, fps: number) => void;
+  /** Restore (project load / switch): replaces the whole area. */
+  replaceArea: (a: TimelineArea) => void;
   setTool: (t: Tool) => void;
   setLinkage: (on: boolean) => void;
   setPreviewAxis: (on: boolean) => void;
@@ -109,7 +111,16 @@ export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
   },
   clearArea: () => {
     const a = get().area;
-    if (a.in !== null || a.out !== null) set({ area: { in: null, out: null } });
+    if (a.in !== null || a.out !== null) set({ area: NO_AREA });
+  },
+  moveAreaEdge: (edge, t, fps) => {
+    const next = moveAreaEdge(get().area, edge, t, fps);
+    const a = get().area;
+    if (next.in !== a.in || next.out !== a.out) set({ area: next });
+  },
+  replaceArea: (area) => {
+    const a = get().area;
+    if (area.in !== a.in || area.out !== a.out) set({ area: { in: area.in, out: area.out } });
   },
   setTool: (tool) => set({ tool }),
   setLinkage: (linkage) => {

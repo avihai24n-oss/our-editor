@@ -168,10 +168,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Tools', label: 'Delete', command: 'delete', status: 'works', combos: [{ keys: ['Backspace'], codes: ['Backspace'] }, { keys: ['Delete'], codes: ['Delete'] }] },
   { group: 'Tools', label: 'Enable / disable clip', command: 'toggleDisable', status: 'works', combos: [L('v')] },
   { group: 'Tools', label: 'Add marker', command: 'marker', status: 'works', combos: [L('m')] },
-  { group: 'Tools', label: 'Mark in', command: 'markIn', status: 'works', combos: [L('i')] },
+  { group: 'Tools', label: 'Mark in', command: 'markIn', status: 'works', combos: [L('i')], note: 'Export renders only the marked in / out range' },
   { group: 'Tools', label: 'Mark out', command: 'markOut', status: 'works', combos: [L('o')] },
   { group: 'Tools', label: 'Select area by clip', command: 'areaFromClip', status: 'works', combos: [L('x', { shift: true })] },
-  { group: 'Tools', label: 'Clear area', command: 'clearArea', status: 'works', combos: [L('x', { alt: true })] },
+  { group: 'Tools', label: 'Clear in / out', command: 'clearArea', status: 'works', combos: [L('x', { alt: true })] },
   { group: 'Tools', label: 'Group', command: 'group', status: 'soon', combos: [L('g', { mod: true })] },
   { group: 'Tools', label: 'Ungroup', command: 'ungroup', status: 'soon', combos: [L('g', { mod: true, shift: true })] },
   { group: 'Tools', label: 'Create compound clip', command: 'compound', status: 'works', combos: [L('g', { alt: true })] },
@@ -216,7 +216,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { group: 'Timeline & preview', label: 'Fit preview to window', command: 'fitPreview', status: 'works', combos: [L('z', { alt: true, shift: true })] },
   { group: 'Timeline & preview', label: 'Preview axis', command: 'togglePreviewAxis', status: 'works', combos: [L('s')] },
   { group: 'Timeline & preview', label: 'Ignore snapping while dragging', status: 'native', combos: [], text: { mac: 'hold ⌥', win: 'hold Alt' } },
-  { group: 'Timeline & preview', label: 'Back to Select tool / cancel / deselect / clear area', command: 'escape', status: 'works', combos: [{ keys: ['Escape'], codes: ['Escape'] }] },
+  { group: 'Timeline & preview', label: 'Back to Select tool / cancel / deselect', command: 'escape', status: 'works', combos: [{ keys: ['Escape'], codes: ['Escape'] }] },
 
   // ---------------------------------------------------------------- Audio & speed
   { group: 'Audio & speed', label: 'Extract / restore audio', command: 'extractAudio', status: 'works', combos: [L('s', { mod: true, shift: true }), L('s', { control: true, shift: true, only: 'mac', menu: true })] },

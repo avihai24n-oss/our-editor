@@ -35,6 +35,8 @@ import {
   type RowKey,
 } from './gestures';
 import { Ruler } from './Ruler';
+import { RangeShade } from './RangeBar';
+import { hasArea } from './range';
 import { detectPlatform } from './shortcutDefs';
 import { useTimelineShortcuts } from './shortcuts';
 import { Toolbar } from './Toolbar';
@@ -123,6 +125,8 @@ export function Timeline() {
     useShallow((s) => ({ tool: s.tool, hoverTime: s.hoverTime, area: s.area })),
   );
 
+  // the In / Out range belongs to the main timeline: hidden while a compound clip is open
+  const rangeArea = project.focus?.length ? undefined : area;
   const rows = useMemo(() => timelineRows(project), [project]);
   const duration = projectDuration(project);
   const fps = project.settings.fps;
@@ -863,7 +867,7 @@ export function Timeline() {
               viewFrom={viewFrom}
               viewTo={viewTo}
               markers={project.markers}
-              area={area}
+              area={rangeArea}
               areaEnd={projectDuration(project)}
               onScrubStart={onScrubStart}
               onMarkerClick={onMarkerClick}
@@ -975,6 +979,7 @@ export function Timeline() {
             </div>
 
             {/* overlay lines: lane coordinates + header offset */}
+            {rangeArea && hasArea(rangeArea) && <RangeShade area={rangeArea} end={duration} zoom={zoom} offset={HEADER_W} />}
             <div className="tl-playhead" style={{ left: HEADER_W + usToPx(playhead, zoom) }} />
             {guide !== null && <div className="tl-guide" style={{ left: HEADER_W + usToPx(guide, zoom) }} />}
             {ghost?.insertAt != null && <div className="tl-insert" style={{ left: HEADER_W + usToPx(ghost.insertAt, zoom) }} />}

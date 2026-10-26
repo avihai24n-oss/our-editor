@@ -10,6 +10,7 @@ import { useEditor } from './index';
 import * as persistence from './persistence';
 import { createAndOpenProject, openProject } from './projects';
 import { resetViewState, restoreView, saveViewNow, startViewAutosave } from './viewState';
+import { useTimelineUi } from '../timeline/uiStore';
 
 const st = () => useEditor.getState();
 
@@ -46,6 +47,32 @@ describe('view state', () => {
     expect(st().playhead).toBe(secToUs(2));
     expect(st().zoom).toBe(120);
     expect(st().selection.clipIds).toEqual([clip]);
+  });
+
+  it('keeps the In / Out range per project (never carried to another one)', async () => {
+    const ui = () => useTimelineUi.getState();
+    const a = await createAndOpenProject({ name: 'A' });
+    addClip();
+    ui().setArea(secToUs(1), secToUs(3));
+    await createAndOpenProject({ name: 'B' });
+    expect(ui().area).toEqual({ in: null, out: null });
+    ui().setAreaIn(secToUs(2));
+    await openProject(a);
+    expect(ui().area).toEqual({ in: secToUs(1), out: secToUs(3) });
+    ui().clearArea();
+  });
+
+  it('a stored view without a range (older saves) restores none; a broken one is dropped', async () => {
+    const ui = () => useTimelineUi.getState();
+    addClip();
+    const p = st().project;
+    ui().setArea(secToUs(1), secToUs(2));
+    await persistence.saveView(p.id, { playhead: 0, zoom: 60, selection: [], savedAt: Date.now() });
+    await restoreView(p);
+    expect(ui().area).toEqual({ in: null, out: null });
+    await persistence.saveView(p.id, { playhead: 0, zoom: 60, selection: [], area: { in: secToUs(3), out: secToUs(1) }, savedAt: Date.now() });
+    await restoreView(p);
+    expect(ui().area).toEqual({ in: null, out: null });
   });
 
   it('drops what the document no longer supports', async () => {

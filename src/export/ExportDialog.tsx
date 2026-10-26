@@ -8,6 +8,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { rootProject } from '../model/compound';
 import { formatTimecode, projectDuration } from '../model/time';
 import { useEditor } from '../store';
+import { rangeFileTag, resolveArea } from '../timeline/range';
+import { useTimelineUi } from '../timeline/uiStore';
 import { Icon } from '../ui/Icon';
 import type { ExportProgress, RunExportResult } from './runExport';
 import {
@@ -47,7 +49,14 @@ const PHASE_LABEL: Record<ExportProgress['phase'], string> = {
 
 export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const project = useEditor((s) => s.project);
-  const duration = projectDuration(rootProject(project)); // the main timeline, even inside a compound clip
+  const total = projectDuration(rootProject(project)); // the main timeline, even inside a compound clip
+  // In / Out (I / O): CapCut exports only the marked range; the dialog offers both, range first
+  const area = useTimelineUi((s) => s.area);
+  const range = resolveArea(area, total);
+  const [scope, setScope] = useState<'range' | 'all'>('range');
+  const useRange = !!range && scope === 'range';
+  const duration = useRange ? range.to - range.from : total;
+  const fps = project.settings.fps;
   const [settings, setSettings] = useState<ExportSettings>(() => defaultExportSettings(project.name, project.settings.fps));
   const [stage, setStage] = useState<Stage>({ kind: 'form' });
   const abortRef = useRef<AbortController | null>(null);
@@ -79,6 +88,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     } catch {
       /* tainted or empty canvas: keep the black cover */
     }
+  }, [open]);
+
+  // every opening starts on the marked range when there is one (CapCut exports the range)
+  useEffect(() => {
+    if (open) setScope('range');
   }, [open]);
 
   // closing the dialog cancels a running export
@@ -118,6 +132,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       const result = await runExport({
         project: snapshot,
         settings,
+        range: useRange ? range : null,
         signal: ac.signal,
         onProgress: (p) => {
           const now = performance.now();
@@ -126,7 +141,9 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
           setStage({ kind: 'running', progress: p });
         },
       });
-      const fileName = exportFileName(settings.fileName || project.name, result.ext);
+      // a range export under the default name says which part it is: "Name (00-12 – 00-31)"
+      const base = settings.fileName || project.name;
+      const fileName = exportFileName(useRange && base === project.name ? `${base} (${rangeFileTag(range)})` : base, result.ext);
       blobRef.current = { blob: result.blob, name: fileName };
       const { downloadBlob } = await import('./exportMp4');
       downloadBlob(result.blob, fileName);
@@ -170,6 +187,27 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                 data-testid="export-name"
               />
             </label>
+
+            {range && (
+              <div className="export__row export__scope" role="radiogroup" aria-label="Export" data-testid="export-scope">
+                <span className="export__label">Export</span>
+                <div className="export__scope-opts">
+                  <label className="export__radio">
+                    <input type="radio" name="export-scope" checked={useRange} onChange={() => setScope('range')} disabled={running} data-testid="export-scope-range" />
+                    <span>
+                      In–Out range{' '}
+                      <span className="export__scope-tc" data-testid="export-range-label">
+                        {formatTimecode(range.from, fps)} – {formatTimecode(range.to, fps)} · {((range.to - range.from) / 1e6).toFixed(1)} s
+                      </span>
+                    </span>
+                  </label>
+                  <label className="export__radio">
+                    <input type="radio" name="export-scope" checked={!useRange} onChange={() => setScope('all')} disabled={running} data-testid="export-scope-all" />
+                    <span>Whole timeline</span>
+                  </label>
+                </div>
+              </div>
+            )}
 
             <div className="export__section">
               <div className="export__section-title">
@@ -251,7 +289,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
         <div className="modal__foot export__foot">
           <span className="export__meta">
-            Duration: {formatTimecode(duration, project.settings.fps)} · Size: about {formatBytes(estimate)}
+            Duration: <span data-testid="export-duration">{formatTimecode(duration, fps)}</span>{useRange ? ' (range)' : ''} · Size: about {formatBytes(estimate)}
           </span>
           {running ? (
             <button className="btn" onClick={() => abortRef.current?.abort()} data-testid="export-cancel">

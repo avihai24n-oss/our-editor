@@ -5,6 +5,7 @@ import { audioLinked, findClip, mainTrack } from '../model/project';
 import { clipEnd, secToUs } from '../model/time';
 import type { AudioClip, MediaAsset, VideoClip } from '../model/types';
 import { runCommand } from '../timeline/shortcuts';
+import { createCompoundClip, openCompound } from '../actions/compound';
 import { useTimelineUi } from '../timeline/uiStore';
 import { onAppEvent } from '../ui/appEvents';
 import { useEditor } from './index';
@@ -211,7 +212,7 @@ describe('in / out area (I, O, ⇧X, ⌥X, Esc)', () => {
     runCommand('markOut');
     expect(ui().area).toEqual({ in: null, out: S(1) });
   });
-  it('⇧X spans the selected clips; ⌥X clears; Esc clears before deselecting', () => {
+  it('⇧X spans the selected clips; ⌥X clears; Esc deselects but keeps the range (it is for the export)', () => {
     const { A, O } = setup();
     st().select([A, O]);
     runCommand('areaFromClip');
@@ -220,10 +221,29 @@ describe('in / out area (I, O, ⇧X, ⌥X, Esc)', () => {
     expect(ui().area).toEqual({ in: null, out: null });
     runCommand('areaFromClip');
     runCommand('escape');
-    expect(ui().area.in).toBeNull();
-    expect(st().selection.clipIds).toHaveLength(2);
-    runCommand('escape');
+    expect(ui().area).toEqual({ in: 0, out: S(6) });
     expect(st().selection.clipIds).toHaveLength(0);
+    expect(runCommand('escape')).toBe(false);
+    expect(ui().area).toEqual({ in: 0, out: S(6) });
+  });
+  it('I / O snap a between-frames playhead to the nearest frame and are not undo steps', () => {
+    setup();
+    const past = st().past.length;
+    const fps = st().project.settings.fps;
+    st().setPlayhead(S(2) + Math.round(1e6 / fps / 3)); // a third of a frame past 2 s
+    runCommand('markIn');
+    expect(ui().area.in).toBe(S(2));
+    expect(st().past.length).toBe(past);
+  });
+  it('inside an open compound clip I / O / ⇧X only toast (the range belongs to the main timeline)', () => {
+    const { A, B } = setup();
+    const id = createCompoundClip([A, B])!;
+    expect(openCompound(id)).toBe(true);
+    st().setPlayhead(S(1));
+    runCommand('markIn');
+    runCommand('markOut');
+    expect(ui().area).toEqual({ in: null, out: null });
+    expect(toasts.at(-1)).toMatch(/main timeline/);
   });
   it('⇧X without a selection only toasts', () => {
     runCommand('areaFromClip');

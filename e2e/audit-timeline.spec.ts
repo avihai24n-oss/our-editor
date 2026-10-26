@@ -442,10 +442,11 @@ test('shortcuts: every bound key has its real effect (A / B tool modes excluded)
   await select(page, [l]);
   await key(page, 'Shift+KeyX');
   expect(await area()).toEqual({ in: S(5), out: S(9) });
-  await key(page, 'Escape');
-  expect(await area()).toEqual({ in: null, out: null });
-  await key(page, 'Escape');
+  await key(page, 'Escape'); // Esc deselects but keeps the in / out range (it is for the export)
+  expect(await area()).toEqual({ in: S(5), out: S(9) });
   expect(await sel(page)).toEqual([]);
+  await key(page, 'Alt+KeyX');
+  expect(await area()).toEqual({ in: null, out: null });
 
   // S preview axis, P magnet, N snapping, ~ linkage
   const ui = (k: string) => ev(page, (x) => (window as any).__oeUi.getState()[x], k);

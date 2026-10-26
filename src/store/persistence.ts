@@ -24,6 +24,8 @@ export interface ProjectView {
   zoom: number;
   /** Selected clip ids (dropped silently when a clip no longer exists). */
   selection: Id[];
+  /** In / out range (I / O) on the main timeline; absent = none (older views). */
+  area?: { in: Us | null; out: Us | null };
   /** Small JPEG data URL of the last previewed frame — the home screen's cover. */
   cover?: string;
   savedAt: number;

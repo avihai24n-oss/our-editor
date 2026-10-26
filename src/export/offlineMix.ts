@@ -234,6 +234,76 @@ export interface RenderMixOptions {
    * default measures the decoded buffer.
    */
   loudness?: (c: MixClip, buf: AudioBuffer) => Promise<number | null>;
+  /**
+   * Range export (In / Out): the mix starts at this timeline time (µs) instead of 0 and lasts
+   * `durationUs`. Rendered with a short pre-roll (MIX_PREROLL_SEC) that is cut off afterwards, so
+   * effect state (echo, reverb, the limiter) entering the range is what the full mix would have.
+   */
+  fromUs?: Us;
+}
+
+/** Pre-roll rendered before a range export's In point and dropped (see RenderMixOptions.fromUs). */
+export const MIX_PREROLL_SEC = 1;
+
+/** The render window of a mix, in samples of the timeline at `sampleRate`. */
+export interface MixWindow {
+  /** Timeline time (seconds) of the context's sample 0 (= In − pre-roll; 0 for a full mix). */
+  baseSec: number;
+  /** Samples of pre-roll to drop from the rendered buffer. */
+  prerollFrames: number;
+  /** Samples kept (the output length). */
+  frames: number;
+  /** Heard part of the timeline, seconds: [from, to) (the pre-roll included). */
+  fromSec: number;
+  toSec: number;
+}
+
+/** Where a mix of `durationUs` starting at `fromUs` renders. Sample-aligned. Pure. */
+export function mixWindow(fromUs: Us, durationUs: Us, sampleRate = MIX_SAMPLE_RATE, prerollSec = MIX_PREROLL_SEC): MixWindow {
+  const inFrame = Math.round((Math.max(0, fromUs) / 1e6) * sampleRate);
+  const prerollFrames = Math.min(inFrame, Math.round(prerollSec * sampleRate));
+  const baseFrame = inFrame - prerollFrames;
+  const frames = Math.max(1, Math.ceil((durationUs / 1e6) * sampleRate));
+  return { baseSec: baseFrame / sampleRate, prerollFrames, frames, fromSec: baseFrame / sampleRate, toSec: (inFrame + frames) / sampleRate };
+}
+
+/** How one planned clip is scheduled in a mix context whose sample 0 is timeline time `baseSec`. */
+export interface ClipSchedule {
+  /** Context time the source starts / stops. */
+  startAt: number;
+  stopAt: number;
+  /**
+   * Seconds into `src.buffer` to start at: the source position for an unmapped clip (the media
+   * buffer itself), the skipped part of the clip for a speed-mapped one (a rate-1 clip buffer).
+   */
+  offset: number;
+  /** Duration passed to start() for an unmapped clip (null for a mapped one). */
+  playFor: number | null;
+  /** Gain automation, context time. */
+  gain: [number, number][];
+}
+
+/**
+ * Pure scheduling of a clip, cut to the heard part of the timeline [win.fromSec, win.toSec) and
+ * shifted by `baseSec`. A clip that is not heard there returns null. With no window (a full mix)
+ * the result is what renderMix always did.
+ */
+export function scheduleClip(c: MixClip, mapped: boolean, bufDurationSec: number, win: { baseSec: number; fromSec: number; toSec: number } | null, volume = c.volume): ClipSchedule | null {
+  const [h0, h1] = heardRange(c);
+  const from = win ? Math.max(h0, win.fromSec) : h0;
+  const to = win ? Math.min(h1, win.toSec) : h1;
+  if (to <= from) return null;
+  const base = win?.baseSec ?? 0;
+  const full = gainPoints({ ...c, volume });
+  const pts = c.windowSec || (win && (from > h0 || to < h1)) ? clipGainPoints(full, from, to) : full;
+  const skip = from - c.startSec; // seconds of the clip cut off (window / compound window)
+  const startAt = from - base;
+  const stopAt = to - base;
+  const gain = pts.map(([t, v]) => [t - base, v] as [number, number]);
+  if (!mapped) {
+    return { startAt, stopAt, offset: Math.min(c.inSec + skip, Math.max(0, bufDurationSec - 1e-3)), playFor: to - from, gain };
+  }
+  return { startAt, stopAt, offset: skip, playFor: null, gain };
 }
 
 /** Linear normalize gain of a planned clip (1 when normalize is off or unmeasurable). */
@@ -248,7 +318,10 @@ export async function renderMix(project: Project, durationUs: number, decode: De
   const plan = planMix(project);
   if (!plan.length || durationUs <= 0) return null;
   const durSec = durationUs / 1e6;
-  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(durSec * MIX_SAMPLE_RATE)), MIX_SAMPLE_RATE);
+  // range export: render [In − pre-roll, Out) and drop the pre-roll afterwards
+  const win = o.fromUs !== undefined && o.fromUs > 0 ? mixWindow(o.fromUs, durationUs) : null;
+  const ctxFrames = win ? win.prerollFrames + win.frames : Math.max(1, Math.ceil(durSec * MIX_SAMPLE_RATE));
+  const ctx = new OfflineAudioContext(2, ctxFrames, MIX_SAMPLE_RATE);
   const worklets = await ensureWorklets(ctx);
   let any = false;
   const reversed = new Map<Id, AudioBuffer>();
@@ -278,31 +351,30 @@ export async function renderMix(project: Project, durationUs: number, decode: De
     const chain = buildFxChain(ctx, mixFx(c, profile), { worklets });
     const g = chain.output;
     const k = await normalizeGainFor(c, buf, o);
-    // a clip nested in a compound clip is heard only inside the compound's window
-    const [from, to] = heardRange(c);
-    if (to <= from) continue;
-    const full = gainPoints({ ...c, volume: c.volume * k });
-    const pts = c.windowSec ? clipGainPoints(full, from, to) : full;
+    // a clip nested in a compound clip is heard only inside the compound's window; a range
+    // export hears only [In − pre-roll, Out)
+    const sc = scheduleClip(c, src.buffer !== buf, buf.duration, win, c.volume * k);
+    if (!sc) continue;
+    const pts = sc.gain;
     g.gain.setValueAtTime(pts[0]![1], pts[0]![0]);
     for (const [t, v] of pts.slice(1)) g.gain.linearRampToValueAtTime(v, t);
     // the clip ends here: cut effect tails (echo, reverb) like the preview does
-    g.gain.setValueAtTime(0, to);
+    g.gain.setValueAtTime(0, sc.stopAt);
     src.connect(chain.input);
     g.connect(ctx.destination); // → bus
-    const skip = from - c.startSec; // seconds of the clip cut off by the window
-    if (src.buffer === buf) {
-      const offset = Math.min(c.inSec + skip, Math.max(0, buf.duration - 1e-3));
-      src.start(from, offset, to - from);
-    } else {
-      src.start(from, skip);
-    }
-    src.stop(to);
+    if (sc.playFor !== null) src.start(sc.startAt, sc.offset, sc.playFor);
+    else src.start(sc.startAt, sc.offset);
+    src.stop(sc.stopAt);
     any = true;
   }
   if (!any) return null;
   const mix = await ctx.startRendering();
   limitPeaks(Array.from({ length: mix.numberOfChannels }, (_, i) => mix.getChannelData(i)), mix.sampleRate);
-  return mix;
+  if (!win || win.prerollFrames === 0) return mix;
+  // drop the pre-roll: sample 0 of the result is the In point
+  const out = new AudioBuffer({ numberOfChannels: mix.numberOfChannels, length: win.frames, sampleRate: mix.sampleRate });
+  for (let i = 0; i < mix.numberOfChannels; i++) out.copyToChannel(mix.getChannelData(i).subarray(win.prerollFrames, win.prerollFrames + win.frames), i);
+  return out;
 }
 
 /** Source span heard by a planned clip, seconds (= sourceSpan(clip), the preview's span). */

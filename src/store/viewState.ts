@@ -1,5 +1,5 @@
 /**
- * Where the user was in a project: playhead, timeline zoom, selected clips and the cover frame
+ * Where the user was in a project: playhead, timeline zoom, selected clips, the In / Out range and the cover frame
  * shown on the home screen. Saved per project in IndexedDB (store "views", see persistence.ts),
  * next to the document rather than inside it: it is not undoable, not exported and not part of
  * the JSON another machine would open.
@@ -17,6 +17,8 @@ import { allClips } from '../model/project';
 import { clamp, projectDuration } from '../model/time';
 import type { Id, Project } from '../model/types';
 import { useEditor } from './index';
+import { useTimelineUi } from '../timeline/uiStore';
+import { hasArea, NO_AREA, sanitizeArea } from '../timeline/range';
 import { loadView, saveView, type ProjectView } from './persistence';
 
 const DEBOUNCE_MS = 1200;
@@ -66,12 +68,13 @@ export function resetViewState(): void {
   coverSource = null;
 }
 
-const fingerprint = (id: Id, v: ProjectView): string => `${id}|${v.playhead}|${v.zoom}|${v.selection.join(',')}`;
+const fingerprint = (id: Id, v: ProjectView): string => `${id}|${v.playhead}|${v.zoom}|${v.selection.join(',')}|${v.area?.in ?? ''}~${v.area?.out ?? ''}`;
 
 /** Writes the current view unless it is unchanged. Returns true when it wrote. */
 export async function saveViewNow(opts: { cover?: boolean } = {}): Promise<boolean> {
   const s = useEditor.getState();
   const id = s.project.id;
+  const area = useTimelineUi.getState().area;
   if (opts.cover || Date.now() - lastCoverAt >= COVER_GAP_MS) {
     const shot = captureCover();
     if (shot) {
@@ -83,6 +86,7 @@ export async function saveViewNow(opts: { cover?: boolean } = {}): Promise<boole
     playhead: s.playhead,
     zoom: s.zoom,
     selection: [...s.selection.clipIds],
+    ...(hasArea(area) ? { area: { in: area.in, out: area.out } } : {}),
     cover: lastCover,
     savedAt: Date.now(),
   };
@@ -119,6 +123,10 @@ export function startViewAutosave(): () => void {
     if (s.playhead === prev.playhead && s.zoom === prev.zoom && s.selection === prev.selection && s.project.id === prev.project.id) return;
     schedule();
   });
+  // the in / out range is part of the view (not undoable, kept per project)
+  const unsubArea = useTimelineUi.subscribe((s, prev) => {
+    if (s.area !== prev.area) schedule();
+  });
   flushPending = () => {
     if (timer) {
       clearTimeout(timer);
@@ -129,6 +137,7 @@ export function startViewAutosave(): () => void {
   const stop = flushPending;
   return () => {
     unsub();
+    unsubArea();
     if (timer) clearTimeout(timer);
     if (flushPending === stop) flushPending = null;
   };
@@ -137,6 +146,8 @@ export function startViewAutosave(): () => void {
 /** Puts a loaded project's view back. Unknown or stale values are dropped, never applied blindly. */
 export async function restoreView(p: Project): Promise<void> {
   let v: ProjectView | null = null;
+  // the range belonged to the previous project: never carry it over
+  useTimelineUi.getState().replaceArea(NO_AREA);
   try {
     v = await loadView(p.id);
   } catch {
@@ -155,10 +166,13 @@ export async function restoreView(p: Project): Promise<void> {
   const keep = (v.selection ?? []).filter((id) => ids.has(id));
   if (keep.length) s.select(keep);
   else s.clearSelection();
+  const area = sanitizeArea(v.area);
+  useTimelineUi.getState().replaceArea(area);
   lastWritten = fingerprint(p.id, {
     playhead: useEditor.getState().playhead,
     zoom: useEditor.getState().zoom,
     selection: keep,
+    ...(hasArea(area) ? { area } : {}),
     savedAt: 0,
   });
 }

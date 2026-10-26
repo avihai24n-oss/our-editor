@@ -203,3 +203,28 @@
   color: var(--text-dim);
   font-size: var(--fs-sm);
 }
+
+/* In / Out range export (I / O on the timeline) */
+.export__scope {
+  align-items: start;
+}
+.export__scope-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+}
+.export__radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.export__radio input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.export__scope-tc {
+  color: var(--text-dim);
+  font: 11px var(--font-mono, monospace);
+}

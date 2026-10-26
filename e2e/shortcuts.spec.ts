@@ -113,9 +113,12 @@ test('CapCut shortcuts work in the browser', async ({ page }) => {
   await page.keyboard.press('Shift+KeyX');
   await expect(area).toHaveAttribute('data-in', '0');
   await expect(area).toHaveAttribute('data-out', String(vertical.duration));
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape'); // Esc deselects; the in / out range stays (it is for the export)
+  await expect(area).toBeVisible();
+  expect((await state(page)).selection).toEqual([]);
+  await page.keyboard.press('Alt+KeyX');
   await expect(area).toHaveCount(0);
-  expect((await state(page)).selection).toEqual([vertical.id]); // Esc cleared the area first
+  await select(page, [vertical.id]);
 
   // typing in a text field never fires shortcuts
   await page.getByLabel('Project name').click();

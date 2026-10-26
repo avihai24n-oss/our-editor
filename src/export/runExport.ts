@@ -36,6 +36,20 @@ export interface RunExportOptions {
   signal?: AbortSignal;
   /** Testing / compatibility: skip WebCodecs and record WebM. */
   forceWebm?: boolean;
+  /**
+   * In / Out range export (main-timeline µs, half-open [from, to), see timeline/range.ts): only
+   * this window is rendered — the first frame is the one at `from`, the file lasts to − from.
+   * Absent = the whole timeline.
+   */
+  range?: { from: number; to: number } | null;
+}
+
+/** The span an export renders: the range clamped to the timeline, or the whole timeline. Pure. */
+export function exportSpan(durationUs: number, range?: { from: number; to: number } | null): { from: number; durationUs: number } {
+  if (!range) return { from: 0, durationUs };
+  const from = Math.max(0, Math.min(Math.round(range.from), durationUs));
+  const to = Math.max(from, Math.min(Math.round(range.to), durationUs));
+  return { from, durationUs: to - from };
 }
 
 export interface RunExportResult extends EncodeResult {
@@ -50,8 +64,11 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   // export is always the main timeline, even while a compound clip is open for editing
   // caption tracks with "Burn into export" off are left out (src/captions)
   const project = withoutPreviewOnlyCaptions(rootProject(o.project));
-  const durationUs = projectDuration(project);
-  if (durationUs <= 0) throw new Error('The timeline is empty — add media before exporting.');
+  const total = projectDuration(project);
+  if (total <= 0) throw new Error('The timeline is empty — add media before exporting.');
+  // In / Out: frames are rendered at from + f / fps, the mix starts at from
+  const { from, durationUs } = exportSpan(total, o.range);
+  if (durationUs <= 0) throw new Error('The in / out range is empty — mark a longer range or clear it (⌥X).');
   const { width, height } = outputSize(project.settings.width, project.settings.height, settings.resolution);
   const vBitrate = videoBitrate(width, height, settings.fps, settings.quality);
   const report = (p: ExportProgress) => o.onProgress?.(p);
@@ -69,6 +86,7 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   // ---- audio
   report({ phase: 'audio', fraction: 0.01, frame: 0, frames: 0 });
   const audio = await renderMix(project, durationUs, createDecoder(loadBlob), o.signal, {
+    fromUs: from,
     // the same span as the preview (AudioOp.spanLength = sourceSpan: curve-aware)
     loudness: (c) => measureSpan(c.assetId, c.realInSec, sourceSpan({ duration: c.durationUs, speed: c.speed, speedCurve: c.speedCurve }) / 1e6, loadBlob),
   });
@@ -106,7 +124,7 @@ export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
       stallDetail: () => (source instanceof ExportFrameSource ? source.waiting : null),
       render: async (ctx: Parameters<typeof renderFrame>[0], t: number, frameIndex: number) => {
         if (fault?.hangAtFrame === frameIndex) await new Promise<never>(() => undefined); // dev fault injection
-        const fs = getFrameState(project, t);
+        const fs = getFrameState(project, from + t); // t = output time; the timeline time adds the In point
         await source.prepare(fs);
         renderFrame(ctx, fs, { scale, sources: source, layers, grader, lutReady });
       },

@@ -210,8 +210,8 @@ real-time WebM export.
   | Group | Keys (Mac; on Windows Ctrl replaces ⌘ and Alt replaces ⌥) |
   |---|---|
   | Essentials | Space play/pause · ⌘B split · ⇧⌘B split all tracks · Q / W delete left / right · ← / → one frame · ↑ / ↓ previous / next edit · ⇧Z fit timeline · ⌘E export |
-  | Tools | A Select tool · B Split tool (click a clip to cut it) · `[` / `]` Select leftward / rightward tool (selects left / right of the playhead, then of each click) · Esc back to Select · ⌫ delete · V enable/disable · M marker · I / O mark in / out · ⇧X area = selected clips · ⌥X clear area |
-  | Timeline & preview | ⇧← / ⇧→ 10 frames · Home / End · ⌘= / ⌘− zoom · ⌃⌘F or ⇧⌘F full-screen preview (Esc exits) · ⌥⇧Z fit preview to window · S preview axis · Esc cancel / clear area / deselect |
+  | Tools | A Select tool · B Split tool (click a clip to cut it) · `[` / `]` Select leftward / rightward tool (selects left / right of the playhead, then of each click) · Esc back to Select · ⌫ delete · V enable/disable · M marker · I / O mark in / out (Export renders only that range) · ⇧X range = selected clips · ⌥X clear in / out |
+  | Timeline & preview | ⇧← / ⇧→ 10 frames · Home / End · ⌘= / ⌘− zoom · ⌃⌘F or ⇧⌘F full-screen preview (Esc exits) · ⌥⇧Z fit preview to window · S preview axis · Esc cancel / deselect (keeps the in / out range) |
   | Audio & speed | ⇧⌘S extract / restore audio · ⌘R Speed tab · ⇧B Speed › Curve · ⌘. / ⌘, volume ±1 dB · P magnet · N snapping · ~ linkage |
   | Project & clipboard | ⌘I import · ⌘Z / ⇧⌘Z undo / redo · ⌘C / ⌘X / ⌘V copy / cut / paste at the playhead · ⌘D duplicate · ⌘A select all · Tab / ⇧Tab next / previous library tab |
   | Compound clips | ⌥G create compound clip · ⌥⇧G undo compound clip |
@@ -309,6 +309,17 @@ real-time WebM export.
 - MP4: H.264 + AAC, muxed with Mediabunny and frame-exact.
 - 720p / 1080p / 2K / 4K, bit rate Lower / Recommended / Higher, 24/25/30/50/60 fps.
 - Progress bar, Cancel, and the browser download.
+- **In / Out range (I / O):** park the playhead and press I, then O (any order; ⇧X marks the
+  selected clips). The range shows on the ruler as a cyan band with a handle at each end (drag them;
+  frame-snapped, snapping to the playhead / edit points when snapping is on, hold ⌥ to ignore), its
+  length and a ✕, plus a light shade over the tracks. Export then offers **In–Out range** (the
+  default, like CapCut) or **Whole timeline**; the range export renders [In, Out): first frame = the
+  frame at In, last = the frame before Out, length Out − In, with every layer (video, overlays,
+  text, captions, transitions, keyframes, colour) and the audio mix of exactly that window
+  (volume keys, fades and FX cut at the edges with a 1 s pre-roll, so echo / reverb / the limiter
+  enter the range as in the full mix). The default file name gets "(MM-SS – MM-SS)". ⌥X or the ✕
+  clears it; Esc does not. The range is view state, saved per project, not an undo step, and lives
+  on the main timeline (hidden while a compound clip is open).
 - Speed-changed audio keeps its pitch (one WSOLA time-stretch for standard speed and curves), the
   mix goes through a peak limiter, and a stalled browser decoder / encoder fails the export with a
   message after 20 s instead of hanging.

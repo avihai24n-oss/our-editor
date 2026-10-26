@@ -7,7 +7,7 @@
 import { useEffect } from 'react';
 import { toggleSelectedTransformKeys } from '../actions/motionKeys';
 import { findClip } from '../model/project';
-import { clipEnd, projectDuration } from '../model/time';
+import { clipEnd, projectDuration, snapToFrame } from '../model/time';
 import type { Clip, Id } from '../model/types';
 import { createCompoundClip, undoCompoundClips } from '../actions/compound';
 import { sourcePreviewActive, useSourcePreview } from '../player/sourcePreview';
@@ -128,6 +128,13 @@ function openSpeed(sub: 'standard' | 'curve'): boolean {
   return true;
 }
 
+/** In / out marks are set on the main timeline only; inside a compound clip they toast. */
+function inCompound(): boolean {
+  if (!useEditor.getState().project.focus?.length) return false;
+  showToast('In / out marks belong to the main timeline — close the compound clip first');
+  return true;
+}
+
 const comingSoon = (cmd: Command): true => {
   showToast(`Coming soon: ${defOf(cmd)?.label ?? cmd}`);
   return true;
@@ -153,13 +160,17 @@ export function runCommand(cmd: Command): boolean {
       s.selectSide('right');
       ui.setTool('selectRight');
       return true;
+    // the in / out range lives on the main timeline (the export renders the main timeline)
     case 'markIn':
-      ui.setAreaIn(s.playhead);
+      if (inCompound()) return true;
+      ui.setAreaIn(snapToFrame(s.playhead, s.project.settings.fps));
       return true;
     case 'markOut':
-      ui.setAreaOut(s.playhead);
+      if (inCompound()) return true;
+      ui.setAreaOut(snapToFrame(s.playhead, s.project.settings.fps));
       return true;
     case 'areaFromClip':
+      if (inCompound()) return true;
       if (!areaFromSelection()) showToast('Select a clip first');
       return true;
     case 'clearArea':
@@ -321,7 +332,7 @@ export function runCommand(cmd: Command): boolean {
     case 'escape':
       if (sourcePreviewActive()) useSourcePreview.getState().close();
       else if (ui.tool !== 'select') ui.setTool('select');
-      else if (ui.area.in !== null || ui.area.out !== null) ui.clearArea();
+      // Esc never clears the in / out range (⌥X or its ✕ does): it is kept for the export
       else if (s.selection.clipIds.length || s.selection.transitionId) s.clearSelection();
       else return false;
       return true;

@@ -1,12 +1,14 @@
 /**
- * Time ruler: adaptive ticks (labels MM:SS, frame ticks `NNf` when zoomed in), marker flags and the
- * playhead handle. Pointer handling (scrub) is done by the Timeline through `onScrubStart`.
+ * Time ruler: adaptive ticks (labels MM:SS, frame ticks `NNf` when zoomed in), marker flags, the
+ * In / Out range (./RangeBar) and the playhead handle. Pointer handling (scrub) is done by the Timeline through `onScrubStart`.
  */
 import { memo, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent } from 'react';
 import { usToPx, pxToUs } from '../model/time';
 import type { Marker, Us } from '../model/types';
 import { rulerScale, rulerTicks } from './geometry';
 import type { TimelineArea } from './uiStore';
+import { hasArea } from './range';
+import { RangeBar } from './RangeBar';
 
 interface RulerProps {
   zoom: number;
@@ -31,23 +33,7 @@ export const Ruler = memo(function Ruler({ zoom, fps, width, viewFrom, viewTo, m
   const ticks = rulerTicks(from, to, scale, fps);
   return (
     <div className="tl-ruler" style={{ width }} onPointerDown={onScrubStart} data-testid="timeline-ruler">
-      {area && (area.in !== null || area.out !== null) && (() => {
-        const a = area.in ?? 0;
-        const b = area.out ?? Math.max(areaEnd, a);
-        return (
-          <div
-            className="tl-area"
-            style={{ left: usToPx(a, zoom), width: Math.max(1, usToPx(b - a, zoom)) }}
-            data-testid="timeline-area"
-            data-in={area.in ?? ''}
-            data-out={area.out ?? ''}
-            title="In / out area — ⌥X or Esc clears it"
-          >
-            {area.in !== null && <span className="tl-area__in" data-testid="timeline-area-in" />}
-            {area.out !== null && <span className="tl-area__out" data-testid="timeline-area-out" />}
-          </div>
-        );
-      })()}
+      {area && hasArea(area) && <RangeBar area={area} end={areaEnd} zoom={zoom} fps={fps} />}
       {ticks.map((t) => (
         <div key={t.t} className={`tl-ruler__tick${t.major ? ' is-major' : ''}`} style={{ left: usToPx(t.t, zoom) }}>
           {t.label && <span className="tl-ruler__label">{t.label}</span>}
