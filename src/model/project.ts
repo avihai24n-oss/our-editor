@@ -1,6 +1,7 @@
 /**
  * Pure read-only helpers over a Project (no React, no DOM). Safe to call from anywhere.
  */
+import { migrateColorPage } from './colorPage';
 import { allClipsDeep, rootProject } from './compound';
 import { defaultAdjust, defaultCanvasBackground, defaultChroma, defaultGrade, defaultMask } from './defaults';
 import type { SpeedCurve } from './speedCurve';
@@ -230,7 +231,7 @@ const migrateGrade = (c: Clip): Clip => (c.type === 'audio' ? c : migrateVisualC
  * tab-audio, tab-video (migrateVideoTabFields), tab-adjust (migrateGrade), tab-animation, ctx-edit (reverse),
  * ctx-compound. (ctx-isolate's voiceIsolation is filled by migrateAudio.)
  */
-const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateGrade, migrateAnimationSlots, migrateReverse, migrateCompound];
+const CLIP_MIGRATIONS: readonly ((c: Clip) => Clip)[] = [migrateEnabledFlags, migrateSpeed, migrateAudio, migrateVideoTabFields, migrateColorPage, migrateGrade, migrateAnimationSlots, migrateReverse, migrateCompound];
 
 /** ctx-edit: Edit › Reverse — missing or non-boolean → false (forward). */
 function migrateReverse(c: Clip): Clip {
