@@ -93,7 +93,19 @@ real-time WebM export.
   is there, click removes it), ‹ › jump between them, the slider / number box edit the key under the
   playhead (adding one). Linear in dB between keys, flat outside; keys sit on the source, so trims,
   splits and speed changes keep them on their sound. Preview and export use the same envelope
-  (`src/model/volumeKeys.ts`). Other properties have no keyframes yet (their ◇ stay disabled).
+  (`src/model/volumeKeys.ts`).
+- **Motion keyframes** (Video / Text › Transform and Blend, added 26 Oct 2026): ‹ ◇ › on Scale,
+  Position, Rotate and Opacity, and a section ◇ on Transform that keys position + scale + rotation
+  at once (⌥K does the same for the selected clip). Like volume: editing a keyed row — or dragging,
+  scaling, rotating the clip on the player canvas — sets the key under the playhead (adding one;
+  one undo step per drag); with the playhead off the clip it moves all keys of that property.
+  "Keyframe curve" (shown with a key under the playhead): Linear (default, as CapCut), Ease in,
+  Ease out, Ease in-out — the curve from that key to the next. Position moves on a straight line,
+  rotation is numeric (0 → 360° = one full turn). Accent diamonds on the timeline clip: click = go
+  there, drag = move in time, double-click = remove. "Ken Burns › Zoom in / Zoom out" (video,
+  image) keys a slow 100 → 115 % zoom with a small drift over the whole clip. Keys sit on the
+  content (video: source time; image / text: time from the left edge, shifted by trims and
+  splits), interpolated in `getFrameState`, so preview and export match (`src/model/motionKeys.ts`).
 - **Volume line on the timeline** (every clip with sound): drag up/down for the volume. 100 % rests a
   third up; the top two thirds are boost up to +20 dB (1000 %). Double-click = 100 %. With keyframes
   the line follows the envelope and shows diamonds: drag a diamond up/down, drag the line to move all
@@ -187,7 +199,8 @@ real-time WebM export.
   | Audio & speed | ⇧⌘S extract / restore audio · ⌘R Speed tab · ⇧B Speed › Curve · ⌘. / ⌘, volume ±1 dB · P magnet · N snapping · ~ linkage |
   | Project & clipboard | ⌘I import · ⌘Z / ⇧⌘Z undo / redo · ⌘C / ⌘X / ⌘V copy / cut / paste at the playhead · ⌘D duplicate · ⌘A select all · Tab / ⇧Tab next / previous library tab |
   | Compound clips | ⌥G create compound clip · ⌥⇧G undo compound clip |
-  | Coming soon (toast) | ⌘G / ⇧⌘G group / ungroup · ⌘J match cut · ⌥K keyframes · Return split caption |
+  | Keyframes | ⌥K add / remove the selected clip's Transform keyframes at the playhead |
+  | Coming soon (toast) | ⌘G / ⇧⌘G group / ungroup · ⌘J match cut · Return split caption |
 
   Shortcuts match the physical key, so they also work on a Hebrew keyboard and with ⌥ combos. They
   are ignored while you type in a text field (except ⌘E) and while a dialog is open. ⌘N and ⌘Q
@@ -300,7 +313,7 @@ be undone.
 
 See **[docs/SPEC-v1.md § 5 — v2 backlog](docs/SPEC-v1.md#5-v2-backlog-researched-deferred)**:
 
-- **Editing:** keyframes beyond volume (transform, opacity, …), crop UI, the right-click menu, Velocity effects.
+- **Editing:** keyframes for other properties (mask, adjust, …), crop UI, the right-click menu, Velocity effects.
 - ~~Combo animations, masks, HSL / Curves and a WebGL colour pipeline~~ — built 2026-10-19.
 - **Content and project:** stickers/effects and captions.
 - ~~Project home screen (list / open / rename / duplicate / delete)~~ — built 2026-10-20.

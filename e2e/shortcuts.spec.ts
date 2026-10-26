@@ -174,8 +174,12 @@ test('CapCut shortcuts work in the browser', async ({ page }) => {
   expect(await page.evaluate(() => JSON.stringify((window as any).__oe.getState().project.tracks))).toBe(tracksBefore);
   await page.keyboard.press(`${MOD}+KeyJ`);
   await expect(page.getByTestId('toast')).toHaveText('Coming soon: Match cut');
+  // ⌥K works now (motion keyframes, see motion-keys.spec.ts): pressed twice it adds and removes
+  // the selected clip's Transform keys (or toasts why it cannot) — the clips end up as before
+  const keysBefore = await page.evaluate(() => JSON.stringify((window as any).__oe.getState().project.tracks.flatMap((t: any) => t.clips.map((c: any) => c.motionKeys ?? null))));
   await page.keyboard.press('Alt+KeyK');
-  await expect(page.getByTestId('toast')).toHaveText('Keyframes — coming soon');
+  await page.keyboard.press('Alt+KeyK');
+  expect(await page.evaluate(() => JSON.stringify((window as any).__oe.getState().project.tracks.flatMap((t: any) => t.clips.map((c: any) => c.motionKeys ?? null))))).toBe(keysBefore);
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('toast')).toHaveText('Coming soon: Split caption');
 
@@ -267,7 +271,7 @@ test('keyboard shortcuts panel and tooltips come from the shared table', async (
   await expect(panel.getByRole('heading')).toHaveText(['Essentials', 'Tools', 'Timeline & preview', 'Audio & speed', 'Project & clipboard']);
   expect(await panel.getByTestId('shortcuts-row').count()).toBeGreaterThan(55);
   await expect(panel.getByText(MAC ? '⇧⌘B' : 'Ctrl+Shift+B')).toBeVisible();
-  await expect(panel.locator('[data-status="soon"]')).toHaveCount(5); // ⌥G / ⌥⇧G (compound clips) work now
+  await expect(panel.locator('[data-status="soon"]')).toHaveCount(4); // ⌥G / ⌥⇧G (compound clips) and ⌥K (motion keyframes) work now
   await expect(panel.getByText('Coming soon').first()).toBeVisible();
   await screenshot(page, 'shortcuts-04-panel');
   // the panel is modal: B must not switch to the split tool behind it
