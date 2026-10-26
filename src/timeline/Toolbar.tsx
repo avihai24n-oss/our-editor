@@ -56,12 +56,15 @@ interface ToggleProps {
    * repeats this toggle with a checkmark rather than inventing options.
    */
   menuLabel?: string;
+  /** What the toggle does, added to the tooltip after the CapCut text. */
+  hint?: string;
 }
 
 /** CapCut toggle tile: ON = cyan glyph on a lighter rounded tile, OFF = plain light glyph. */
-function Toggle({ icon, name, command, on, onChange, testId, menuLabel }: ToggleProps) {
+function Toggle({ icon, name, command, on, onChange, testId, menuLabel, hint }: ToggleProps) {
   const key = shortcutLabel(command);
-  const title = `Turn ${on ? 'off' : 'on'} ${name}${key ? `(${key})` : ''}`;
+  const label = `Turn ${on ? 'off' : 'on'} ${name}${key ? `(${key})` : ''}`;
+  const title = hint ? `${label}: ${hint}` : label;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -78,7 +81,7 @@ function Toggle({ icon, name, command, on, onChange, testId, menuLabel }: Toggle
         type="button"
         className="tl-toggle__btn"
         title={title}
-        aria-label={title}
+        aria-label={label}
         aria-pressed={on}
         onClick={() => onChange(!on)}
         onMouseDown={(e) => e.preventDefault()}
@@ -243,7 +246,16 @@ export function Toolbar() {
           testId="timeline-magnet"
         />
         <Toggle icon="snap" name="auto snapping" command="toggleSnapping" on={snapping} onChange={(v) => a().setSnapping(v)} testId="timeline-snapping" />
-        <Toggle icon="link" name="linkage" command="toggleLinkage" on={linkage} onChange={setLinkage} testId="timeline-linkage" menuLabel="Linkage" />
+        <Toggle
+          icon="link"
+          name="linkage"
+          command="toggleLinkage"
+          on={linkage}
+          onChange={setLinkage}
+          testId="timeline-linkage"
+          menuLabel="Linkage"
+          hint="clips on other tracks (audio, text, overlays) move with the main / overlay clip under their start"
+        />
         <Toggle
           icon="preview-axis"
           name="preview axis"
