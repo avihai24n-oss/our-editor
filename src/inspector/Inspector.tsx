@@ -19,6 +19,7 @@ import { TextTab } from './tabs/TextTab';
 import { VideoTab } from './tabs/VideoTab';
 import { CompoundVideoTab } from './tabs/CompoundVideoTab';
 import { MultiGradePaste } from './tabs/color/ColorPanel';
+import { CaptionInspector } from '../captions/ui/CaptionInspector';
 import './inspector.css';
 
 function Shell(props: { tabs: { id: string; label: string }[]; value: string; onChange: (id: string) => void; children: React.ReactNode; testId: string }) {
@@ -56,6 +57,9 @@ export function Inspector() {
       </Shell>
     );
   }
+
+  // caption clip (src/captions): the caption lab
+  if (clip && clip.type === 'text' && clip.caption) return <CaptionInspector clip={{ ...clip, caption: clip.caption }} />;
 
   if (clip) {
     const tabs = clipTabs(clip, asset);

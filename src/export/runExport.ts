@@ -16,6 +16,7 @@ import { ElementFrameSource, exportWebm, pickRecorderMime } from './exportWebm';
 import { ExportFrameSource } from './frameSource';
 import { createDecoder, renderMix } from './offlineMix';
 import { exportFault } from './watchdog';
+import { withoutPreviewOnlyCaptions } from '../captions/ops';
 import { AUDIO_BITRATE, outputSize, videoBitrate, type ExportSettings } from './settings';
 
 export type ExportPhase = 'preparing' | 'audio' | 'video' | 'finishing';
@@ -47,7 +48,8 @@ export interface RunExportResult extends EncodeResult {
 export async function runExport(o: RunExportOptions): Promise<RunExportResult> {
   const { settings } = o;
   // export is always the main timeline, even while a compound clip is open for editing
-  const project = rootProject(o.project);
+  // caption tracks with "Burn into export" off are left out (src/captions)
+  const project = withoutPreviewOnlyCaptions(rootProject(o.project));
   const durationUs = projectDuration(project);
   if (durationUs <= 0) throw new Error('The timeline is empty — add media before exporting.');
   const { width, height } = outputSize(project.settings.width, project.settings.height, settings.resolution);

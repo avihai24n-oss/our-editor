@@ -131,7 +131,7 @@ export const ClipView = memo(function ClipView({ clip, asset, zoom, height, sele
             <CompoundGlyph />
           </div>
         )}
-        {clip.type === 'text' && <div className="tl-clip__text">{clip.text.content.replace(/\n/g, ' ') || 'Text'}</div>}
+        {clip.type === 'text' && <div className="tl-clip__text" dir="auto">{clip.text.content.replace(/\n/g, ' ') || 'Text'}</div>}
         {missing && <div className="tl-clip__lost">Media lost</div>}
       </div>
 
