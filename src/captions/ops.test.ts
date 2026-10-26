@@ -185,6 +185,19 @@ describe('the caption lab', () => {
   });
 });
 
+describe('dragged position', () => {
+  it('a caption dragged in the player can become the track position', () => {
+    edit((d) => cops.placeTranscription(d, WORDS, { start: 0, end: 6_000_000 }, DEFAULT_GROUPING));
+    const [a, b] = caps();
+    st().updateClip(a!.id, { transform: { x: 108, y: -384 } });
+    st().updateClip(b!.id, { transform: { y: 50 } });
+    edit((d) => cops.adoptCaptionPosition(d, a!.id));
+    expect(track().captions!.style.x).toBeCloseTo(0.1);
+    expect(track().captions!.style.y).toBeCloseTo(0.6);
+    expect(caps().every((c) => c.transform.x === 0 && c.transform.y === 0)).toBe(true);
+  });
+});
+
 describe('files and export', () => {
   it('cues out, cues in', () => {
     edit((d) => cops.placeTranscription(d, WORDS, { start: 0, end: 6_000_000 }, DEFAULT_GROUPING));

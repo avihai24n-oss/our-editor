@@ -306,7 +306,7 @@ export function drawCaption(ctx: Ctx2D, op: OpLike, L: CaptionLayout, shadowScal
       ctx.save();
       ctx.beginPath();
       const fw = (wb.w + 2) * Math.min(1, look.fill);
-      if (frame.rtl || wb.rtl) ctx.rect(wb.w + 1 - fw, -size, fw, size * 2);
+      if (wb.rtl) ctx.rect(wb.w + 1 - fw, -size, fw, size * 2); // a Hebrew word fills from its right end
       else ctx.rect(-1, -size, fw, size * 2);
       ctx.clip();
       paint(s.highlightColor, false);

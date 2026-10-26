@@ -372,3 +372,28 @@ export function resplitCaptions(p: Project, trackId: Id, grouping: GroupOptions,
   const range = { start: Math.min(...caps.map((c) => c.start)), end: Math.max(...caps.map(clipEnd)) };
   return placeTranscription(p, words, range, grouping, { trackId, minUs });
 }
+
+/**
+ * A caption dragged in the player carries its own offset (clip.transform x / y). This makes that
+ * place the track's caption position: the track style moves there and every caption's own drag
+ * offset is cleared.
+ */
+export function adoptCaptionPosition(p: Project, clipId: Id): boolean {
+  const f = findCaption(p, clipId);
+  if (!f || !f.track.captions) return false;
+  const { width: W, height: H } = p.settings;
+  const s = f.track.captions.style;
+  const base = { ...s, ...f.clip.caption.style };
+  s.x = Math.round(((base.x * W + f.clip.transform.x) / W) * 1000) / 1000;
+  s.y = Math.round(((base.y * H + f.clip.transform.y) / H) * 1000) / 1000;
+  for (const c of f.track.clips) {
+    if (!isCaptionClip(c)) continue;
+    c.transform.x = 0;
+    c.transform.y = 0;
+    if (c.caption.style) {
+      delete c.caption.style.x;
+      delete c.caption.style.y;
+    }
+  }
+  return true;
+}

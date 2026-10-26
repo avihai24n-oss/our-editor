@@ -57,6 +57,7 @@ export async function runAutoCaptions(req: AutoCaptionRequest): Promise<void> {
       onProgress: (progress) => useCaptionJob.setState({ progress }),
     });
     if (!res.words.length) throw new Error('No speech was found in that range.');
+    if (useEditor.getState().project.id !== project.id) throw new Error('Another project was opened while transcribing — run it again.');
     const grouping = { ...DEFAULT_GROUPING, ...req.grouping };
     const fps = useEditor.getState().project.settings.fps;
     const ids = edit((d) => cops.placeTranscription(d, res.words, res.range, grouping, { language: res.language ?? req.lang, minUs: Math.ceil(1e6 / fps), style: req.style }));

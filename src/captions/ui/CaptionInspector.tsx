@@ -414,6 +414,11 @@ function StylePanel({ clip }: { clip: CaptionClip }) {
             Reset this caption&apos;s dragged position
           </button>
         )}
+        {(clip.transform.x !== 0 || clip.transform.y !== 0) && track.captions && (
+          <button className="btn" style={{ marginTop: 4 }} disabled={locked} onClick={() => edit((d) => cops.adoptCaptionPosition(d, clip.id))} data-testid="cap-adopt-drag">
+            Use this position for all captions
+          </button>
+        )}
       </Section>
     </div>
   );
