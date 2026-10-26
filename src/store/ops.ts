@@ -23,6 +23,13 @@ import { captionSplit, captionTrimStart, syncCaptionClip } from '../captions/ops
 
 export interface EditCtx {
   magnet: boolean;
+  /**
+   * Linkage bookkeeping, filled by the ops while an edit runs (edit() creates them): how much of
+   * each clip was cut away (+) or added (−) at its LEFT edge, in timeline time, and which clips the
+   * user deleted. followAttached() uses them to place the clips attached to those clips.
+   */
+  trimmedLeft?: Map<Id, Us>;
+  deleted?: Set<Id>;
 }
 
 export const minClipUs = (p: Project): Us => Math.ceil(frameUs(p.settings.fps));
@@ -443,6 +450,7 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
   const f = findClip(p, clipId);
   if (!f || f.track.locked) return false;
   const c = f.clip;
+  const start0 = c.start;
   const end = clipEnd(c);
   let s = Math.round(newStart);
   s = Math.min(s, end - minClipUs(p));
@@ -467,7 +475,9 @@ export function trimStart(p: Project, clipId: Id, newStart: Us, ctx: EditCtx): b
     c.inPoint = Math.max(0, c.inPoint + (s - c.start));
   }
   c.duration = end - s;
-  const shift = s - c.start;
+  // (start0: a curve clip's trimCurveStart has already set c.start = s)
+  const shift = s - start0;
+  if (shift && ctx.trimmedLeft) ctx.trimmedLeft.set(c.id, (ctx.trimmedLeft.get(c.id) ?? 0) + shift);
   if (usesLocalKeyTime(c) && c.type !== 'audio' && c.motionKeys) c.motionKeys = shiftLocalMotionKeys(c.motionKeys, shift);
   captionTrimStart(c, shift); // captions: the words stay on their sound
   c.start = s;
@@ -643,11 +653,13 @@ export function splitClip(p: Project, clipId: Id, t: Us): Id | null {
   return b.id;
 }
 
-export function deleteClips(p: Project, ids: readonly Id[]): number {
+/** Deletes clips (locked tracks excepted). `ctx` (the store's edits) records them for linkage. */
+export function deleteClips(p: Project, ids: readonly Id[], ctx?: EditCtx): number {
   const set = new Set(ids);
   let n = 0;
   for (const track of p.tracks) {
     if (track.locked) continue;
+    if (ctx?.deleted) for (const c of track.clips) if (set.has(c.id)) ctx.deleted.add(c.id);
     const before = track.clips.length;
     retain(track.clips, (c) => !set.has(c.id));
     n += before - track.clips.length;
@@ -1002,6 +1014,125 @@ export function followLinked(p: Project, pairs: readonly LinkedPair[], ctx: Edit
     moved = true;
   }
   return moved;
+}
+
+// ---------------------------------------------------------------- linkage: attached clips
+
+/**
+ * Tracks whose clips carry other clips with them when linkage is on: the main track, then the
+ * overlay (video) tracks from the bottom up. CapCut links to the main track only; this editor also
+ * ripples overlay tracks with the magnet, so a project whose picture sits on an overlay track
+ * (main track empty) keeps its sound in sync too.
+ */
+function anchorTracks(p: Project): Track[] {
+  return p.tracks.filter((t) => t.kind === 'main' || t.kind === 'overlay');
+}
+
+/** The clip of `track` whose span [start, end) contains time `t`. */
+function clipAtStart(track: Track, t: Us): Clip | undefined {
+  return track.clips.find((c) => c.start <= t && t < clipEnd(c));
+}
+
+/** Link ids of extract-audio pairs whose video still exists (that audio follows by followLinked). */
+function videoLinks(p: Project): Set<Id> {
+  const out = new Set<Id>();
+  for (const t of p.tracks) for (const c of t.clips) if (c.type === 'video' && c.audioLink) out.add(c.audioLink);
+  return out;
+}
+
+function anchorsOf(p: Project, track: Track, c: Clip, links: Set<Id>): Id[] {
+  if (track.kind === 'main' || track.locked || (c.type === 'audio' && c.audioLink && links.has(c.audioLink))) return [];
+  const out: Id[] = [];
+  for (const t of anchorTracks(p)) {
+    if (t === track || (track.kind === 'overlay' && t.kind !== 'main')) continue;
+    const a = clipAtStart(t, c.start);
+    if (a) out.push(a.id);
+  }
+  return out;
+}
+
+/**
+ * Anchor clips a clip is attached to, most important first (CapCut rule: the anchor clip under the
+ * clip's START point). A clip on an overlay track hangs on the main-track clip only; a text / audio
+ * clip on the main-track clip, then on the overlay clip(s) under its start. Main-track clips,
+ * clips on locked tracks and extracted audio (its own pair rule) are never attached.
+ */
+export function attachedAnchors(p: Project, clipId: Id): Id[] {
+  const f = findClip(p, clipId);
+  return f ? anchorsOf(p, f.track, f.clip, videoLinks(p)) : [];
+}
+
+interface Span {
+  start: Us;
+  duration: Us;
+  trackId: Id;
+}
+
+const spanOf = (c: Clip, trackId: Id): Span => ({ start: c.start, duration: c.duration, trackId });
+const sameSpan = (a: Span, c: Clip, trackId: Id): boolean => a.start === c.start && a.duration === c.duration && a.trackId === trackId;
+
+/**
+ * Linkage: after an edit, the clips on other tracks follow the anchor clip (main / overlay track)
+ * they are attached to in `before` (see attachedAnchors):
+ * - the anchor moved (reorder, magnet ripple of the clips after a trim / delete / insert): the clip
+ *   moves by the same time delta;
+ * - the anchor was trimmed: the clip keeps its place in the anchor's content (a left-edge ripple
+ *   trim pulls it left by the cut); a clip whose start was in the part cut away stays put;
+ * - the anchor was deleted: a clip lying entirely inside it is deleted with it (CapCut); a longer
+ *   one (music running on under the next shots) stays.
+ * The first attached anchor that changed decides; clips the edit itself changed, and clips on
+ * locked tracks, never move. A moved clip that would overlap goes to a new track next to its own.
+ * Returns true when something changed.
+ */
+export function followAttached(p: Project, before: Project, ctx: EditCtx): boolean {
+  // cheap exit: no anchor clip changed (most edits: properties, text, audio-only…)
+  const now = new Map<Id, { clip: Clip; track: Track }>();
+  for (const t of p.tracks) for (const c of t.clips) now.set(c.id, { clip: c, track: t });
+  const changed = new Set<Id>();
+  for (const t of anchorTracks(before)) {
+    for (const c of t.clips) {
+      const n = now.get(c.id);
+      if (!n || !sameSpan(spanOf(c, t.id), n.clip, n.track.id) || ctx.trimmedLeft?.has(c.id)) changed.add(c.id);
+    }
+  }
+  if (!changed.size) return false;
+  const anchorsBefore = new Map<Id, Span>();
+  for (const t of anchorTracks(before)) for (const c of t.clips) anchorsBefore.set(c.id, spanOf(c, t.id));
+  const moves: { id: Id; start: Us }[] = [];
+  const dels: Id[] = [];
+  const links = videoLinks(before);
+  for (const t of before.tracks) {
+    if (t.kind === 'main' || t.locked) continue;
+    for (const c of t.clips) {
+      const anchors = anchorsOf(before, t, c, links);
+      const decider = anchors.find((a) => changed.has(a));
+      if (!decider) continue;
+      const n = now.get(c.id);
+      if (!n || n.track.locked || !sameSpan(spanOf(c, t.id), n.clip, n.track.id)) continue; // the edit moved / changed it itself
+      const a0 = anchorsBefore.get(decider)!;
+      const a1 = now.get(decider);
+      if (!a1) {
+        if (ctx.deleted?.has(decider) && clipEnd(c) <= a0.start + a0.duration) dels.push(c.id);
+        continue;
+      }
+      const off = c.start - a0.start - (ctx.trimmedLeft?.get(decider) ?? 0);
+      if (off < 0 || off >= a1.clip.duration) continue; // its start was cut away: it stays
+      const start = a1.clip.start + off;
+      if (start !== c.start) moves.push({ id: c.id, start });
+    }
+  }
+  if (!moves.length && !dels.length) return false;
+  if (dels.length) deleteClips(p, dels);
+  const placed = moves
+    .map((m) => {
+      const f = findClip(p, m.id);
+      return f ? { ...m, track: f.track, clip: detach(p, m.id)! } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => !!x)
+    .sort((a, b) => a.start - b.start);
+  for (const m of placed) placeOnTrack(p, m.clip, m.track, m.start);
+  removeEmptyTracks(p);
+  return true;
 }
 
 // ---------------------------------------------------------------- transitions

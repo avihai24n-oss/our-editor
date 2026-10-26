@@ -680,12 +680,16 @@ test('gestures: select, multi-select, marquee, move, new track, trim, snap, Esc 
   await page.waitForTimeout(200);
   const ext = (await clips(page)).find((c) => c.type === 'audio' && c.audioLink)!;
   expect(ext.start).toBe(S(5));
-  await exactUndo(page, 'drag linked video (linkage on)', () => drag(page, { x: g.x(S(7)), y: yMain }, { x: g.x(S(0.3)), y: yMain }));
+  // the extracted audio adds an audio track and the rows shift (the old y now lands on l's volume
+  // line and would change its volume instead of moving it): measure the main row again
+  g = await geo(page);
+  const yMainNow = await g.rowY(mainId);
+  await exactUndo(page, 'drag linked video (linkage on)', () => drag(page, { x: g.x(S(7)), y: yMainNow }, { x: g.x(S(0.3)), y: yMainNow }));
   expect(await clip(page, l)).toMatchObject({ start: 0 });
   expect(await clip(page, ext.id)).toMatchObject({ start: 0 });
   await key(page, `${MOD}+KeyZ`);
   await key(page, 'Backquote'); // linkage off
-  await drag(page, { x: g.x(S(7)), y: yMain }, { x: g.x(S(0.3)), y: yMain });
+  await drag(page, { x: g.x(S(7)), y: yMainNow }, { x: g.x(S(0.3)), y: yMainNow });
   expect(await clip(page, l)).toMatchObject({ start: 0 });
   expect(await clip(page, ext.id)).toMatchObject({ start: S(5) });
   await key(page, 'Backquote');

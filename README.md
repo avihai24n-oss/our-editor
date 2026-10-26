@@ -176,6 +176,18 @@ real-time WebM export.
   ripples like the main track: a left-edge trim keeps the clip's start (it sticks left) and the clips
   after it on that track move by the trimmed amount; a right-edge trim pulls them along. Gaps the user
   left are kept, and nothing is packed. Magnet off: the CapCut behaviour (the edge leaves a gap).
+- **Linkage (link toggle, `~`):** on, a clip on another track is attached to the clip under its
+  START on the main track (CapCut), or, when there is none / it did not change, on an overlay track
+  (so a film whose shots sit on an overlay track keeps its sound in sync). Overlay clips hang on the
+  main track only; text and audio on main, then overlays. When the anchor clip moves (drag, reorder,
+  the magnet ripple after a trim, delete or insert), its attached clips move by the same amount; when
+  it is trimmed, they keep their place in its content (a left-edge ripple trim pulls them left by
+  the cut) and a clip whose start was cut away stays; when it is deleted, a clip lying entirely
+  inside it is deleted with it, a longer one (music running under the next shots) stays. Clips the
+  edit moved itself and clips on locked tracks never move; a followed clip that would overlap goes
+  to a new track. One undo step per edit. Off: other tracks never move. Extracted audio (⇧⌘S) keeps
+  its own rule: it follows its video when the video moves. (`ops.followAttached`,
+  `src/store/linkage.test.ts`, `e2e/linkage.spec.ts`.)
 - **Tracks:** main track (magnetic), overlay tracks above it, text tracks above those, audio tracks
   below. Dropping on the empty space above or below the tracks creates a new track.
 - **Clip menu › Edit** (`src/actions/editMenu.ts`, registered in the clip context-menu registry):

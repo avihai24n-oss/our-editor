@@ -247,13 +247,15 @@ type GetFn = () => EditorState;
 function edit<T>(set: SetFn, get: GetFn, recipe: (draft: Project, ctx: ops.EditCtx) => T): T {
   const s = get();
   const before = s.project;
-  const ctx: ops.EditCtx = { magnet: s.magnet };
+  const ctx: ops.EditCtx = s.linkage ? { magnet: s.magnet, trimmedLeft: new Map(), deleted: new Set() } : { magnet: s.magnet };
   let result!: T;
   const pairs = s.linkage ? ops.linkedPairs(before) : [];
   let next = produce(before, (d) => {
     result = recipe(d, ctx);
     ops.normalize(d, ctx);
     if (pairs.length && ops.followLinked(d, pairs, ctx)) ops.normalize(d, ctx);
+    // linkage: clips on other tracks follow the main / overlay clip they are attached to
+    if (s.linkage && ops.followAttached(d, before, ctx)) ops.normalize(d, ctx);
   });
   // A refused or no-op edit (a move back to the same spot, the same value again…) must not leave an
   // empty undo step. Immer shares every untouched subtree, so this only walks what changed.
@@ -539,7 +541,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     edit(set, get, (d, ctx) => targets.forEach((id) => ops.deleteRight(d, id, t, ctx)));
   },
   deleteClips: (ids) => {
-    edit(set, get, (d) => ops.deleteClips(d, ids));
+    edit(set, get, (d, ctx) => ops.deleteClips(d, ids, ctx));
   },
   deleteSelected: () => {
     const s = get();

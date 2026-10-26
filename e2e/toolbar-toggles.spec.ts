@@ -88,10 +88,12 @@ async function look(page: Page, tid: string) {
 }
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
 
+const LINKAGE_HINT = ': clips on other tracks (audio, text, overlays) move with the main / overlay clip under their start';
+const hintOf = (t: (typeof TOGGLES)[number]) => ('hint' in t ? t.hint : '');
 const TOGGLES = [
   { tid: 'timeline-magnet', name: 'main track magnet', key: 'P', code: 'KeyP', read: (p: Page) => ed(p, 'magnet') },
   { tid: 'timeline-snapping', name: 'auto snapping', key: 'N', code: 'KeyN', read: (p: Page) => ed(p, 'snapping') },
-  { tid: 'timeline-linkage', name: 'linkage', key: '~', code: 'Backquote', read: (p: Page) => ui(p, 'linkage') },
+  { tid: 'timeline-linkage', name: 'linkage', key: '~', code: 'Backquote', read: (p: Page) => ui(p, 'linkage'), hint: LINKAGE_HINT },
   { tid: 'timeline-preview-axis', name: 'preview axis', key: 'S', code: 'KeyS', read: (p: Page) => ui(p, 'previewAxis') },
 ] as const;
 
@@ -108,13 +110,13 @@ test('toggles: CapCut tooltips, ON/OFF tiles, keys, ▾ menus, persistence, scre
     // ON: cyan glyph on a lighter tile, tooltip offers to turn it off
     expect(await t.read(page)).toBe(true);
     let l = await look(page, t.tid);
-    expect(l).toMatchObject({ title: `Turn off ${t.name}(${t.key})`, pressed: 'true', color: CYAN });
+    expect(l).toMatchObject({ title: `Turn off ${t.name}(${t.key})${hintOf(t)}`, pressed: 'true', color: CYAN });
     expect(l.bg).not.toBe(TRANSPARENT);
     // key → OFF: light glyph, no tile
     await key(page, t.code);
     expect(await t.read(page)).toBe(false);
     l = await look(page, t.tid);
-    expect(l).toMatchObject({ title: `Turn on ${t.name}(${t.key})`, pressed: 'false', bg: TRANSPARENT });
+    expect(l).toMatchObject({ title: `Turn on ${t.name}(${t.key})${hintOf(t)}`, pressed: 'false', bg: TRANSPARENT });
     expect(l.color).not.toBe(CYAN);
     // click → ON again
     await page.getByTestId(t.tid).click();
@@ -159,7 +161,7 @@ test('toggles: CapCut tooltips, ON/OFF tiles, keys, ▾ menus, persistence, scre
   expect(await ui(page, 'linkage')).toBe(false);
   expect(await ui(page, 'previewAxis')).toBe(false);
   expect(await ed(page, 'linkage')).toBe(false); // the store's edits read the same flag
-  await expect(page.getByTestId('timeline-linkage')).toHaveAttribute('title', 'Turn on linkage(~)');
+  await expect(page.getByTestId('timeline-linkage')).toHaveAttribute('title', `Turn on linkage(~)${LINKAGE_HINT}`);
   await expect(page.getByTestId('timeline-preview-axis')).toHaveAttribute('title', 'Turn on preview axis(S)');
   await key(page, 'Backquote');
   await key(page, 'KeyS');

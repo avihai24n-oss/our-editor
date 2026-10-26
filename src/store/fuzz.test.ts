@@ -311,7 +311,10 @@ describe('fuzz: 200 random edits keep every invariant, undo/redo are exact', () 
   }
   it('every kind of edit really changed the document many times (the fuzz is not vacuous)', () => {
     const names = steps(rng(0), []).map((x) => x.name);
-    for (const n of names.filter((x) => x !== 'linkage')) expect(effective.get(n) ?? 0, n).toBeGreaterThanOrEqual(10);
+    // applyTransitionToAll needs two touching clips on one track: since linkage carries overlay /
+    // text clips with the main-track clip they sit on, fewer of them end up butted together (9 runs)
+    const atLeast = (n: string) => (n === 'applyTransitionToAll' ? 5 : 10);
+    for (const n of names.filter((x) => x !== 'linkage')) expect(effective.get(n) ?? 0, n).toBeGreaterThanOrEqual(atLeast(n));
     // the run also produced transitions, links and locked tracks to break
     expect(effective.get("addTransition") ?? 0).toBeGreaterThan(25);
     expect(effective.get('extract/restore') ?? 0).toBeGreaterThan(50);
