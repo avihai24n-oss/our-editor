@@ -52,7 +52,8 @@ const MAIN_H = 64;
 const TRACK_H = 48;
 const BAND_MIN_H = 28;
 
-const rowHeight = (t: Track) => (t.kind === 'main' ? MAIN_H : TRACK_H);
+/** Row height at the user's track-height setting (toolbar ↕ mode); clips, filmstrips and waveforms follow it. */
+const rowHeight = (t: Track, k = 1) => Math.round((t.kind === 'main' ? MAIN_H : TRACK_H) * k);
 
 // ---------------------------------------------------------------- gesture state
 
@@ -121,8 +122,8 @@ export function Timeline() {
   const project = useEditor((s) => s.project);
   const { zoom, playhead, playing } = useEditor(useShallow((s) => ({ zoom: s.zoom, playhead: s.playhead, playing: s.playing })));
   const selection = useEditor((s) => s.selection);
-  const { tool, hoverTime, area } = useTimelineUi(
-    useShallow((s) => ({ tool: s.tool, hoverTime: s.hoverTime, area: s.area })),
+  const { tool, hoverTime, area, trackScale } = useTimelineUi(
+    useShallow((s) => ({ tool: s.tool, hoverTime: s.hoverTime, area: s.area, trackScale: s.trackScale })),
   );
 
   // the In / Out range belongs to the main timeline: hidden while a compound clip is open
@@ -820,9 +821,9 @@ export function Timeline() {
   const minRowsH = Math.max(0, view.height - RULER_H - 1);
   // The main track stays where it is while tracks come and go (see bandHeights).
   const mainIdx = rows.findIndex((t) => t.kind === 'main');
-  const aboveH = rows.slice(0, Math.max(0, mainIdx)).reduce((h, t) => h + rowHeight(t), 0);
-  const belowH = rows.slice(mainIdx + 1).reduce((h, t) => h + rowHeight(t), 0);
-  const mainRowH = mainIdx >= 0 ? rowHeight(rows[mainIdx]!) : 0;
+  const aboveH = rows.slice(0, Math.max(0, mainIdx)).reduce((h, t) => h + rowHeight(t, trackScale), 0);
+  const belowH = rows.slice(mainIdx + 1).reduce((h, t) => h + rowHeight(t, trackScale), 0);
+  const mainRowH = mainIdx >= 0 ? rowHeight(rows[mainIdx]!, trackScale) : 0;
   const { top: topBandH, bottom: bottomBandH } = bandHeights(minRowsH, aboveH, mainRowH, belowH, BAND_MIN_H);
   const visFrom = pxToUs(viewFrom - 200, zoom);
   const visTo = pxToUs(viewTo + 200, zoom);
@@ -896,12 +897,12 @@ export function Timeline() {
             <div className={`tl-band${dropRowKey === 'band:top' ? ' is-drop' : ''}`} data-row-key="band:top" style={{ height: topBandH }}>
               <div className="tl-band__header" style={{ width: HEADER_W }} />
               <div className="tl-lane" style={{ width: contentW }}>
-                {renderGhost('band:top', TRACK_H)}
+                {renderGhost('band:top', Math.round(TRACK_H * trackScale))}
               </div>
             </div>
 
             {rows.map((track, i) => {
-              const h = rowHeight(track);
+              const h = rowHeight(track, trackScale);
               return (
                 <div
                   key={track.id}
@@ -974,7 +975,7 @@ export function Timeline() {
             <div className={`tl-band${dropRowKey === 'band:bottom' ? ' is-drop' : ''}`} data-row-key="band:bottom" style={{ height: bottomBandH }}>
               <div className="tl-band__header" style={{ width: HEADER_W }} />
               <div className="tl-lane" style={{ width: contentW }}>
-                {renderGhost('band:bottom', TRACK_H)}
+                {renderGhost('band:bottom', Math.round(TRACK_H * trackScale))}
               </div>
             </div>
 

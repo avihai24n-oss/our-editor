@@ -964,3 +964,23 @@
 .tl:has(.tl-area__pill:hover) .tl-hover--ruler {
   display: none;
 }
+/* ↔ / ↕ zoom-mode toggle (Toolbar.tsx ZoomModeToggle) */
+.tl-zoom-mode {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.tl-zoom-mode:hover {
+  color: var(--text);
+}
+.tl-zoom-mode.is-height {
+  color: var(--accent);
+  border-color: var(--accent);
+}

@@ -18,20 +18,35 @@ const LS_KEY = 'our-editor.timeline.ui';
 interface Persisted {
   linkage: boolean;
   previewAxis: boolean;
+  /** Track height multiplier (1 = default 64 / 48 px rows), TRACK_SCALE_MIN … TRACK_SCALE_MAX. */
+  trackScale: number;
+  /** What the toolbar's zoom slider / − + buttons drive: timeline zoom or track height. */
+  zoomMode: 'time' | 'height';
 }
+
+export const TRACK_SCALE_MIN = 0.75;
+export const TRACK_SCALE_MAX = 3;
+const clampScale = (k: number) => Math.min(TRACK_SCALE_MAX, Math.max(TRACK_SCALE_MIN, Number.isFinite(k) ? k : 1));
 
 function load(): Persisted {
   // CapCut ships with the preview axis on (the amber hover line)
-  const def: Persisted = { linkage: true, previewAxis: true };
+  const def: Persisted = { linkage: true, previewAxis: true, trackScale: 1, zoomMode: 'time' };
   try {
     const raw = globalThis.localStorage?.getItem(LS_KEY);
     if (!raw) return def;
     const v = JSON.parse(raw) as Partial<Persisted>;
-    return { linkage: v.linkage ?? def.linkage, previewAxis: v.previewAxis ?? def.previewAxis };
+    return {
+      linkage: v.linkage ?? def.linkage,
+      previewAxis: v.previewAxis ?? def.previewAxis,
+      trackScale: clampScale(v.trackScale ?? def.trackScale),
+      zoomMode: v.zoomMode === 'height' ? 'height' : 'time',
+    };
   } catch {
     return def;
   }
 }
+
+const persisted = (s: Persisted): Persisted => ({ linkage: s.linkage, previewAxis: s.previewAxis, trackScale: s.trackScale, zoomMode: s.zoomMode });
 
 function save(p: Persisted): void {
   try {
@@ -77,6 +92,9 @@ export interface TimelineUiState extends Persisted {
   setTool: (t: Tool) => void;
   setLinkage: (on: boolean) => void;
   setPreviewAxis: (on: boolean) => void;
+  /** Track height multiplier (clamped, saved). */
+  setTrackScale: (k: number) => void;
+  setZoomMode: (m: 'time' | 'height') => void;
   setHoverTime: (t: Us | null) => void;
   setClipboard: (clips: Clip[]) => void;
   setAttributeClipboard: (snap: AttributeSnapshot | null) => void;
@@ -126,12 +144,22 @@ export const useTimelineUi = create<TimelineUiState>()((set, get) => ({
   setLinkage: (linkage) => {
     set({ linkage });
     useEditor.getState().setLinkage(linkage);
-    save({ linkage, previewAxis: get().previewAxis });
+    save({ ...persisted(get()), linkage });
   },
   setPreviewAxis: (previewAxis) => {
     set({ previewAxis, hoverTime: previewAxis ? get().hoverTime : null });
     if (!previewAxis) useEditor.getState().setPreviewTime(null);
-    save({ linkage: get().linkage, previewAxis });
+    save({ ...persisted(get()), previewAxis });
+  },
+  setTrackScale: (k) => {
+    const trackScale = Math.round(clampScale(k) * 100) / 100;
+    if (trackScale === get().trackScale) return;
+    set({ trackScale });
+    save({ ...persisted(get()), trackScale });
+  },
+  setZoomMode: (zoomMode) => {
+    set({ zoomMode });
+    save({ ...persisted(get()), zoomMode });
   },
   setHoverTime: (hoverTime) => {
     if (get().hoverTime !== hoverTime) set({ hoverTime });
