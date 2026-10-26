@@ -1,0 +1,195 @@
+/* Video scopes strip (player) + before/after split + eyedropper overlays */
+.scopes {
+  flex: none;
+  height: 216px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: #0c0c0d;
+  min-width: 0;
+}
+.scopes__bar {
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.scopes__title {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  font-weight: 600;
+  margin-right: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.scopes__chip {
+  height: 20px;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.scopes__chip:hover {
+  color: var(--text);
+}
+.scopes__chip.is-on {
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.scopes__spacer {
+  flex: 1;
+}
+.scopes__close {
+  font-size: 16px;
+  line-height: 1;
+}
+.scopes__row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px 8px;
+}
+.scopes__empty {
+  margin: auto;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
+.scope {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  border: 1px solid #222;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.scope--vector {
+  flex: 0 0 172px;
+}
+.scope__head {
+  height: 18px;
+  flex: none;
+  overflow: hidden;
+  white-space: nowrap;
+  gap: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.scope__stats {
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+}
+.scope__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.scope__levels {
+  flex: none;
+  width: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+  text-align: right;
+  padding: 0 3px 0 0;
+  line-height: 1;
+}
+.scope__canvas {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: auto;
+}
+.scope--vector .scope__canvas {
+  object-fit: contain;
+}
+
+/* before / after split */
+.csplit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.csplit__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.csplit__handle {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #111;
+  font-size: 11px;
+  font-weight: 700;
+}
+.csplit__label {
+  position: absolute;
+  top: 8px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 3px;
+}
+.cpick {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  z-index: 5;
+}
+.cpick__hint {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.player__chip.is-on {
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}

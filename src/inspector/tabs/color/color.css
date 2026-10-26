@@ -1,0 +1,218 @@
+/* Inspector › Adjust › Color (DaVinci-style page) */
+.icolor-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 4px;
+}
+.icolor-top__spacer {
+  flex: 1;
+}
+.icolor-top .btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+}
+.icolor-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.icolor-flash {
+  margin: 0 12px;
+}
+
+/* gallery */
+.icolor-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.icolor-still {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.icolor-still__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #000 center / cover no-repeat;
+  cursor: pointer;
+  padding: 0;
+}
+.icolor-still__thumb:hover {
+  border-color: var(--accent);
+}
+.icolor-still__name {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.icolor-still__del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+.icolor-still:hover .icolor-still__del {
+  opacity: 1;
+}
+.icolor-still--grab {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  aspect-ratio: 16 / 9;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  gap: 0;
+}
+.icolor-still--grab:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.icolor-still__plus {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* log wheels */
+.iwheels.icolor-log .iwheel__hint {
+  display: none;
+}
+
+/* HSL curve editor */
+.icolor-hcurve {
+  position: relative;
+}
+.icolor-hcurve__bg {
+  height: 8px;
+  margin: 4px 0 6px;
+  border-radius: 2px;
+  opacity: 0.9;
+  pointer-events: none;
+}
+.icurve .icurve__svg.icolor-hcurve__svg {
+  aspect-ratio: 1.6;
+}
+.icolor-hcurve__grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.icolor-hcurve__mid {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+.icolor-hcurve__readout {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.icolor-swatches {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.icolor-swatch {
+  flex: 1;
+  height: 14px;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.icolor-swatch:hover {
+  opacity: 1;
+  outline: 1px solid #fff;
+}
+
+/* qualifier */
+.icolor-qbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.icolor-qbar .btn {
+  height: 24px;
+  padding: 0 10px;
+  font-size: var(--fs-xs);
+}
+.icolor-qhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.icolor-qhead .igroup {
+  flex: 1;
+}
+.icolor-huerange {
+  position: relative;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.icolor-huerange.is-off {
+  opacity: 0.35;
+}
+.icolor-huerange::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+.icolor-huerange__soft,
+.icolor-huerange__core {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 9999px transparent;
+}
+.icolor-huerange__soft {
+  background: rgba(255, 255, 255, 0.18);
+}
+.icolor-huerange__core {
+  border-left: 1px solid #fff;
+  border-right: 1px solid #fff;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: brightness(2.2);
+}
+.icolor-foot {
+  padding: 10px 12px 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+.icolor-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 0;
+}

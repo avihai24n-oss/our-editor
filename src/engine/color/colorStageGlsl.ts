@@ -80,6 +80,22 @@ mat3 csHueMat(float deg) {
     0.0722 - 0.0722 * a + 0.9278 * b, 0.0722 - 0.0722 * a - 0.283 * b, 0.0722 + 0.9278 * a + 0.0722 * b);
 }
 
+vec3 csHsvToRgb(float h, float s, float v) {
+  float hp = mod(mod(h, 360.0) + 360.0, 360.0) / 60.0;
+  float C = v * s;
+  float X = C * (1.0 - abs(mod(hp, 2.0) - 1.0));
+  float m = v - C;
+  float k = floor(hp);
+  vec3 o;
+  if (k < 1.0) o = vec3(C, X, 0.0);
+  else if (k < 2.0) o = vec3(X, C, 0.0);
+  else if (k < 3.0) o = vec3(0.0, C, X);
+  else if (k < 4.0) o = vec3(0.0, X, C);
+  else if (k < 5.0) o = vec3(X, 0.0, C);
+  else o = vec3(C, 0.0, X);
+  return o + m;
+}
+
 vec3 csHslCurves(vec3 c) {
   float mx = max(c.r, max(c.g, c.b));
   float mn = min(c.r, min(c.g, c.b));
@@ -89,10 +105,12 @@ vec3 csHslCurves(vec3 c) {
   vec3 hr = texture(u_csCurves, vec2(hsv.x / 360.0 + 0.5 / ${f(HSL_CURVE_SIZE)}, 0.25)).rgb;
   float ls = texture(u_csCurves, vec2((clamp(Y, 0.0, 1.0) * ${f(HSL_CURVE_SIZE - 1)} + 0.5) / ${f(HSL_CURVE_SIZE)}, 0.25)).a;
   float ss = texture(u_csCurves, vec2((clamp(hsv.y, 0.0, 1.0) * ${f(HSL_CURVE_SIZE - 1)} + 0.5) / ${f(HSL_CURVE_SIZE)}, 0.75)).r;
-  vec3 rot = csHueMat((hr.r - 0.5) * 360.0 * cw) * c;
+  float dh = (hr.r - 0.5) * 360.0 * cw;
+  vec3 rot = dh != 0.0 ? csHsvToRgb(hsv.x + dh, hsv.y, mx) : c;
+  float Yr = dh != 0.0 ? luma(rot) : Y;
   float sat = (1.0 + (2.0 * hr.g - 1.0) * cw) * 2.0 * ls * 2.0 * ss;
-  float yl = Y * exp2((2.0 * hr.b - 1.0) * cw);
-  return clamp(yl + (rot - Y) * sat, 0.0, 1.0);
+  float yl = Yr * exp2((2.0 * hr.b - 1.0) * cw);
+  return clamp(yl + (rot - Yr) * sat, 0.0, 1.0);
 }
 
 float csBand(float x, float lo, float hi, float soft) {

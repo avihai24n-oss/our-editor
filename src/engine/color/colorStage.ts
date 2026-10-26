@@ -23,8 +23,9 @@
  *  6. Color boost b (vibrance): chroma × max(0, 1 + 0.8·b·(1 − S_hsv)).
  *  7. Saturation and Hue: one luma-preserving matrix H(θ)·S(s), S = (1−s)·[luma rows] + s·I,
  *     H = the Rec.709 hue rotation (as SVG feColorMatrix hueRotate), θ = (hue − 50)/50 · 180°.
- *  8. HSL curves: hue rotation by (HH − ½)·360°, chroma × (1 + (2HS − 1)) · 2LS · 2SS,
- *     luma × 2^(2HL − 1) — hue-driven parts weighted by a chroma key so greys stay grey.
+ *  8. HSL curves: HSV hue + (HH − ½)·360° (same hue axis as the curve's x), then around the
+ *     new luma: chroma × (1 + (2HS − 1)) · 2LS · 2SS, luma × 2^(2HL − 1) — the hue-driven parts
+ *     weighted by a chroma key so greys stay grey.
  *  9. Qualifier: matte = hue window (soft, wraps 360°) · sat band · lum band (each optional),
  *     invert, clean black / white, × power window; out = mix(out, secondary(out), matte), where
  *     secondary = exposure + temp/tint gains in linear light → contrast (pivot 0.435) → sat·hue
@@ -318,6 +319,17 @@ function wbApply(c: Vec3, g: Vec3): Vec3 {
   return clampV([linearToSrgb(Math.max(0, srgbToLinear(c[0]) * g[0])), linearToSrgb(Math.max(0, srgbToLinear(c[1]) * g[1])), linearToSrgb(Math.max(0, srgbToLinear(c[2]) * g[2]))]);
 }
 
+/** HSV (h in degrees, wraps) → RGB. */
+export function hsvToRgb(h: number, s: number, v: number): Vec3 {
+  const hp = ((((h % 360) + 360) % 360) / 60);
+  const C = v * s;
+  const X = C * (1 - Math.abs((hp % 2) - 1));
+  const m = v - C;
+  const k = Math.floor(hp);
+  const o: Vec3 = k === 0 ? [C, X, 0] : k === 1 ? [X, C, 0] : k === 2 ? [0, C, X] : k === 3 ? [0, X, C] : k === 4 ? [X, 0, C] : [C, 0, X];
+  return [o[0] + m, o[1] + m, o[2] + m];
+}
+
 export function applyHslCurvesPx(c: Vec3, t: Float32Array): Vec3 {
   const mx = Math.max(c[0], c[1], c[2]);
   const mn = Math.min(c[0], c[1], c[2]);
@@ -327,10 +339,12 @@ export function applyHslCurvesPx(c: Vec3, t: Float32Array): Vec3 {
   const [hh, hs, hl] = sampleHueRow(t, h);
   const ls = sampleLinRow(t, 0, 3, Y);
   const ss = sampleLinRow(t, 1, 0, s);
-  const rot = applyMat(hueMatrix((hh - 0.5) * 360 * cw), c);
+  const dh = (hh - 0.5) * 360 * cw;
+  const rot = dh ? hsvToRgb(h + dh, s, mx) : c;
+  const Yr = dh ? luma(rot) : Y;
   const sat = (1 + (2 * hs - 1) * cw) * 2 * ls * 2 * ss;
-  const yl = Y * Math.pow(2, (2 * hl - 1) * cw);
-  return clampV([yl + (rot[0] - Y) * sat, yl + (rot[1] - Y) * sat, yl + (rot[2] - Y) * sat]);
+  const yl = Yr * Math.pow(2, (2 * hl - 1) * cw);
+  return clampV([yl + (rot[0] - Yr) * sat, yl + (rot[1] - Yr) * sat, yl + (rot[2] - Yr) * sat]);
 }
 
 const band = (x: number, lo: number, hi: number, soft: number) => smoothstep(lo - soft - 1e-4, lo, x) * (1 - smoothstep(hi, hi + soft + 1e-4, x));
